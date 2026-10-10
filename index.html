@@ -1,0 +1,501 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ASIN 库存</title>
+<style>
+  :root {
+    --bg: #f5f6f7; --card: #ffffff; --ink: #1f2329; --sub: #646a73; --line: #e5e6eb;
+    --blue: #3370ff; --blue-soft: #e1eaff; --red: #f54a45; --red-soft: #fde2e2;
+    --yellow: #ff8800; --yellow-soft: #fff1d6; --green: #34c724; --weekend: #d83931;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 13px/1.5 -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; }
+  .wrap { padding: 12px 16px 24px; }
+  .top { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; position: sticky; top: 0; z-index: 5;
+         background: var(--bg); padding: 4px 0 10px; }
+  .picker { position: relative; flex: 1 1 420px; max-width: 640px; }
+  .picker input { width: 100%; height: 36px; padding: 0 12px; border: 1px solid var(--line); border-radius: 6px;
+                  font-size: 14px; background: #fff; outline: none; }
+  .picker input:focus { border-color: var(--blue); }
+  .menu { position: absolute; left: 0; right: 0; top: 40px; max-height: 360px; overflow: auto; background: #fff;
+          border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 6px 20px rgba(0,0,0,.08); display: none; }
+  .menu.open { display: block; }
+  .opt { padding: 7px 12px; cursor: pointer; display: flex; gap: 8px; align-items: center; }
+  .opt:hover, .opt.active { background: var(--blue-soft); }
+  .opt img { width: 28px; height: 28px; object-fit: cover; border-radius: 4px; flex: none; background: #eee; }
+  .opt .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .opt .m { color: var(--sub); font-size: 12px; flex: none; }
+  .tag { display: inline-block; padding: 0 6px; border-radius: 4px; font-size: 12px; line-height: 20px; }
+  .tag.us { background: #e8f3ff; color: #245bdb; } .tag.ca { background: #fde2e2; color: #c02a2a; }
+  .meta { color: var(--sub); font-size: 12px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
+  .card { background: var(--card); border-radius: 8px; padding: 14px 16px; border: 1px solid var(--line); margin-bottom: 12px; }
+  .card h3 { margin: 0 0 10px; font-size: 15px; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .card h3 small { font-weight: normal; color: var(--sub); font-size: 12px; }
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 8px; }
+  .kpi { background: var(--bg); border-radius: 6px; padding: 8px 10px; }
+  .kpi .l { color: var(--sub); font-size: 12px; }
+  .kpi .v { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .kpi.hl { background: var(--blue-soft); } .kpi.warn { background: var(--red-soft); } .kpi.warn .v { color: var(--red); }
+  .bars { display: flex; gap: 10px; align-items: flex-end; height: 110px; margin-top: 10px; }
+  .bar { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; }
+  .bar .b { width: 70%; background: var(--blue); border-radius: 4px 4px 0 0; min-height: 2px; }
+  .bar .b.part { background: repeating-linear-gradient(45deg, var(--blue), var(--blue) 4px, #7aa2ff 4px, #7aa2ff 8px); }
+  .bar .n { font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .bar .x { font-size: 12px; color: var(--sub); }
+  .head { display: flex; gap: 12px; align-items: center; }
+  .head img { width: 56px; height: 56px; object-fit: cover; border-radius: 6px; background: #eee; }
+  .head .name { font-size: 16px; font-weight: 600; }
+  table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+  .ship th, .ship td { padding: 6px 8px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; }
+  .ship th { color: var(--sub); font-weight: normal; background: var(--bg); position: sticky; top: 0; }
+  .ship td.num { text-align: right; }
+  .ship tr.overdue td { background: var(--yellow-soft); }
+  .scroll { overflow: auto; max-height: 420px; }
+  .cal { overflow-x: auto; }
+  .cal table { margin-bottom: 14px; min-width: 980px; }
+  .cal th, .cal td { border: 1px solid var(--line); padding: 4px 2px; text-align: center; font-size: 12px; min-width: 56px; }
+  .cal th:first-child, .cal td:first-child { min-width: 72px; text-align: left; padding-left: 6px; color: var(--sub); background: #fafafa; }
+  .cal th { font-weight: 600; background: #fafafa; }
+  .cal th .wd { display: block; font-weight: normal; color: var(--sub); }
+  .cal th.we .wd, .cal th.we { color: var(--weekend); }
+  .cal td.low { background: var(--red); color: #fff; font-weight: 600; }
+  .cal td.out { background: #8f1d1a; color: #fff; font-weight: 600; }
+  .badge { display: inline-block; padding: 0 5px; border-radius: 4px; line-height: 18px; font-weight: 600; color: #fff; background: #5b8ff9; }
+  .badge.y { background: var(--yellow); }
+  .badge.p { background: #fff; color: var(--blue); border: 1px dashed var(--blue); }
+  .short { color: var(--red); font-weight: 600; }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; color: var(--sub); font-size: 12px; margin-bottom: 8px; }
+  .legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -2px; margin-right: 4px; }
+  .empty { color: var(--sub); padding: 10px 0; }
+  .err { color: var(--red); white-space: pre-wrap; }
+  .loading { padding: 40px; text-align: center; color: var(--sub); }
+  .savebar { display: none; align-items: center; gap: 12px; background: #fff7e8; border: 1px solid #ffd591; border-radius: 8px;
+             padding: 10px 14px; margin-bottom: 10px; }
+  .savebar.show { display: flex; }
+  .savebar button { height: 32px; padding: 0 16px; border: 0; border-radius: 6px; background: var(--blue); color: #fff; font-size: 14px; cursor: pointer; }
+  .savebar button:disabled { opacity: .6; cursor: default; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="savebar" id="savebar">
+    <span>这是插件的配置预览。确认没问题后点右边按钮，插件才会保存到应用页面上。</span>
+    <button id="saveBtn">保存到页面</button>
+    <span class="meta" id="saveMsg"></span>
+  </div>
+  <div class="top">
+    <div class="picker">
+      <input id="q" placeholder="输入 ASIN / 品名 / SKU 搜索，选择一个 ASIN（美国、加拿大分开）" autocomplete="off">
+      <div class="menu" id="menu"></div>
+    </div>
+    <div class="meta" id="meta">数据加载中…</div>
+  </div>
+  <div id="main"><div class="loading">正在读取多维表数据…</div></div>
+</div>
+
+<script type="module">
+// ===== 口径参数（用户 2026-10-09 确认） =====
+const FREIGHT_DAYS = 35;   // 头程
+const SHELF_DAYS = 7;      // 上架
+const SAFETY_DAYS = 30;    // 安全天数
+const RED_DAYS = FREIGHT_DAYS + SHELF_DAYS + SAFETY_DAYS; // 可售天数低于此值标红
+const CAL_DAYS = 120;
+const BASE_TOKEN = 'JGvebyaAYapWtOslxc9cuKYXnwd'; // 灯具组-全流程
+const CAL_CHUNK = 20;      // 日历每段 20 天
+const T = {
+  overview: 'ASIN库存概况-灯',
+  ship: 'FBA在途货件明细-灯',
+  batch: '采购单-预发货批次表',
+  master: '产品主表-灯类+精铺',
+  forecast: '销量预估-备货表',
+};
+// 浏览态下「按名字列出所有表」(getTableMetaList) 被飞书禁止，只能按表 ID 打开表 → 直接用 ID（改表名不影响）
+const TABLE_ID_BY_NAME = {
+  'ASIN库存概况-灯': 'tbl23j9fj1autV9a',
+  'FBA在途货件明细-灯': 'tblDvoc2YSab7TMr',
+  '采购单-预发货批次表': 'tblZBxZ9itqto4Jk',
+  '产品主表-灯类+精铺': 'tblqksywqgYvywOT',
+  '销量预估-备货表': 'tblBymnJvmClZQdy',
+};
+
+const $ = (id) => document.getElementById(id);
+// 日期一律按北京时间的"天序号"计算（多维表日期存的是北京时间 0 点；避免浏览器时区/夏令时导致日期错一天或重复）
+const DAY = 86400000;
+const BJ = 8 * 3600000;
+const dn = (ms) => Math.floor((Number(ms) + BJ) / DAY);           // 毫秒 → 北京日期天序号
+const today0 = dn(Date.now());                                     // 今天（天序号）
+const ud = (n) => new Date(n * DAY);                               // 天序号 → 用 UTC getter 取年月日
+const fmtD = (n) => { const d = ud(n); return `${d.getUTCMonth() + 1}-${String(d.getUTCDate()).padStart(2, '0')}`; };
+const fmtFull = (n) => { const d = ud(n); return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`; };
+const fmtMs = (ms) => fmtFull(dn(ms));
+const WD = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+const n0 = (v) => (v == null || v === '' || isNaN(v)) ? 0 : Number(v);
+const fmtN = (v, p = 0) => (v == null || v === '' || isNaN(v)) ? '—' : Number(v).toLocaleString('zh-CN', { maximumFractionDigits: p, minimumFractionDigits: p });
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+// 单元格值 → 普通值
+function cell(v) {
+  if (v == null) return null;
+  if (typeof v === 'number' || typeof v === 'string' || typeof v === 'boolean') return v;
+  if (Array.isArray(v)) {
+    if (!v.length) return null;
+    if (v.every((x) => x && typeof x === 'object' && 'text' in x && !('id' in x && 'name' in x && !('type' in x)))) {
+      const s = v.map((x) => x.text ?? '').join('');
+      return s;
+    }
+    if (v.length === 1) return cell(v[0]);
+    return v.map(cell).join('、');
+  }
+  if (typeof v === 'object') {
+    if ('text' in v) return v.text;
+    if ('name' in v) return v.name;
+    if ('value' in v) return cell(v.value);
+  }
+  return String(v);
+}
+
+const TABLE_IDS = {};
+async function readTable(bitable, name, wanted) {
+  let id = TABLE_ID_BY_NAME[name];
+  if (!id) { // 兜底：仅配置态可用
+    const meta = (await bitable.base.getTableMetaList()).find((t) => t.name === name);
+    if (!meta) throw new Error(`找不到数据表「${name}」`);
+    id = meta.id;
+  }
+  TABLE_IDS[name] = id;
+  const table = await bitable.base.getTableById(id);
+  const fields = await table.getFieldMetaList();
+  const idByName = Object.fromEntries(fields.map((f) => [f.name, f.id]));
+  const pick = wanted.filter((w) => idByName[w]);
+  const rows = [];
+  let pageToken;
+  for (let guard = 0; guard < 200; guard++) {
+    const res = await table.getRecordsByPage({ pageSize: 200, pageToken });
+    for (const r of res.records) {
+      const o = { _id: r.recordId };
+      for (const w of pick) o[w] = cell(r.fields[idByName[w]]);
+      rows.push(o);
+    }
+    if (!res.hasMore) break;
+    pageToken = res.pageToken;
+  }
+  return rows;
+}
+
+let DATA = null;
+let SDK = null;
+
+async function load() {
+  SDK = await import('https://cdn.jsdelivr.net/npm/@lark-base-open/js-sdk@1.0.2/dist/index.mjs');
+  const { bitable } = SDK;
+  const [ov, ship, batch, master, fc] = await Promise.all([
+    readTable(bitable, T.overview, ['记录键', 'ASIN', '国家', '店铺', '品名', '本地SKU', '图片URL', '近3月月份',
+      '近7天日均', '近14天日均', '近30天日均', '近7天销量', '近14天销量', '近30天销量', '前3月销量', '前2月销量', '上月销量', '本月至今销量',
+      'FBA可售', 'FBA预留', 'FBA入库中', 'FBA在途', 'FBA计划入库', 'FBA不可售', '数据更新日']),
+    readTable(bitable, T.ship, ['ASIN', 'SKU', '国家', '店铺', '货件号', '发货单号', '货件状态', '目的仓', '发货量', '已收量',
+      '建单日', '发货日', '预计到仓日', '到仓日来源', '物流渠道', '数据更新日']),
+    readTable(bitable, T.batch, ['可售SKU', '整单状态', ...[1, 2, 3, 4].flatMap((n) => [`批${n}数量`, `批${n}发货日`, `批${n}状态`, `批${n}店铺`, `批${n}货件号`])]),
+    readTable(bitable, T.master, ['领星SKU', 'ASIN', '国家', '店铺']),
+    readTable(bitable, T.forecast, ['领星SKU', '国家', ...Array.from({ length: 12 }, (_, i) => `${i + 1}月日均`)]).catch(() => []),
+  ]);
+  const skuToAsin = {};
+  for (const m of master) if (m['领星SKU'] && m.ASIN) skuToAsin[`${m['领星SKU']}|${m['国家']}`] = m.ASIN;
+  // 预发货计划：批次里排了发货日、还没发（状态≠已发、无货件号）
+  const plans = [];
+  for (const b of batch) {
+    for (const n of [1, 2, 3, 4]) {
+      const qty = n0(b[`批${n}数量`]); const d = b[`批${n}发货日`];
+      if (!qty || !d) continue;
+      if (String(b[`批${n}状态`] || '').includes('已发') || b[`批${n}货件号`]) continue;
+      const store = String(b[`批${n}店铺`] || '');
+      const country = store.includes('-CA') ? '加拿大' : '美国';
+      const asin = skuToAsin[`${b['可售SKU']}|${country}`];
+      if (asin) plans.push({ key: `${asin}|${country}`, qty, ship: Number(d), sku: b['可售SKU'], batch: n });
+    }
+  }
+  // 销量预估表的月日均（按 ASIN×国家 汇总；为空则不用）
+  const monthly = {};
+  for (const f of fc) {
+    const asin = skuToAsin[`${f['领星SKU']}|${f['国家']}`]; if (!asin) continue;
+    const k = `${asin}|${f['国家']}`; monthly[k] ??= Array(12).fill(0);
+    for (let i = 0; i < 12; i++) monthly[k][i] += n0(f[`${i + 1}月日均`]);
+  }
+  const shipsBy = {};
+  for (const s of ship) { const k = `${s.ASIN}|${s['国家']}`; (shipsBy[k] ??= []).push(s); }
+  DATA = { ov, shipsBy, plans, monthly };
+}
+
+// ===== 选择器 =====
+function optionsList() {
+  const score = (o) => n0(o['近30天销量']) + n0(o['FBA可售']) + n0(o['FBA在途']) + (DATA.shipsBy[o['记录键']]?.length || 0) * 10;
+  return DATA.ov.filter((o) => o.ASIN).map((o) => ({ o, s: score(o) })).sort((a, b) => b.s - a.s).map((x) => x.o);
+}
+function renderMenu(filter) {
+  const f = filter.trim().toLowerCase();
+  const list = optionsList().filter((o) => !f || [o.ASIN, o['品名'], o['本地SKU'], o['国家']].some((v) => String(v || '').toLowerCase().includes(f))).slice(0, 80);
+  $('menu').innerHTML = list.length ? list.map((o) => `
+    <div class="opt" data-k="${esc(o['记录键'])}">
+      <img src="${esc(o['图片URL'] || '')}" onerror="this.style.visibility='hidden'">
+      <span class="t">${esc(o.ASIN)} · ${esc(o['品名'])}</span>
+      <span class="tag ${o['国家'] === '加拿大' ? 'ca' : 'us'}">${o['国家'] === '加拿大' ? '加拿大' : '美国'}</span>
+      <span class="m">30天 ${fmtN(o['近30天销量'])}</span>
+    </div>`).join('') : '<div class="opt">没有匹配的 ASIN</div>';
+  $('menu').classList.add('open');
+}
+function bindPicker() {
+  const q = $('q');
+  q.addEventListener('focus', () => renderMenu(q.value.includes(' · ') ? '' : q.value));
+  q.addEventListener('input', () => renderMenu(q.value));
+  document.addEventListener('click', (e) => { if (!e.target.closest('.picker')) $('menu').classList.remove('open'); });
+  $('menu').addEventListener('click', (e) => {
+    const el = e.target.closest('.opt'); if (!el || !el.dataset.k) return;
+    select(el.dataset.k);
+  });
+}
+function select(key) {
+  const o = DATA.ov.find((x) => x['记录键'] === key); if (!o) return;
+  $('q').value = `${o.ASIN} · ${o['品名']} · ${o['国家']}`;
+  $('menu').classList.remove('open');
+  try { localStorage.setItem('asin-inv-last', key); } catch (e) { /* 存储不可用时忽略 */ }
+  render(o);
+}
+
+// ===== 计算 =====
+function forecastFor(o, ms) {
+  const m = DATA.monthly[o['记录键']];
+  const mv = m ? m[ud(ms).getUTCMonth()] : 0;
+  return mv > 0 ? mv : n0(o['近30天日均']);
+}
+function arrivalsFor(o) {
+  const out = []; // {day, qty, kind:'ship'|'overdue'|'plan', label}
+  for (const s of DATA.shipsBy[o['记录键']] || []) {
+    const qty = Math.max(0, n0(s['发货量']) - n0(s['已收量'])); if (!qty) continue;
+    const eta = s['预计到仓日'] ? dn(s['预计到仓日']) : null;
+    let day, kind;
+    if (eta == null || eta < today0) { day = today0 + 1; kind = 'overdue'; }
+    else { day = eta + SHELF_DAYS; kind = 'ship'; }
+    out.push({ day, qty, kind, ref: s['货件号'], eta });
+  }
+  for (const p of DATA.plans.filter((p) => p.key === o['记录键'])) {
+    out.push({ day: dn(p.ship) + FREIGHT_DAYS + SHELF_DAYS, qty: p.qty, kind: 'plan', ref: `${p.sku} 批${p.batch}`, shipDay: dn(p.ship) });
+  }
+  return out;
+}
+function calendar(o) {
+  const arr = arrivalsFor(o);
+  let stock = n0(o['FBA可售']) + n0(o['FBA预留']);
+  const days = [];
+  for (let i = 0; i < CAL_DAYS; i++) {
+    const ms = today0 + i;   // 天序号
+    const sameDay = (t) => t === ms;
+    const inn = arr.filter((a) => sameDay(a.day));
+    const planShip = arr.filter((a) => a.kind === 'plan' && sameDay(a.shipDay));
+    const sales = forecastFor(o, ms);
+    const avail = stock + inn.reduce((s, a) => s + a.qty, 0);
+    const short = Math.max(0, sales - avail);
+    stock = Math.max(0, avail - sales);
+    days.push({ ms, sales, stock, inn, planShip, short });
+  }
+  return days;
+}
+
+// ===== 渲染 =====
+function render(o) {
+  const shipList = (DATA.shipsBy[o['记录键']] || []).slice().sort((a, b) => n0(a['预计到仓日']) - n0(b['预计到仓日']));
+  const days = calendar(o);
+  const fc = n0(o['近30天日均']);
+  const stock0 = n0(o['FBA可售']) + n0(o['FBA预留']);
+  const shipSum = shipList.reduce((s, x) => s + Math.max(0, n0(x['发货量']) - n0(x['已收量'])), 0);
+  const firstShort = days.find((d) => d.short > 0);
+  const months = String(o['近3月月份'] || '').split(',');
+  const mv = [n0(o['前3月销量']), n0(o['前2月销量']), n0(o['上月销量']), n0(o['本月至今销量'])];
+  const mx = Math.max(1, ...mv);
+  const curMonth = ud(today0).getUTCMonth() + 1;
+  const sellDays = fc > 0 ? Math.floor(stock0 / fc) : null;
+
+  const cardSales = `
+    <div class="card">
+      <h3>① 销量 <small>截至昨天 · 领星产品表现</small></h3>
+      <div class="kpis">
+        <div class="kpi"><div class="l">近7天日均</div><div class="v">${fmtN(o['近7天日均'], 1)}</div></div>
+        <div class="kpi"><div class="l">近14天日均</div><div class="v">${fmtN(o['近14天日均'], 1)}</div></div>
+        <div class="kpi"><div class="l">近30天日均</div><div class="v">${fmtN(o['近30天日均'], 1)}</div></div>
+        <div class="kpi hl"><div class="l">预估日均（按30天）</div><div class="v">${fmtN(fc, 1)}</div></div>
+      </div>
+      <div class="bars">
+        ${mv.map((v, i) => `<div class="bar"><div class="n">${fmtN(v)}</div><div class="b ${i === 3 ? 'part' : ''}" style="height:${Math.round(v / mx * 80)}px"></div>
+          <div class="x">${i < 3 ? esc(months[i] || '') : `${curMonth}月至今`}</div></div>`).join('')}
+      </div>
+    </div>`;
+
+  const cardFba = `
+    <div class="card">
+      <h3>② FBA 库存 <small>领星快照 · ${o['数据更新日'] ? fmtMs(o['数据更新日']) : ''}</small></h3>
+      <div class="kpis">
+        <div class="kpi hl"><div class="l">FBA可售</div><div class="v">${fmtN(o['FBA可售'])}</div></div>
+        <div class="kpi"><div class="l">预留</div><div class="v">${fmtN(o['FBA预留'])}</div></div>
+        <div class="kpi"><div class="l">入库中</div><div class="v">${fmtN(o['FBA入库中'])}</div></div>
+        <div class="kpi"><div class="l">在途（FBA口径）</div><div class="v">${fmtN(o['FBA在途'])}</div></div>
+        <div class="kpi"><div class="l">计划入库</div><div class="v">${fmtN(o['FBA计划入库'])}</div></div>
+        <div class="kpi"><div class="l">不可售</div><div class="v">${fmtN(o['FBA不可售'])}</div></div>
+        <div class="kpi"><div class="l">货件未收合计</div><div class="v">${fmtN(shipSum)}</div></div>
+        <div class="kpi ${sellDays != null && sellDays < RED_DAYS ? 'warn' : ''}"><div class="l">现有可售天数</div><div class="v">${sellDays == null ? '—' : sellDays}</div></div>
+        <div class="kpi ${firstShort ? 'warn' : ''}"><div class="l">预计断货日</div><div class="v" style="font-size:16px">${firstShort ? fmtFull(firstShort.ms) : (fc > 0 ? `${CAL_DAYS}天内不断` : '—')}</div></div>
+      </div>
+    </div>`;
+
+  const cardShip = `
+    <div class="card">
+      <h3>③ 在途货件 <small>${shipList.length} 票 · 未收合计 ${fmtN(shipSum)} · 黄色＝已过预计到仓日未收（按明天到计入库存）</small></h3>
+      ${shipList.length ? `<div class="scroll"><table class="ship">
+        <thead><tr><th>货件号</th><th>SKU</th><th class="num">未收</th><th class="num">发货量</th><th class="num">已收</th><th>状态</th>
+          <th>发货日</th><th>预计到仓</th><th>预计可售</th><th>渠道</th><th>目的仓</th><th>发货单</th><th>店铺</th></tr></thead>
+        <tbody>${shipList.map((s) => {
+          const eta = s['预计到仓日'] ? dn(s['预计到仓日']) : null;
+          const overdue = eta == null || eta < today0;
+          const sellable = overdue ? today0 + 1 : eta + SHELF_DAYS;
+          return `<tr class="${overdue ? 'overdue' : ''}"><td>${esc(s['货件号'])}</td><td>${esc(s.SKU)}</td>
+            <td class="num"><b>${fmtN(n0(s['发货量']) - n0(s['已收量']))}</b></td><td class="num">${fmtN(s['发货量'])}</td><td class="num">${fmtN(s['已收量'])}</td>
+            <td>${esc(s['货件状态'])}</td><td>${s['发货日'] ? fmtMs(s['发货日']) : '—'}</td>
+            <td>${eta ? fmtFull(eta) : '—'}${String(s['到仓日来源'] || '').includes('估算') ? ' <span class="tag" style="background:#eee">估算</span>' : ''}${overdue ? ' <span class="tag" style="background:#ffd591">逾期</span>' : ''}</td>
+            <td>${fmtFull(sellable)}</td><td>${esc(s['物流渠道'] || '—')}</td><td>${esc(s['目的仓'])}</td><td>${esc(s['发货单号'] || '—')}</td><td>${esc(s['店铺'])}</td></tr>`;
+        }).join('')}</tbody></table></div>` : '<div class="empty">没有未完成的货件</div>'}
+    </div>`;
+
+  const chunks = [];
+  for (let i = 0; i < days.length; i += CAL_CHUNK) chunks.push(days.slice(i, i + CAL_CHUNK));
+  const calTable = (ch) => `<table>
+    <tr><th>项目\\日期</th>${ch.map((d, idx) => { const w = ud(d.ms).getUTCDay(); const first = idx === 0 || ud(d.ms).getUTCDate() === 1;
+      return `<th class="${w === 0 || w === 6 ? 'we' : ''}">${first ? fmtFull(d.ms) : fmtD(d.ms)}<span class="wd">${WD[w]}</span></th>`; }).join('')}</tr>
+    <tr><td>销量</td>${ch.map((d) => `<td>${fmtN(d.sales, 1)}</td>`).join('')}</tr>
+    <tr><td>实际库存</td>${ch.map((d) => { const cls = d.stock <= 0 ? 'out' : (d.sales > 0 && d.stock / d.sales < RED_DAYS ? 'low' : '');
+      return `<td class="${cls}">${fmtN(d.stock)}</td>`; }).join('')}</tr>
+    <tr><td>到货</td>${ch.map((d) => `<td>${d.inn.filter((a) => a.kind !== 'plan').length ? (() => {
+      const y = d.inn.filter((a) => a.kind === 'overdue').reduce((s, a) => s + a.qty, 0);
+      const b = d.inn.filter((a) => a.kind === 'ship').reduce((s, a) => s + a.qty, 0);
+      return (b ? `<span class="badge" title="在途货件，预计到仓+${SHELF_DAYS}天上架">${fmtN(b)}</span> ` : '') + (y ? `<span class="badge y" title="已过预计到仓日未收，按明天到计入">${fmtN(y)}</span>` : '');
+    })() : ''}${d.inn.filter((a) => a.kind === 'plan').length ? ` <span class="badge p" title="预发货计划到货（发货日+${FREIGHT_DAYS}+${SHELF_DAYS}天）">${fmtN(d.inn.filter((a) => a.kind === 'plan').reduce((s, a) => s + a.qty, 0))}</span>` : ''}</td>`).join('')}</tr>
+    <tr><td>预发货计划</td>${ch.map((d) => `<td>${d.planShip.length ? fmtN(d.planShip.reduce((s, a) => s + a.qty, 0)) : ''}</td>`).join('')}</tr>
+    <tr><td>当天缺货</td>${ch.map((d) => `<td class="short">${d.short > 0 ? fmtN(d.short, 1) : ''}</td>`).join('')}</tr>
+  </table>`;
+
+  const cardCal = `
+    <div class="card">
+      <h3>④ 库存日历 <small>未来 ${CAL_DAYS} 天 · 起点＝FBA可售+预留 ${fmtN(stock0)} · 头程${FREIGHT_DAYS}天 / 上架${SHELF_DAYS}天 / 安全${SAFETY_DAYS}天</small></h3>
+      <div class="legend">
+        <span><i style="background:var(--red)"></i>可售天数 &lt; ${RED_DAYS} 天（来不及补货）</span>
+        <span><i style="background:#8f1d1a"></i>已断货</span>
+        <span><i style="background:#5b8ff9"></i>在途货件到货（预计到仓+${SHELF_DAYS}天）</span>
+        <span><i style="background:var(--yellow)"></i>逾期未收，按明天到</span>
+        <span><i style="background:#fff;border:1px dashed var(--blue)"></i>预发货计划到货</span>
+        <span>销量＝${DATA.monthly[o['记录键']]?.some((v) => v > 0) ? '销量预估表月日均（缺月用30天日均）' : '30天日均（销量预估表月日均为空）'}</span>
+      </div>
+      ${fc > 0 ? `<div class="cal">${chunks.map(calTable).join('')}</div>` : '<div class="empty">近 30 天没有销量，无法推算库存日历</div>'}
+    </div>`;
+
+  $('main').innerHTML = `
+    <div class="card"><div class="head">
+      <img src="${esc(o['图片URL'] || '')}" onerror="this.style.visibility='hidden'">
+      <div><div class="name">${esc(o['品名'])}</div>
+        <div class="meta">${esc(o.ASIN)} · <span class="tag ${o['国家'] === '加拿大' ? 'ca' : 'us'}">${esc(o['国家'])}</span> · ${esc(o['店铺'])} · SKU：${esc(o['本地SKU'])}</div></div>
+    </div></div>
+    <div class="grid">${cardSales}${cardFba}</div>
+    ${cardShip}${cardCal}`;
+}
+
+// ===== 诊断：浏览态下逐个测试读数接口 =====
+async function diagnose(mod) {
+  const res = [];
+  const t = async (name, fn) => {
+    try {
+      const v = await Promise.race([fn(), new Promise((_, rej) => setTimeout(() => rej(new Error('超时 8s')), 8000))]);
+      let shown; try { shown = typeof v === 'string' ? v : JSON.stringify(v); } catch (x) { shown = String(v); }
+      res.push(['✔', name, String(shown).slice(0, 300)]);
+      return v;
+    } catch (e) { res.push(['✘', name, e && e.message ? e.message : String(e)]); return undefined; }
+  };
+  const { bitable, dashboard, workspace } = mod;
+  const OV = 'tbl23j9fj1autV9a';
+  await t('dashboard.state', async () => dashboard.state);
+  await t('dashboard.getConfig', () => dashboard.getConfig());
+  await t('dashboard.getData（按已保存配置取数）', () => dashboard.getData());
+  await t('bitable.base.getTableMetaList', () => bitable.base.getTableMetaList());
+  const tb = await t('bitable.base.getTableById', () => bitable.base.getTableById(OV));
+  if (tb) {
+    await t('table.getName', () => tb.getName());
+    await t('table.getFieldMetaList', () => tb.getFieldMetaList());
+    await t('table.getRecordsByPage', () => tb.getRecordsByPage({ pageSize: 2 }));
+    await t('table.getRecordIdList', () => tb.getRecordIdList());
+  }
+  await t('bitable.base.getSelection', () => bitable.base.getSelection());
+  if (workspace) {
+    await t('workspace.getBaseList', () => workspace.getBaseList({}));
+    const a = await t('workspace.getBitable(baseToken)', () => workspace.getBitable(BASE_TOKEN));
+    if (a) {
+      await t('workspace→base.getTableMetaList', () => a.base.getTableMetaList());
+      const tb2 = await t('workspace→getTableById', () => a.base.getTableById(OV));
+      if (tb2) await t('workspace→getRecordsByPage', () => tb2.getRecordsByPage({ pageSize: 2 }));
+    }
+  }
+  await t('dashboard.getPreviewData', () => dashboard.getPreviewData([{ tableId: OV, baseToken: BASE_TOKEN, dataRange: { type: 'ALL' }, series: 'COUNTA' }]));
+  return res;
+}
+function showDiag(res) {
+  return `<div class="card"><h3>浏览态接口诊断 <small>请把这块整体截图发回</small></h3>
+    <table class="ship"><tbody>${res.map((r) => `<tr><td style="width:24px">${r[0]}</td><td>${esc(r[1])}</td><td style="white-space:normal;color:var(--sub)">${esc(r[2])}</td></tr>`).join('')}</tbody></table></div>`;
+}
+
+// ===== 插件保存（仪表盘/应用插件：创建、配置态必须由插件自己调用 saveConfig，宿主不提供保存按钮） =====
+function setupSave() {
+  const dash = SDK && SDK.dashboard;
+  let st = '';
+  try { st = dash && dash.state; } catch (e) { st = '读取失败'; }
+  $('saveMsg').textContent = `（插件状态：${st || '未知'}）`;
+  if (dash && typeof dash.saveConfig === 'function' && st !== 'View' && st !== 'FullScreen') {
+    $('savebar').classList.add('show');
+    $('saveBtn').onclick = async () => {
+      $('saveBtn').disabled = true; $('saveMsg').textContent = '保存中…';
+      try {
+        const ok = await dash.saveConfig({
+          dataConditions: [{ tableId: TABLE_IDS[T.overview], baseToken: BASE_TOKEN, dataRange: { type: 'ALL' }, series: 'COUNTA' }],
+          customConfig: { page: 'asin-inventory', version: 1 },
+        });
+        $('saveMsg').textContent = ok === false ? '保存失败，请重试' : '已保存 ✔';
+      } catch (e) {
+        $('saveMsg').textContent = '保存失败：' + (e && e.message ? e.message : e);
+      } finally { $('saveBtn').disabled = false; }
+    };
+  } else if (dash && dash.setRendered) {
+    dash.setRendered().catch(() => {});
+  }
+}
+
+// ===== 启动 =====
+try {
+  await load();
+  setupSave();
+  $('meta').textContent = `${DATA.ov.length} 个 ASIN×国家 · 在途货件 ${Object.values(DATA.shipsBy).reduce((s, l) => s + l.length, 0)} 行 · 预发货计划 ${DATA.plans.length} 批`;
+  bindPicker();
+  let last = null; try { last = localStorage.getItem('asin-inv-last'); } catch (e) { /* 忽略 */ }
+  const first = (last && DATA.ov.find((x) => x['记录键'] === last)) ? last : optionsList()[0]?.['记录键'];
+  if (first) select(first); else $('main').innerHTML = '<div class="empty">ASIN库存概况-灯 里没有数据</div>';
+} catch (e) {
+  $('meta').textContent = '';
+  const msg = esc(e && e.message ? e.message : e);
+  $('main').innerHTML = `<div class="card err">加载失败：${msg}</div><div class="card">正在诊断可用接口…</div>`;
+  try {
+    SDK = SDK || await import('https://cdn.jsdelivr.net/npm/@lark-base-open/js-sdk@1.0.2/dist/index.mjs');
+    setupSave();
+    const res = await diagnose(SDK);
+    $('main').innerHTML = `<div class="card err">加载失败：${msg}</div>` + showDiag(res);
+  } catch (e2) {
+    $('main').innerHTML += `<div class="card err">诊断也失败：${esc(e2 && e2.message ? e2.message : e2)}</div>`;
+  }
+}
+</script>
+</body>
+</html>
