@@ -1,0 +1,915 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>四季品备货计划</title>
+<!--
+  飞书应用「灯具组-全流程」自定义插件页（由 tools/beihuo-plan-page/build_app.py 从 preview_template.html 生成，勿直接改本文件）。
+  按表 ID 实时读多维表；页面里只有 base token 和表 ID，没有任何密钥。
+  口径来源：wiki/工具/备货预估口径.md（三段提前期 + 目标可售天数法 + 周二下单/周四发货对齐）。
+-->
+<style>
+  :root {
+    /* 橙色主题 */
+    --brand: #f76b15; --brand-deep: #c2410c; --brand-soft: #fff4ea; --brand-soft2: #ffe4cc; --brand-line: #fdd2ae;
+    --bg: #faf6f2; --card: #ffffff; --ink: #2a211b; --sub: #7a6e66; --line: #f0e6dc; --line2: #e8dbcf;
+    --blue: var(--brand); --blue-soft: var(--brand-soft);
+    --red: #e5484d; --red-soft: #fdecec; --out: #b42318;
+    --yellow: #d48806; --yellow-soft: #fff7e0; --green: #18a058; --green-soft: #e3f6ea; --weekend: #d9480f;
+    --teal: #0f9d94; --violet: #7c5cff;
+    --shadow: 0 1px 2px rgba(80, 40, 0, .04), 0 6px 20px rgba(120, 60, 0, .06);
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); accent-color: var(--brand);
+         font: 13px/1.55 -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; }
+  .wrap { padding: 16px 20px 32px; max-width: 1600px; margin: 0 auto; }
+
+  /* 顶部横幅 */
+  .pagehead { position: relative; overflow: hidden; border-radius: 14px; padding: 20px 24px 18px; margin-bottom: 12px; color: #fff;
+              background: linear-gradient(120deg, #ff9a3c 0%, #f76b15 55%, #e8580c 100%); box-shadow: 0 8px 24px rgba(247, 107, 21, .25); }
+  .pagehead::after { content: ""; position: absolute; right: -60px; top: -80px; width: 260px; height: 260px; border-radius: 50%; background: rgba(255,255,255,.10); }
+  .pagehead::before { content: ""; position: absolute; right: 120px; bottom: -110px; width: 200px; height: 200px; border-radius: 50%; background: rgba(255,255,255,.07); }
+  .pagehead h1 { margin: 0 0 6px; font-size: 22px; letter-spacing: .5px; position: relative; }
+  .pagehead p { margin: 0 0 12px; max-width: 1000px; opacity: .95; position: relative; }
+  .pagehead ol { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 8px; position: relative; }
+  .pagehead li { background: rgba(255,255,255,.16); border: 1px solid rgba(255,255,255,.22); border-radius: 10px; padding: 8px 10px; font-size: 12px; line-height: 1.6; }
+  .pagehead li b { display: block; font-size: 13px; }
+  .savebar { display: none; align-items: center; gap: 12px; background: var(--yellow-soft); border: 1px solid #f5d98f; border-radius: 10px; padding: 10px 14px; margin-bottom: 12px; }
+  .savebar.show { display: flex; }
+  .savebar button { height: 32px; padding: 0 16px; border: 0; border-radius: 8px; background: linear-gradient(120deg, #ff8a3d, #f76b15); color: #fff; font-size: 14px; font-weight: 600; cursor: pointer; }
+  .savebar button:disabled { opacity: .6; cursor: default; }
+  .err { color: var(--red); white-space: pre-wrap; }
+  .preview-note { background: var(--yellow-soft); border: 1px solid #f5d98f; border-radius: 10px; padding: 8px 12px; margin-bottom: 12px; font-size: 12px; color: #8a5a00; }
+
+  /* 选择器（吸顶） */
+  .top { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; position: sticky; top: 0; z-index: 5; padding: 10px 0;
+         background: rgba(250, 246, 242, .88); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+  .picker { position: relative; flex: 1 1 420px; max-width: 720px; }
+  .picker input { width: 100%; height: 40px; padding: 0 14px 0 38px; border: 1.5px solid var(--brand-line); border-radius: 10px; font-size: 14px; outline: none;
+                  background: #fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23f76b15' stroke-width='2.4' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='M20 20l-3.5-3.5'/%3E%3C/svg%3E") no-repeat 13px center;
+                  box-shadow: var(--shadow); transition: border-color .15s, box-shadow .15s; }
+  .picker input:focus { border-color: var(--brand); box-shadow: 0 0 0 3px rgba(247, 107, 21, .15); }
+  .menu { position: absolute; left: 0; right: 0; top: 46px; max-height: 400px; overflow: auto; background: #fff; padding: 4px;
+          border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 12px 32px rgba(80, 40, 0, .14); display: none; }
+  .menu.open { display: block; }
+  .opt { padding: 7px 10px; cursor: pointer; display: flex; gap: 10px; align-items: center; border-radius: 8px; }
+  .opt:hover { background: var(--brand-soft); }
+  .opt img { width: 30px; height: 30px; object-fit: cover; border-radius: 6px; flex: none; background: #f3ece6; }
+  .opt .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .opt .m { color: var(--sub); font-size: 12px; flex: none; }
+
+  .tag { display: inline-block; padding: 0 7px; border-radius: 999px; font-size: 12px; line-height: 20px; font-weight: 500; }
+  .tag.us { background: #e8f1ff; color: #2659c9; } .tag.ca { background: #fdecec; color: #c0262d; }
+  .tag.gray { background: #f3eee9; color: var(--sub); }
+  .tag.org { background: var(--brand-soft2); color: var(--brand-deep); } .tag.red { background: var(--red-soft); color: #c0262d; }
+  .meta { color: var(--sub); font-size: 12px; }
+
+  /* 卡片 */
+  .card { background: var(--card); border-radius: 14px; padding: 16px 18px; border: 1px solid var(--line); margin-bottom: 14px; box-shadow: var(--shadow); }
+  .card h3 { margin: 0 0 12px; font-size: 16px; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap;
+             padding-left: 10px; border-left: 4px solid var(--brand); line-height: 1.3; }
+  .card h3 small { font-weight: normal; color: var(--sub); font-size: 12px; }
+  .head { display: flex; gap: 14px; align-items: center; }
+  .head img { width: 64px; height: 64px; object-fit: cover; border-radius: 12px; background: #f3ece6; border: 1px solid var(--line); }
+  .head .name { font-size: 18px; font-weight: 700; margin-bottom: 2px; }
+  .card:has(> .head) { background: linear-gradient(90deg, #fff 0%, #fff 60%, var(--brand-soft) 100%); }
+
+  .groups { display: grid; grid-template-columns: 2fr 1.3fr 1.6fr; gap: 14px; }
+  @media (max-width: 1000px) { .groups { grid-template-columns: 1fr; } }
+  .group .gt { color: var(--brand-deep); font-size: 12px; font-weight: 600; margin-bottom: 6px; letter-spacing: 1px; }
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 8px; }
+  .kpi { background: #fcf9f6; border: 1px solid var(--line); border-radius: 10px; padding: 9px 11px; }
+  .kpi .l { color: var(--sub); font-size: 12px; }
+  .kpi .v { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.3; }
+  .kpi .s { color: var(--sub); font-size: 11px; }
+  .kpi.hl { background: var(--brand-soft); border-color: var(--brand-line); } .kpi.hl .v { color: var(--brand-deep); }
+  .kpi.warn { background: var(--red-soft); border-color: #f8c9c9; } .kpi.warn .v { color: var(--red); }
+  .kpi.ok { background: var(--green-soft); border-color: #bfe8cf; } .kpi.ok .v { color: var(--green); }
+  .kpi.mid { background: var(--yellow-soft); border-color: #f5d98f; } .kpi.mid .v { color: var(--yellow); }
+
+  /* 表格 */
+  table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+  .tbl th, .tbl td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; }
+  .tbl th { color: var(--sub); font-weight: 600; font-size: 12px; background: #fbf5ef; position: sticky; top: 0; z-index: 1; }
+  .tbl tbody tr:hover td { background: #fffaf5; }
+  .tbl td.num, .tbl th.num { text-align: right; }
+  .tbl tr.overdue td { background: var(--yellow-soft); }
+  .scroll { overflow: auto; max-height: 380px; border: 1px solid var(--line); border-radius: 10px; }
+  .fc th, .fc td { text-align: center; }
+  .fc th:first-child, .fc td:first-child { text-align: left; color: var(--sub); }
+
+  /* 输入与按钮 */
+  input.num { width: 80px; height: 30px; padding: 0 8px; border: 1px solid var(--line2); border-radius: 8px; text-align: right; font: inherit; font-variant-numeric: tabular-nums; background: #fffdfa; transition: border-color .15s, box-shadow .15s; }
+  input.num:focus, .sel:focus { outline: none; border-color: var(--brand); background: #fff; box-shadow: 0 0 0 3px rgba(247, 107, 21, .15); }
+  input.num.changed { border-color: var(--brand); background: var(--brand-soft); color: var(--brand-deep); font-weight: 600; }
+  input.num.zero { border-color: var(--red); background: var(--red-soft); }
+  .warnline { color: var(--red); font-size: 12px; margin-top: 8px; }
+  .btns { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  .btn { height: 30px; padding: 0 14px; border: 1px solid var(--line2); border-radius: 8px; background: #fff; cursor: pointer; font: inherit; color: var(--ink); transition: all .15s; }
+  .btn:hover { border-color: var(--brand); color: var(--brand-deep); background: var(--brand-soft); }
+  .btn.primary { background: linear-gradient(120deg, #ff8a3d, #f76b15); color: #fff; border-color: transparent; font-weight: 600; box-shadow: 0 3px 10px rgba(247, 107, 21, .3); }
+  .btn.primary:hover { filter: brightness(1.05); color: #fff; }
+  .sel { height: 30px; border: 1px solid var(--line2); border-radius: 8px; font: inherit; max-width: 320px; background: #fff; padding: 0 6px; }
+
+  .params { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
+  .param { background: #fcf9f6; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+  .param label { display: block; color: var(--ink); font-weight: 600; font-size: 12px; margin-bottom: 6px; }
+  .param .hint { color: var(--sub); font-size: 11px; margin-top: 4px; }
+  .flow { margin-top: 12px; padding: 9px 12px; border: 1px dashed var(--brand-line); background: var(--brand-soft); border-radius: 10px; color: var(--sub); font-size: 12px; }
+  .flow b { color: var(--brand-deep); }
+
+  /* 趋势图 */
+  .trend { position: relative; background: linear-gradient(180deg, #fffdfb, #fff); border: 1px solid var(--line); border-radius: 10px; padding: 6px 4px 0; }
+  .trend svg { width: 100%; height: auto; display: block; }
+  .tip { position: absolute; top: 10px; display: none; background: rgba(42, 33, 27, .94); color: #fff; padding: 7px 10px; border-radius: 8px; font-size: 12px; line-height: 1.6;
+         pointer-events: none; white-space: nowrap; box-shadow: 0 6px 18px rgba(0,0,0,.18); }
+
+  /* 库存日历 */
+  .cal { overflow-x: auto; }
+  .cal table { margin-bottom: 14px; min-width: 1100px; table-layout: fixed; border-radius: 10px; overflow: hidden; }
+  .cal th, .cal td { border: 1px solid var(--line); padding: 4px 1px; text-align: center; font-size: 12px; }
+  .cal th:first-child, .cal td:first-child { width: 80px; text-align: left; padding-left: 8px; color: var(--sub); background: #fbf5ef; font-weight: 600; }
+  .cal th { font-weight: 700; background: #fbf5ef; }
+  .cal th .wd { display: block; font-weight: normal; color: var(--sub); font-size: 11px; }
+  .cal th.we, .cal th.we .wd { color: var(--weekend); }
+  .cal th.today { background: var(--brand); color: #fff; } .cal th.today .wd { color: #fff; }
+  .cal .mt { font-weight: 700; font-size: 14px; margin: 6px 0 8px; color: var(--brand-deep); }
+  .cal td.cus { background: #fff0e0; color: var(--brand-deep); font-weight: 700; }
+  .tbl tr.eff td { background: var(--brand-soft); color: var(--brand-deep); }
+  .tbl td.up { color: var(--brand-deep); } .tbl td.down { color: var(--teal); }
+  .addrow a { color: var(--brand-deep); }
+  .cal td.low { background: #fde3e1; color: #b42318; font-weight: 700; }
+  .cal td.out { background: var(--out); color: #fff; font-weight: 700; }
+
+  /* 徽标 */
+  .badge { display: inline-block; padding: 0 5px; border-radius: 5px; line-height: 18px; font-weight: 700; color: #fff; background: var(--teal); font-size: 11px; }
+  .badge.y { background: var(--yellow); }
+  .badge.p { background: #fff; color: var(--brand); border: 1px dashed var(--brand); }
+  .badge.po { background: var(--violet); } .badge.sh { background: var(--green); } .badge.so { background: var(--out); }
+  .badge.sg { background: #fff; color: var(--green); border: 1px dashed var(--green); }
+  .badge.pl { background: #9b7bff; }
+  .short { color: var(--red); font-weight: 700; }
+
+  /* 发货计划 */
+  .sub-h { font-weight: 700; margin-bottom: 8px; font-size: 14px; } .sub-h small { font-weight: normal; color: var(--sub); font-size: 12px; margin-left: 6px; }
+  .plan td { vertical-align: middle; } .plan tr.on td { background: var(--brand-soft); } .plan td.why { white-space: normal; min-width: 220px; color: var(--sub); font-size: 12px; }
+  .splitbar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; padding: 10px 14px; margin-bottom: 12px; border-radius: 10px;
+              background: var(--brand-soft); border: 1px solid var(--brand-line); }
+  .splitbar label { font-weight: 700; cursor: pointer; display: flex; gap: 6px; align-items: center; color: var(--brand-deep); }
+  .legs { font-size: 12px; line-height: 1.6; }
+  .addrow { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; margin-top: 12px; padding: 12px 14px; border-radius: 10px;
+            background: #fcf9f6; border: 1px dashed var(--brand-line); }
+  .addrow label { color: var(--sub); font-size: 12px; display: flex; gap: 6px; align-items: center; }
+
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; color: var(--sub); font-size: 12px; margin: 8px 0; align-items: center; }
+  .legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -2px; margin-right: 4px; }
+  .empty { color: var(--sub); padding: 14px; text-align: center; background: #fcf9f6; border-radius: 10px; }
+  .cmp { font-size: 12px; color: var(--sub); margin-top: 10px; padding: 8px 12px; background: #fcf9f6; border-radius: 8px; line-height: 1.7; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="pagehead">
+    <h1>四季品备货计划</h1>
+    <p>选一个四季品 ASIN×国家，看清楚：现在有多少货（FBA / 在途 / 国内仓）→ 未来 6 个月要卖多少（可改）→ 什么时候会断货 → 什么时候发、发多少、走什么渠道。
+      勾选建议货件或新增预发货计划，库存趋势图和库存日历会立刻按「到仓即计入库存」重算。</p>
+    <ol>
+      <li><b>①～③ 看现状</b>FBA 可售+预留是起点，在途货件按预计到仓日入库（过期未收按明天到）。</li>
+      <li><b>④⑤ 填假设</b>月预估日均、生产/头程/安全/备货天数，默认取销量预估-备货表，改了只影响本页。</li>
+      <li><b>⑥ 排发货</b>建议货件每 2 周一批、按整箱取整；常规渠道来不及就拆出加急批。美国可勾「分仓」，每批平均拆 5 份分别 30/30/35/45/50 天到仓。</li>
+      <li><b>⑦ 看结果</b>库存日历逐日看库存、到货、缺货；红色＝可售天数低于「头程 + 安全天数」。</li>
+    </ol>
+  </header>
+  <div class="savebar" id="savebar">
+    <span>这是插件的配置预览。确认没问题后点右边按钮，插件才会保存到应用页面上。</span>
+    <button id="saveBtn">保存到页面</button>
+    <span class="meta" id="saveMsg"></span>
+  </div>
+  <div class="preview-note">数据实时读取多维表（销量预估-备货表 / ASIN库存概况-灯 / FBA在途货件明细-灯 / 头程渠道时效）。④⑤⑥ 里改的预估、参数、发货计划只保存在你自己的浏览器里，不会写回多维表、也不会影响别人。</div>
+  <div class="top">
+    <div class="picker">
+      <input id="q" placeholder="输入 ASIN / 品名 / SKU 搜索，选一个 ASIN×国家（仅四季品）" autocomplete="off">
+      <div class="menu" id="menu"></div>
+    </div>
+    <div class="meta" id="meta"></div>
+  </div>
+  <div id="main"><div class="card empty">正在读取多维表数据…</div></div>
+</div>
+
+<script>
+
+// ===== 默认口径（与销量预估-备货表一致） =====
+const SHIP_WD = 4, PO_WD = 2;   // 周四发货、周二下单
+const MONTHS = 6;               // 预估 6 个月（含本月）
+const SPLIT_DAYS = [30, 30, 35, 45, 50];   // 美国分仓：5 份分别多少天到仓
+
+const $ = (id) => document.getElementById(id);
+const DAY = 86400000, BJ = 8 * 3600000;
+const dn = (ms) => Math.floor((Number(ms) + BJ) / DAY);           // 毫秒 → 北京日期天序号
+const ds = (s) => s ? dn(Date.parse(s + 'T00:00:00+08:00')) : null; // 'YYYY-MM-DD' → 天序号
+const today0 = dn(Date.now());
+const ud = (n) => new Date(n * DAY);
+const Y = (n) => ud(n).getUTCFullYear(), M = (n) => ud(n).getUTCMonth(), D = (n) => ud(n).getUTCDate(), W = (n) => ud(n).getUTCDay();
+const dayOf = (y, m, d) => Math.floor(Date.UTC(y, m, d) / DAY);
+const fmtD = (n) => `${M(n) + 1}-${String(D(n)).padStart(2, '0')}`;
+const fmtFull = (n) => `${Y(n)}-${String(M(n) + 1).padStart(2, '0')}-${String(D(n)).padStart(2, '0')}`;
+const WD = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+const n0 = (v) => (v == null || v === '' || isNaN(v)) ? 0 : Number(v);
+const fmtN = (v, p = 0) => (v == null || v === '' || isNaN(v)) ? '—' : Number(v).toLocaleString('zh-CN', { maximumFractionDigits: p, minimumFractionDigits: p });
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const alignBack = (d, wd) => d - ((W(d) - wd + 7) % 7);           // 向前对齐到 ≤d 的最近星期 wd
+const nextOn = (d, wd) => d + ((wd - W(d) + 7) % 7);              // ≥d 的最近星期 wd
+
+// 预估窗口：本月起 6 个自然月
+const winMonths = Array.from({ length: MONTHS }, (_, k) => { const y = Y(today0), m = M(today0) + k; return { y: y + Math.floor(m / 12), m: m % 12 }; });
+const winEnd = dayOf(winMonths[MONTHS - 1].y, winMonths[MONTHS - 1].m + 1, 0);   // 第 6 个月月末
+const daysIn = (y, m) => D(dayOf(y, m + 1, 0));
+
+// ===== 每个 ASIN×国家 的可改参数（存本浏览器） =====
+const STORE = 'beihuo-plan-v1';
+let EDIT = {}; try { EDIT = JSON.parse(localStorage.getItem(STORE) || '{}'); } catch (e) { EDIT = {}; }
+const persist = () => { try { localStorage.setItem(STORE, JSON.stringify(EDIT)); } catch (e) { /* 存储不可用时忽略 */ } };
+const PARAMS = [
+  ['prod', '生产天数', '下单 → 国内仓'],
+  ['freight', '发货天数（头程）', '国内仓发出 → 到仓即计入库存'],
+  ['safety', '安全天数', '额外缓冲'],
+  ['shipCover', '发货备货天数', '每次发货补够多少天（2 周一发 = 14）'],
+  ['poCover', '采购备货天数', '每次采购补够多少天'],
+];
+function defaults(o) {
+  return { months: winMonths.map((w) => o.months[w.m]), prod: o.prod, freight: o.freight, safety: o.safety, shipCover: o.shipCover, poCover: o.poCover };
+}
+function cur(o) { return Object.assign(defaults(o), EDIT[o.key] || {}); }
+function setEdit(o, patch) { EDIT[o.key] = Object.assign(cur(o), patch); persist(); }
+
+// ===== 计算 =====
+// 逐日结果里的缺货段：[{from, to, qty, final}]，final＝一直缺到窗口最后一天
+function outRuns(days) {
+  const runs = [];
+  for (const x of days) {
+    if (x.short <= 0) continue;
+    const r = runs[runs.length - 1];
+    if (r && r.to === x.d - 1) { r.to = x.d; r.qty += x.short; } else runs.push({ from: x.d, to: x.d, qty: x.short });
+  }
+  const last = days[days.length - 1];
+  for (const r of runs) r.final = !!last && r.to === last.d;
+  return runs;
+}
+function model(o) {
+  const p = cur(o);
+  // 自定义时段日均（勾选的才生效）：落在时段内的天用时段日均，重叠时下面的行优先；其余天用月均
+  const periods = (p.periods || []).map((x, i) => ({ ...x, i, a: ds(x.from), b: ds(x.to) }))
+    .map((x) => ({ ...x, valid: x.a != null && x.b != null && x.b >= x.a && x.daily !== '' && x.daily != null }));
+  const activePer = periods.filter((x) => x.on !== false && x.valid);
+  const perOf = (d) => { for (let i = activePer.length - 1; i >= 0; i--) if (d >= activePer[i].a && d <= activePer[i].b) return activePer[i]; return null; };
+  const monthOf = (d) => {
+    if (d > winEnd) return n0(p.months[MONTHS - 1]);
+    const k = (Y(d) - winMonths[0].y) * 12 + M(d) - winMonths[0].m;
+    return n0(p.months[Math.max(0, k)]);
+  };
+  const fcOf = (d) => { const x = perOf(d); return x ? n0(x.daily) : monthOf(d); };
+  // 到货即计入库存（不再加上架天数）
+  const shipLead = n0(p.freight), poLead = n0(p.prod) + shipLead;
+  const box = Math.max(1, o.box);
+  const ceilBox = (v) => Math.ceil(Math.max(0, v) / box) * box;
+  // 美国分仓：一批货按箱平均拆 5 份，分别 30/30/35/45/50 天到仓
+  const split = o.country === '美国' && !!p.split;
+  const splitParts = (qty) => {
+    const cartons = Math.floor(qty / box), rem = qty - cartons * box;
+    const parts = SPLIT_DAYS.map((_, i) => (Math.floor(cartons / SPLIT_DAYS.length) + (i < cartons % SPLIT_DAYS.length ? 1 : 0)) * box);
+    parts[0] += rem;
+    return parts;
+  };
+  const legsOf = (S, qty, days, doSplit) => doSplit
+    ? splitParts(qty).map((q, i) => ({ day: S + SPLIT_DAYS[i], qty: q, dd: SPLIT_DAYS[i] })).filter((l) => l.qty > 0)
+    : [{ day: S + n0(days), qty, dd: n0(days) }];
+  const arrivals = [];
+  for (const s of o.ships) {
+    const qty = Math.max(0, s['发货量'] - s['已收量']); if (!qty) continue;
+    const eta = ds(s['预计到仓日']);
+    if (eta == null || eta < today0) arrivals.push({ day: today0 + 1, qty, kind: 'overdue', ref: s['货件号'] });
+    else arrivals.push({ day: eta, qty, kind: 'ship', ref: s['货件号'] });
+  }
+  // 预发货计划（手填，勾选的才算）：到仓＝发货日 + 到货天数；美国勾了分仓则按 5 份 30/30/35/45/50 天
+  const plans = (p.plans || []).map((x, i) => {
+    const shipDay = ds(x.date);
+    const legs = shipDay == null || !(n0(x.qty) > 0) ? [] : legsOf(shipDay, n0(x.qty), x.days, split);
+    return { ...x, i, shipDay, legs };
+  });
+  for (const x of plans) if (x.on !== false) for (const l of x.legs) arrivals.push({ day: Math.max(l.day, today0), qty: l.qty, kind: 'plan', ref: `预发货 ${x.date}`, shipDay: x.shipDay });
+  const stock0 = o.fba + o.res;
+  const sim = (list) => {   // list = 全部到货
+    let stock = stock0; const days = [];
+    for (let d = today0; d <= winEnd; d++) {
+      const inn = list.filter((a) => a.day === d);
+      const sales = fcOf(d);
+      const avail = stock + inn.reduce((s, a) => s + a.qty, 0);
+      const short = Math.max(0, sales - avail);
+      stock = Math.max(0, avail - sales);
+      days.push({ d, sales, stock, inn, short });
+    }
+    return days;
+  };
+  const base = sim(arrivals);   // 不发新货（只有在途 + 勾选的预发货）
+  const demand = (E) => { let s = 0; for (let d = today0; d <= E; d++) s += fcOf(d); return s; };
+  // 断货按逐日模拟算（看到货先后）：每段缺货 = 一次断货；最后一段一直断到窗口末（没有已知到货能补上）＝ 补货断货日，前面的＝临时断档
+  const runs = outRuns(base);
+  const finalRun = runs.find((r) => r.final);
+  const stockout = finalRun ? finalRun.from : null;
+  const gaps = runs.filter((r) => !r.final);
+  // 最晚下单用：国内仓 + 采购在途 也发过去之后，总量被累计需求吃完的那天（国内货随时可发，不看先后）
+  const runOut = (supply) => { let c = 0; for (let d = today0; d <= winEnd; d++) { c += fcOf(d); if (c > supply) return d; } return null; };
+  const totalArr = arrivals.reduce((s, a) => s + a.qty, 0);
+  const stockoutAll0 = runOut(stock0 + totalArr + o.local + o.po);
+  const stockoutAll = stockoutAll0 != null && stockout != null ? Math.max(stockoutAll0, stockout) : stockoutAll0;
+  const arrivedBy = (E, list = arrivals) => list.filter((a) => a.day <= E).reduce((s, a) => s + a.qty, 0);
+  const shipTarget = today0 + shipLead + n0(p.shipCover) + n0(p.safety);
+  const poTarget = today0 + poLead + n0(p.poCover) + n0(p.safety);
+  const shipNeed = demand(shipTarget), poNeed = demand(poTarget);
+  const sugShip = ceilBox(shipNeed - stock0 - arrivedBy(shipTarget));
+  const sugPo = ceilBox(poNeed - stock0 - arrivedBy(poTarget) - o.local - o.po);
+  const lastShip = stockout != null ? alignBack(stockout - shipLead, SHIP_WD) : null;
+  const lastPo = stockoutAll != null ? alignBack(stockoutAll - poLead, PO_WD) : null;
+  const nextShip = nextOn(today0, SHIP_WD), nextPo = nextOn(today0, PO_WD);
+  const redDays = shipLead + n0(p.safety);   // 可售天数低于「发货提前期+安全天数」= 现在发也来不及
+
+  // ===== 建议货件：从下个周四起每「发货备货天数」发一批，补到「到货 + 备货天数 + 安全天数」 =====
+  // 渠道：默认走本行常规渠道；常规渠道到货前会断货 → 拆出「加急」批（只补断档量），按 海卡→海派→空派→快递 取最便宜且赶得上的
+  const chans = CHANNELS.filter((c) => c.country === o.country && c.days > 0);
+  const TIER = { '海卡': 1, '海派': 2, '空派': 3, '快递': 4 };
+  const regular = { name: o.channel || '常规渠道（本行头程）', mode: '海卡', days: n0(p.freight) };
+  const pickFast = (S, needBy) => {
+    const ok = chans.filter((c) => S + c.days <= needBy && c.days < regular.days)
+      .sort((x, y) => (TIER[x.mode] || 9) - (TIER[y.mode] || 9) || (y.samples > 0) - (x.samples > 0) || y.days - x.days);
+    if (ok.length) return { ...ok[0], late: false };
+    const fastest = chans.slice().sort((x, y) => x.days - y.days || (y.samples > 0) - (x.samples > 0))[0];
+    return fastest ? { ...fastest, late: true } : null;
+  };
+  const SPLIT_AVG = Math.round(SPLIT_DAYS.reduce((a, b) => a + b, 0) / SPLIT_DAYS.length);
+  const sugs = []; const supply = arrivals.slice();
+  const cover = Math.max(7, n0(p.shipCover) || 14);
+  const on = p.sugOn || {};
+  for (let S = nextShip; S <= today0 + CHART_DAYS; S += cover) {
+    const firstArr = S + (split ? SPLIT_DAYS[0] : regular.days);          // 常规批最早到仓
+    if (firstArr > winEnd) break;
+    const E = S + (split ? SPLIT_AVG : regular.days) + cover + n0(p.safety);
+    let need = ceilBox(demand(E) - stock0 - arrivedBy(E, supply));
+    if (need <= 0) continue;
+    // 常规批最早到仓前的缺口 → 加急（加急批不分仓）
+    const pre = sim(supply).filter((x) => x.d >= S && x.d < firstArr);
+    const firstShort = pre.find((x) => x.short > 0);
+    if (firstShort) {
+      const f = pickFast(S, firstShort.d);
+      if (f) {
+        const fArr = S + f.days;
+        // 加急批只补「它到了之后」还缺的量；到了断档也已经结束（被在途接上）就不加急
+        const q = Math.min(need, ceilBox(pre.filter((x) => x.d >= fArr).reduce((s, x) => s + x.short, 0)));
+        if (q > 0) {
+          const id = `${S}-fast`;
+          const legs = [{ day: fArr, qty: q, dd: f.days }];
+          sugs.push({ id, S, qty: q, ch: f, legs, urgent: true, late: f.late, gapFrom: firstShort.d, on: on[id] !== undefined ? on[id] : false });
+          for (const l of legs) supply.push({ day: l.day, qty: l.qty, kind: 'sug', ref: id });
+          need = ceilBox(demand(E) - stock0 - arrivedBy(E, supply));
+        }
+      }
+    }
+    if (need > 0) {
+      const id = `${S}-reg`;
+      const legs = legsOf(S, need, regular.days, split);
+      sugs.push({ id, S, qty: need, ch: { ...regular, late: false }, legs, urgent: false, cover: E, on: on[id] !== undefined ? on[id] : false });
+      for (const l of legs) supply.push({ day: l.day, qty: l.qty, kind: 'sug', ref: id });
+    }
+  }
+  let left = o.local + o.po;   // 国内余量（本地仓 + 采购在途），按发货先后扣
+  for (const x of plans.filter((x) => x.on !== false)) left -= n0(x.qty);
+  for (const s of sugs) { left -= s.qty; s.left = left; }
+  const finalArr = arrivals.concat(sugs.filter((s) => s.on).flatMap((s) => s.legs.map((l) => ({ day: l.day, qty: l.qty, kind: 'sug', ref: s.id, shipDay: s.S }))));
+  const days = sim(finalArr);
+  return { p, fcOf, shipLead, poLead, arrivals, stock0, days, base, stockout, stockoutAll, gaps, sim, shipTarget, poTarget, shipNeed, poNeed, sugShip, sugPo,
+           lastShip, lastPo, nextShip, nextPo, redDays, box, plans, sugs, chans, regular, finalArr, split, periods, perOf, monthOf };
+}
+
+// ===== 选择器 =====
+function renderMenu(filter) {
+  const f = filter.trim().toLowerCase();
+  const list = DATA.filter((o) => !f || [o.asin, o.name, o.skus.join(' '), o.country, o.spu].some((v) => String(v || '').toLowerCase().includes(f)));
+  $('menu').innerHTML = list.length ? list.map((o) => `
+    <div class="opt" data-k="${esc(o.key)}">
+      <img src="${esc(o.img || '')}" onerror="this.style.visibility='hidden'">
+      <span class="t">${esc(o.asin)} · ${esc(o.name)}</span>
+      <span class="tag ${o.country === '加拿大' ? 'ca' : 'us'}">${esc(o.country)}</span>
+      <span class="m">30天日均 ${fmtN(o.d30, 1)}</span>
+    </div>`).join('') : '<div class="opt">没有匹配的四季品</div>';
+  $('menu').classList.add('open');
+}
+function bindPicker() {
+  const q = $('q');
+  q.addEventListener('focus', () => renderMenu(q.value.includes(' · ') ? '' : q.value));
+  q.addEventListener('input', () => renderMenu(q.value));
+  document.addEventListener('click', (e) => { if (!e.target.closest('.picker')) $('menu').classList.remove('open'); });
+  $('menu').addEventListener('click', (e) => { const el = e.target.closest('.opt'); if (el && el.dataset.k) select(el.dataset.k); });
+}
+let SEL = null;
+function select(key) {
+  const o = DATA.find((x) => x.key === key); if (!o) return;
+  SEL = o;
+  $('q').value = `${o.asin} · ${o.name} · ${o.country}`;
+  $('menu').classList.remove('open');
+  try { localStorage.setItem('beihuo-plan-last', key); } catch (e) { /* 忽略 */ }
+  render();
+}
+
+// ===== 渲染 =====
+function kpi(l, v, cls = '', s = '') { return `<div class="kpi ${cls}"><div class="l">${l}</div><div class="v">${v}</div>${s ? `<div class="s">${s}</div>` : ''}</div>`; }
+function dateKpi(label, d, warnIfPast, sub) {
+  if (d == null) return kpi(label, '—', 'ok', sub);
+  const gap = d - today0;
+  const cls = gap < 0 ? 'warn' : gap <= 7 ? 'mid' : 'ok';
+  const tail = gap < 0 ? `已逾期 ${-gap} 天` : gap === 0 ? '就是今天' : `还有 ${gap} 天`;
+  return `<div class="kpi ${cls}"><div class="l">${label}</div><div class="v" style="font-size:16px">${fmtFull(d)} ${WD[W(d)]}</div><div class="s">${tail}${sub ? ' · ' + sub : ''}</div></div>`;
+}
+
+// 库存趋势图：未来 CHART_DAYS 天，横轴日、纵轴期末库存（SVG，鼠标悬停看当天明细）
+const CHART_DAYS = 120;
+function trendChart(days, m) {
+  const pts = days.slice(0, CHART_DAYS);
+  if (!pts.length) return '';
+  const Wd = 1100, H = 260, L = 52, R = 12, T = 14, B = 34, iw = Wd - L - R, ih = H - T - B;
+  const safe = pts.map((x) => x.sales * m.redDays);   // 安全线：当天预估日销 × (发货提前期+安全天数)
+  const top = Math.max(10, ...pts.map((x) => x.stock), ...safe) * 1.08;
+  const step = Math.pow(10, Math.floor(Math.log10(top / 4))); const tick = [1, 2, 2.5, 5, 10].map((k) => k * step).find((k) => top / k <= 5) || step * 10;
+  const x = (i) => L + (pts.length === 1 ? 0 : i / (pts.length - 1) * iw), y = (v) => T + ih - v / top * ih;
+  const line = pts.map((d, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(d.stock).toFixed(1)}`).join('');
+  const area = `${line}L${x(pts.length - 1).toFixed(1)},${y(0)}L${x(0)},${y(0)}Z`;
+  const safeLine = safe.map((v, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join('');
+  let g = '';
+  for (let v = 0; v <= top; v += tick) g += `<line x1="${L}" x2="${Wd - R}" y1="${y(v)}" y2="${y(v)}" stroke="#f3ebe3"/><text x="${L - 6}" y="${y(v) + 4}" text-anchor="end" font-size="11" fill="#a0928a">${fmtN(v)}</text>`;
+  pts.forEach((d, i) => {
+    if (D(d.d) === 1 || i === 0) g += `<line x1="${x(i)}" x2="${x(i)}" y1="${T}" y2="${T + ih}" stroke="#eadfd4"/><text x="${x(i) + 3}" y="${H - 18}" font-size="11" fill="#7a6e66">${M(d.d) + 1}月${i === 0 ? D(d.d) + '日' : ''}</text>`;
+    else if (W(d.d) === 1) g += `<text x="${x(i)}" y="${H - 4}" text-anchor="middle" font-size="10" fill="#b0b5bd">${D(d.d)}</text>`;
+  });
+  // 断货段（库存为 0）红底
+  let band = ''; let s = null;
+  pts.forEach((d, i) => { const out = d.stock <= 0 && d.sales > 0; if (out && s == null) s = i; if ((!out || i === pts.length - 1) && s != null) { const e = out ? i : i - 1; band += `<rect x="${x(s) - 2}" y="${T}" width="${Math.max(4, x(e) - x(s) + 4)}" height="${ih}" fill="#e5484d" opacity=".10"/>`; s = null; } });
+  // 到货：竖条 + 数量
+  let arr = '';
+  pts.forEach((d, i) => { const q = d.inn.reduce((a, b) => a + b.qty, 0); if (!q) return; const sim = d.inn.some((a) => a.kind === 'sug' || a.kind === 'plan'), od = d.inn.some((a) => a.kind === 'overdue');
+    const c = d.inn.some((a) => a.kind === 'plan') ? '#7c5cff' : d.inn.some((a) => a.kind === 'sug') ? '#18a058' : od ? '#d48806' : '#0f9d94';
+    arr += `<line x1="${x(i)}" x2="${x(i)}" y1="${y(0)}" y2="${y(d.stock) }" stroke="${c}" stroke-width="2" ${sim ? 'stroke-dasharray="4 3"' : ''}/><text x="${x(i)}" y="${Math.max(T + 10, y(d.stock) - 6)}" text-anchor="middle" font-size="11" font-weight="600" fill="${c}">+${fmtN(q)}</text>`; });
+  // 关键日竖线
+  const vmark = (d, c, t) => { const i = d - today0; if (d == null || i < 0 || i >= pts.length) return ''; return `<line x1="${x(i)}" x2="${x(i)}" y1="${T}" y2="${T + ih}" stroke="${c}" stroke-dasharray="3 3"/><text x="${x(i) + 3}" y="${T + 10}" font-size="11" fill="${c}">${t}</text>`; };
+  const marks = vmark(m.lastPo, '#7c5cff', '最晚下单') + vmark(m.lastShip, '#18a058', '最晚发货') + outRuns(pts).map((r) => vmark(r.from, '#b42318', '断货')).join('');
+  return `<div class="trend"><svg viewBox="0 0 ${Wd} ${H}" id="trendSvg" data-l="${L}" data-iw="${iw}" data-n="${pts.length}">
+    ${g}${band}<defs><linearGradient id="stockFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f76b15" stop-opacity=".28"/><stop offset="1" stop-color="#f76b15" stop-opacity=".02"/></linearGradient></defs><path d="${area}" fill="url(#stockFill)"/><path d="${safeLine}" fill="none" stroke="#e5484d" stroke-width="1.3" stroke-dasharray="5 4" opacity=".8"/>
+    <path d="${line}" fill="none" stroke="#f76b15" stroke-width="2.4" stroke-linejoin="round"/>${arr}${marks}
+    <line id="trendCur" x1="0" x2="0" y1="${T}" y2="${T + ih}" stroke="#1f2329" stroke-width=".8" visibility="hidden"/></svg>
+    <div class="tip" id="trendTip"></div></div>
+    <div class="legend" style="margin-top:4px"><span><i style="background:#f76b15"></i>期末库存</span><span><i style="background:none;border-top:2px dashed #e5484d;height:0;border-radius:0"></i>安全线＝预估日销 × ${m.redDays} 天，库存跌破它＝现在发货也接不上</span>
+      <span><i style="background:#0f9d94"></i>在途到货</span><span><i style="background:#7c5cff"></i>预发货计划</span><span><i style="background:#18a058"></i>建议货件</span><span><i style="background:#e5484d;opacity:.3"></i>断货</span><span>按④预估日销 + ③在途到货推算，未来 ${CHART_DAYS} 天</span></div>`;
+}
+function bindTrend(days) {
+  const svg = $('trendSvg'); if (!svg) return;
+  const L = +svg.dataset.l, iw = +svg.dataset.iw, n = +svg.dataset.n, tip = $('trendTip'), cur = $('trendCur');
+  svg.addEventListener('mousemove', (e) => {
+    const r = svg.getBoundingClientRect(); const vx = (e.clientX - r.left) / r.width * 1100;
+    const i = Math.max(0, Math.min(n - 1, Math.round((vx - L) / iw * (n - 1)))); const d = days[i];
+    const cx = L + i / (n - 1) * iw; cur.setAttribute('x1', cx); cur.setAttribute('x2', cx); cur.setAttribute('visibility', 'visible');
+    const q = d.inn.reduce((a, b) => a + b.qty, 0);
+    tip.innerHTML = `<b>${fmtFull(d.d)} ${WD[W(d.d)]}</b><br>期末库存 ${fmtN(d.stock)}<br>预估销量 ${fmtN(d.sales, 1)}${q ? `<br>到货 +${fmtN(q)}` : ''}${d.short > 0 ? `<br><span style="color:#ff8a80">缺货 ${fmtN(d.short, 1)}</span>` : ''}`;
+    tip.style.display = 'block'; const px = cx / 1100 * r.width; tip.style.left = (px > r.width - 160 ? px - 150 : px + 10) + 'px';
+  });
+  svg.addEventListener('mouseleave', () => { tip.style.display = 'none'; cur.setAttribute('visibility', 'hidden'); });
+}
+
+function render() {
+  const o = SEL; if (!o) return;
+  const m = model(o), p = m.p;
+  const days = m.days;   // 在途 + 勾选的预发货 + 勾选的建议货件
+  const nOn = m.sugs.filter((s) => s.on).length + m.plans.filter((x) => x.on !== false).length;
+  const shipLeft = o.ships.reduce((s, x) => s + Math.max(0, x['发货量'] - x['已收量']), 0);
+  const sellDays = o.d30 > 0 ? Math.floor(m.stock0 / o.d30) : null;
+  const dflt = defaults(o);
+
+  // ① 头部
+  const head = `<div class="card"><div class="head">
+      <img src="${esc(o.img || '')}" onerror="this.style.visibility='hidden'">
+      <div><div class="name">${esc(o.name)}</div>
+      <div class="meta">${esc(o.asin)} · <span class="tag ${o.country === '加拿大' ? 'ca' : 'us'}">${esc(o.country)}</span> · ${esc(o.store)} · SPU：${esc(o.spu || '—')} · 负责人：${esc(o.owner || '—')}</div>
+      <div class="meta">SKU：${o.skus.map(esc).join('、')} · 单箱 ${fmtN(o.box)} 件 · 头程渠道：${esc(o.channel || '未填')}</div></div>
+    </div></div>`;
+
+  // ② 库存与销量
+  const c2 = `<div class="card"><h3>② 库存与销量 <small>领星快照 ${esc(o.updated)}</small></h3>
+    <div class="groups">
+      <div class="group"><div class="gt">FBA</div><div class="kpis">
+        ${kpi('FBA可售', fmtN(o.fba), 'hl')}${kpi('预留', fmtN(o.res), '', '调仓/订单占用，算进可用')}
+        ${kpi('货件在途', fmtN(shipLeft), 'hl', `${o.ships.length} 票未收完（见③）`)}${kpi('在途（FBA口径）', fmtN(o.fbaTransit + o.recv), '', `在途 ${fmtN(o.fbaTransit)} + 入库中 ${fmtN(o.recv)}`)}
+        ${kpi('计划入库', fmtN(o.plan), '', '已建货件未发')}
+      </div></div>
+      <div class="group"><div class="gt">国内</div><div class="kpis">
+        ${kpi('本地仓可用', fmtN(o.local), 'hl', o.country === '加拿大' ? '共享池只记在美国行' : '')}${kpi('采购在途', fmtN(o.po), '', '已下单未到国内仓')}
+      </div></div>
+      <div class="group"><div class="gt">销量</div><div class="kpis">
+        ${kpi('近7天日均', fmtN(o.d7, 1))}${kpi('近14天日均', fmtN(o.d14, 1))}${kpi('近30天日均', fmtN(o.d30, 1))}
+        ${kpi('现有可售天数', sellDays == null ? '—' : sellDays, sellDays != null && sellDays < m.redDays ? 'warn' : '', `(可售+预留)÷30天日均`)}
+      </div></div>
+    </div>
+    <h3 style="margin-top:14px">库存趋势 <small>未来 ${CHART_DAYS} 天 · 鼠标移上去看每天明细 · 已计入⑥勾选的 ${nOn} 批发货</small></h3>
+    ${trendChart(days, m)}</div>`;
+
+  // ③ 在途货件
+  const ships = o.ships.slice().sort((a, b) => String(a['预计到仓日']).localeCompare(String(b['预计到仓日'])));
+  const c3 = `<div class="card"><h3>③ 在途货件 <small>${ships.length} 票 · 未收合计 ${fmtN(shipLeft)} · 到仓即计入库存 · 黄色＝已过预计到仓日仍未收（按明天到计）</small></h3>
+    ${ships.length ? `<div class="scroll"><table class="tbl"><thead><tr><th>货件号</th><th>SKU</th><th class="num">未收</th><th class="num">发货量</th><th class="num">已收</th><th>状态</th>
+      <th>建单日</th><th>发货日</th><th>预计到仓</th><th>渠道</th><th>目的仓</th><th>店铺</th></tr></thead><tbody>
+      ${ships.map((s) => { const eta = ds(s['预计到仓日']); const od = eta == null || eta < today0;
+        return `<tr class="${od ? 'overdue' : ''}"><td>${esc(s['货件号'])}</td><td>${esc(s.SKU)}</td><td class="num"><b>${fmtN(s['发货量'] - s['已收量'])}</b></td>
+        <td class="num">${fmtN(s['发货量'])}</td><td class="num">${fmtN(s['已收量'])}</td><td>${esc(s['状态'])}</td><td>${esc(s['建单日'] || '—')}</td><td>${esc(s['发货日'] || '—')}</td>
+        <td>${eta != null ? fmtFull(eta) : '—'}${s['估算'] ? ' <span class="tag gray">估算</span>' : ''}${od ? ' <span class="tag org">逾期</span>' : ''}</td>
+        <td>${esc(s['渠道'] || '—')}</td><td>${esc(s['目的仓'] || '—')}</td><td>${esc(s['店铺'] || '—')}</td></tr>`; }).join('')}
+      </tbody></table></div>` : '<div class="empty">没有未收完的货件</div>'}
+  </div>`;
+
+  // ④ 6 个月销量预估（effMonths＝含自定义时段后每月实际采用的销量，本月从今天算起）
+  const effMonths = winMonths.map((w, i) => { const a = i === 0 ? today0 : dayOf(w.y, w.m, 1), b = dayOf(w.y, w.m + 1, 0); let s = 0; for (let d = a; d <= b; d++) s += m.fcOf(d); return s; });
+  const c4 = `<div class="card"><h3>④ 未来 6 个月销量预估 <small>填「预估日均」，月销量自动算；默认值＝销量预估-备货表的月日均（10–12 月目前是 9 月占位）</small></h3>
+    <div style="overflow-x:auto"><table class="tbl fc"><thead><tr><th></th>${winMonths.map((w) => `<th>${w.y}-${String(w.m + 1).padStart(2, '0')}</th>`).join('')}<th>合计</th></tr></thead><tbody>
+      <tr><td>备货表月日均</td>${dflt.months.map((v) => `<td>${fmtN(v, 2)}</td>`).join('')}<td></td></tr>
+      <tr><td><b>预估日均（可填）</b></td>${p.months.map((v, i) => `<td><input class="num ${n0(v) !== n0(dflt.months[i]) ? 'changed' : ''} ${!n0(v) && o.d30 > 0 ? 'zero' : ''}" data-m="${i}" type="number" min="0" step="0.1" value="${v ?? ''}"></td>`).join('')}<td></td></tr>
+      <tr><td>预估月销量</td>${p.months.map((v, i) => { const w = winMonths[i]; const nd = daysIn(w.y, w.m); const rest = i === 0 ? nd - D(today0) + 1 : nd;
+        return `<td>${fmtN(n0(v) * nd)}${i === 0 ? `<div class="meta">剩余 ${rest} 天 ${fmtN(n0(v) * rest)}</div>` : ''}</td>`; }).join('')}
+        <td><b>${fmtN(p.months.reduce((s, v, i) => s + n0(v) * daysIn(winMonths[i].y, winMonths[i].m), 0))}</b></td></tr>
+      ${m.periods.some((x) => x.on !== false && x.valid) ? `<tr class="eff"><td><b>实际采用月销量</b><div class="meta">含自定义时段</div></td>${effMonths.map((v) => `<td><b>${fmtN(v)}</b></td>`).join('')}<td><b>${fmtN(effMonths.reduce((s, v) => s + v, 0))}</b></td></tr>` : ''}
+    </tbody></table></div>
+    ${o.d30 > 0 && p.months.some((v) => !n0(v)) ? `<div class="warnline">⚠ 有月份预估为 0（多半是新品没有去年同月数据）——这几个月按 0 销量算，会让建议采购量偏少，请手填。</div>` : ''}
+    <div class="btns"><button class="btn" data-act="d30">全部填 30 天日均（${fmtN(o.d30, 1)}）</button><button class="btn" data-act="d7">全部填 7 天日均（${fmtN(o.d7, 1)}）</button>
+      <button class="btn" data-act="resetM">恢复备货表值</button></div>
+    <div class="sub-h" style="margin-top:18px">按时段自定义日均 <small>不按月份：给任意一段日期指定日均（如大促、断档恢复期、新品爬坡），落在时段内的天优先用它，其余天仍用上面的月均；时段重叠时下面的行优先。勾选才生效，日历/趋势图/建议货件/断货日全部按它重算</small></div>
+    ${m.periods.length ? `<div class="scroll"><table class="tbl plan"><thead><tr><th style="width:28px"></th><th>开始日期</th><th>结束日期</th><th class="num">日均销量</th><th class="num">天数</th><th class="num">时段销量</th><th class="num">对比月均</th><th></th></tr></thead><tbody>
+      ${m.periods.map((x) => { const nd = x.valid ? x.b - x.a + 1 : 0; let base = 0; if (x.valid) for (let d = x.a; d <= x.b; d++) base += m.monthOf(d);
+        const tot = nd * n0(x.daily); const diff = tot - base;
+        return `<tr class="${x.on !== false && x.valid ? 'on' : ''}">
+        <td><input type="checkbox" data-per="${x.i}" data-f="on" ${x.on !== false ? 'checked' : ''}></td>
+        <td><input class="num" style="width:140px;text-align:left" type="date" data-per="${x.i}" data-f="from" value="${esc(x.from || '')}"></td>
+        <td><input class="num" style="width:140px;text-align:left" type="date" data-per="${x.i}" data-f="to" value="${esc(x.to || '')}"></td>
+        <td class="num"><input class="num" type="number" min="0" step="0.1" data-per="${x.i}" data-f="daily" value="${x.daily ?? ''}"></td>
+        <td class="num">${x.valid ? nd : '<span class="short">日期有误</span>'}</td>
+        <td class="num"><b>${x.valid ? fmtN(tot) : '—'}</b></td>
+        <td class="num ${diff > 0 ? 'up' : diff < 0 ? 'down' : ''}">${x.valid ? (diff > 0 ? '+' : '') + fmtN(diff) : '—'}<div class="meta">月均算 ${x.valid ? fmtN(base) : '—'}</div></td>
+        <td><button class="btn" data-act="delPer" data-i="${x.i}">删除</button></td></tr>`; }).join('')}
+      </tbody></table></div>` : ''}
+    <div class="addrow">
+      <label>开始日期 <input class="num" style="width:140px;text-align:left" type="date" id="pfFrom" value="${fmtFull(today0)}"></label>
+      <label>结束日期 <input class="num" style="width:140px;text-align:left" type="date" id="pfTo" value="${fmtFull(today0 + 13)}"></label>
+      <label>日均销量 <input class="num" type="number" min="0" step="0.1" id="pfDaily" value="${fmtN(o.d30, 1).replace(/,/g, '')}"></label>
+      <button class="btn primary" data-act="addPer">＋ 添加时段</button>
+      <span class="meta">快捷：<a href="#" data-act="perPreset" data-k="d7">近 7 天日均</a> · <a href="#" data-act="perPreset" data-k="d14">近 14 天日均</a> · <a href="#" data-act="perPreset" data-k="d30">近 30 天日均</a></span>
+    </div>
+  </div>`;
+
+  // ⑤ 时效参数 + 备货建议
+  const c5 = `<div class="card"><h3>⑤ 时效参数 <small>默认值＝备货表本行参数；改了立即重算下方建议和日历</small></h3>
+    <div class="params">${PARAMS.map(([k, l, h]) => `<div class="param"><label>${l}</label>
+      <input class="num ${n0(p[k]) !== n0(dflt[k]) ? 'changed' : ''}" data-p="${k}" type="number" min="0" step="1" value="${p[k] ?? ''}"> 天
+      <div class="hint">${h} · 表里 ${fmtN(dflt[k])}</div></div>`).join('')}</div>
+    <div class="flow">下单 ──<b>生产 ${n0(p.prod)}</b>──▶ 国内仓 ──<b>头程 ${n0(p.freight)}</b>──▶ 到仓即计入库存
+      &nbsp;｜&nbsp; 发货提前期 <b>${m.shipLead}</b> 天 · 采购提前期 <b>${m.poLead}</b> 天 · 节奏：周二下单、周四发货</div>
+    <div class="btns"><button class="btn" data-act="resetP">恢复备货表参数</button></div>
+    <h3 style="margin-top:16px">备货建议 <small>按备货表算法：补到「提前期 + 备货天数 + 安全天数」的需求，减去现有库存和届时到货，按整箱向上取整</small></h3>
+    <div class="kpis">
+      ${dateKpi('补货断货日', m.stockout, false, m.stockout == null ? '窗口内不断货' : '最后一次断货，之后没有已知到货补上（不含建议货件）')}
+      ${kpi('临时断档', m.gaps.length ? `<span style="font-size:16px">${m.gaps.map((g) => `${fmtD(g.from)}~${fmtD(g.to)}`).join('<br>')}</span>` : '无', m.gaps.length ? 'warn' : 'ok',
+        m.gaps.length ? `共缺 ${fmtN(m.gaps.reduce((s, g) => s + g.qty, 0))} 件 · 在途来晚，补发赶不上，只能催货/控广告` : '在途接得上')}
+      ${dateKpi('最晚发货日（周四）', m.lastShip, true, `补货断货日 − 发货提前期 ${m.shipLead} 天`)}
+      ${dateKpi('最晚下单日（周二）', m.lastPo, true, `连本地仓+采购在途也卖完 ${m.stockoutAll != null ? fmtD(m.stockoutAll) : '—'} − 采购提前期 ${m.poLead} 天`)}
+      ${kpi('建议发货量', fmtN(m.sugShip), m.sugShip > 0 ? 'hl' : '', `下次发货 ${fmtD(m.nextShip)} 周四 · 覆盖到 ${fmtFull(m.shipTarget)}`)}
+      ${kpi('建议采购量', fmtN(m.sugPo), m.sugPo > 0 ? 'hl' : '', `下次下单 ${fmtD(m.nextPo)} 周二 · 覆盖到 ${fmtFull(m.poTarget)}`)}
+    </div>
+    <div class="cmp">算式：建议发货 = ⌈需求(今天→${fmtD(m.shipTarget)}) ${fmtN(m.shipNeed)} − 可售+预留 ${fmtN(m.stock0)} − 届时到货 ${fmtN(m.arrivals.filter((a) => a.day <= m.shipTarget).reduce((s, a) => s + a.qty, 0))}⌉箱；
+      建议采购 = ⌈需求(今天→${fmtD(m.poTarget)}) ${fmtN(m.poNeed)} − 可售+预留 − 届时到货 ${fmtN(m.arrivals.filter((a) => a.day <= m.poTarget).reduce((s, a) => s + a.qty, 0))} − 本地仓 ${fmtN(o.local)} − 采购在途 ${fmtN(o.po)}⌉箱（每箱 ${fmtN(m.box)}）。
+      <br>对照 · 备货表现值：建议发货 ${fmtN(o.tbl['建议发货量'])} / 建议采购 ${fmtN(o.tbl['建议采购量'])} / 预计断货 ${esc(o.tbl['预计断货日'] || '—')} / ${esc(o.tbl['本周动作'] || '')}
+      （表里库存只算 FBA 可售、不含预留，且在途用 FBA 口径，数字可能略有出入）</div>
+  </div>`;
+
+  // ⑥ 发货计划：建议货件（勾选才算）+ 预发货计划（手填）
+  const chOpts = (sel) => `<option value="">— 选渠道带出天数 —</option>` + m.chans.slice().sort((a, b) => (a.mode > b.mode ? 1 : a.mode < b.mode ? -1 : 0) || a.days - b.days)
+    .map((c) => `<option value="${esc(c.name)}" ${c.name === sel ? 'selected' : ''}>${esc(c.mode)} · ${esc(c.name)} · ${c.days}天${c.samples ? '' : '（无历史）'}</option>`).join('');
+  const legsHtml = (legs) => legs.length > 1
+    ? `<div class="legs">${legs.map((l) => `${fmtD(l.day)} <span class="meta">${l.dd}天</span> ${fmtN(l.qty)}`).join('<br>')}</div>`
+    : (legs[0] ? fmtFull(legs[0].day) : '—');
+  const sugRows = m.sugs.map((s) => `<tr class="${s.on ? 'on' : ''}">
+      <td><input type="checkbox" data-sug="${s.id}" ${s.on ? 'checked' : ''}></td>
+      <td>${fmtFull(s.S)} ${WD[W(s.S)]}${s.S - today0 <= 7 ? ' <span class="tag org">本周</span>' : ''}</td>
+      <td class="num"><b>${fmtN(s.qty)}</b><div class="meta">${fmtN(s.qty / m.box)} 箱</div></td>
+      <td>${s.urgent ? `<span class="tag ${s.late ? 'red' : 'org'}">${s.late ? '最快也赶不上' : '加急'}</span> ` : '<span class="tag gray">常规</span> '}${esc(s.ch.name)}<div class="meta">${esc(s.ch.mode)} · ${s.legs.length > 1 ? '分仓 ' + SPLIT_DAYS.join('/') : s.ch.days} 天</div></td>
+      <td>${legsHtml(s.legs)}</td>
+      <td class="why">${s.urgent ? `常规渠道${m.split ? '（分仓最早 ' + SPLIT_DAYS[0] + ' 天）' : ' ' + m.regular.days + ' 天'}到不了：${fmtD(s.gapFrom)} 起会断货，先${s.late ? '用最快渠道少断几天' : '加急补这段断档'}（加急不分仓）` : `补到 ${fmtD(s.cover)} 的需求（到货 + 备货 ${n0(p.shipCover)} 天 + 安全 ${n0(p.safety)} 天）${s.legs.length > 1 ? ' · 分 5 仓' : ''}`}</td>
+      <td class="num ${s.left < 0 ? 'short' : ''}">${fmtN(s.left)}${s.left < 0 ? '<div class="meta" style="color:var(--red)">国内货不够</div>' : ''}</td></tr>`).join('');
+  const planRows = m.plans.map((x) => `<tr class="${x.on !== false ? 'on' : ''}">
+      <td><input type="checkbox" data-plan="${x.i}" data-f="on" ${x.on !== false ? 'checked' : ''}></td>
+      <td><input class="num" style="width:140px;text-align:left" type="date" data-plan="${x.i}" data-f="date" value="${esc(x.date || '')}"></td>
+      <td class="num"><input class="num" type="number" min="0" step="${m.box}" data-plan="${x.i}" data-f="qty" value="${x.qty ?? ''}"><div class="meta">${fmtN(n0(x.qty) / m.box, 1)} 箱</div></td>
+      <td><select class="sel" data-plan="${x.i}" data-f="ch">${chOpts(x.ch)}</select></td>
+      <td>${m.split ? `<span class="meta">分仓 ${SPLIT_DAYS.join('/')}</span>` : `<input class="num" style="width:60px" type="number" min="0" data-plan="${x.i}" data-f="days" value="${x.days ?? ''}"> 天`}</td>
+      <td>${legsHtml(x.legs)}${x.legs.some((l) => l.day > winEnd) ? '<div class="meta">部分超出日历窗口</div>' : ''}</td>
+      <td><button class="btn" data-act="delPlan" data-i="${x.i}">删除</button></td></tr>`).join('');
+  const c6p = `<div class="card"><h3>⑥ 发货计划 <small>勾选的货件进入②趋势图和⑦库存日历；取消勾选就不算</small></h3>
+    ${o.country === '美国' ? `<div class="splitbar"><label><input type="checkbox" id="splitOn" ${m.split ? 'checked' : ''}> 美国分仓</label>
+      <span class="meta">勾选：每批（建议货件 + 预发货计划）按箱平均拆 5 份，分别 ${SPLIT_DAYS.join(' / ')} 天到仓；不勾：整批按渠道天数一起到。加急批始终不拆。</span></div>` : ''}
+    <div class="sub-h">建议货件 <small>从 ${fmtD(m.nextShip)} 周四起每 ${Math.max(7, n0(p.shipCover))} 天一批 · 后面批次的数量按「前面的建议都发了」算，取消勾选不改其他批数量 · 国内余量＝本地仓 ${fmtN(o.local)} + 采购在途 ${fmtN(o.po)} 依次扣减</small></div>
+    ${m.sugs.length ? `<div class="scroll"><table class="tbl plan"><thead><tr><th style="width:28px"></th><th>发货日</th><th class="num">发货数量</th><th>渠道建议</th><th>预计到仓（＝入库存）</th><th>为什么</th><th class="num">国内余量</th></tr></thead><tbody>${sugRows}</tbody></table></div>
+      <div class="btns"><button class="btn" data-act="sugAll">全部勾选</button><button class="btn" data-act="sugNone">全部取消</button><button class="btn" data-act="sugToPlan">把勾选的建议转成预发货计划</button></div>`
+      : `<div class="empty">未来 ${CHART_DAYS} 天不需要再发货（现有库存 + 在途 + 预发货已经够）</div>`}
+    <div class="sub-h" style="margin-top:16px">预发货计划 <small>手填，模拟真实货件：预计到仓＝发货日 + 到货天数${m.split ? '（分仓时按 5 份 ' + SPLIT_DAYS.join('/') + ' 天）' : ''}，到仓即计入库存 · 新增后默认勾选、直接进入计算，上面的建议货件会相应减少</small></div>
+    ${m.plans.length ? `<div class="scroll"><table class="tbl plan"><thead><tr><th style="width:28px"></th><th>发货日期</th><th class="num">发货数量</th><th>渠道</th><th>到货天数</th><th>预计到仓（＝入库存）</th><th></th></tr></thead><tbody>${planRows}</tbody></table></div>` : '<div class="empty">还没有预发货计划</div>'}
+    <div class="addrow">
+      <label>发货日期 <input class="num" style="width:140px;text-align:left" type="date" id="npDate" value="${fmtFull(m.nextShip)}"></label>
+      <label>发货数量 <input class="num" type="number" min="0" step="${m.box}" id="npQty" value="${m.sugs[0] ? m.sugs[0].qty : m.box}"></label>
+      <label>渠道 <select class="sel" id="npCh">${chOpts(o.channel)}</select></label>
+      ${m.split ? `<label>到货 <span class="meta">分仓 ${SPLIT_DAYS.join('/')} 天</span><input type="hidden" id="npDays" value="${n0(p.freight)}"></label>` : `<label>到货天数 <input class="num" style="width:60px" type="number" min="0" id="npDays" value="${n0(p.freight)}"></label>`}
+      <button class="btn primary" data-act="addPlan">＋ 新增预发货</button>
+    </div>
+  </div>`;
+
+  // ⑦ 库存日历
+  const byMonth = [];
+  for (const x of days) { const k = `${Y(x.d)}-${M(x.d)}`; let g = byMonth[byMonth.length - 1]; if (!g || g.k !== k) byMonth.push(g = { k, y: Y(x.d), m: M(x.d), days: [] }); g.days.push(x); }
+  const marks = {};
+  const addMark = (d, html) => { if (d != null && d >= today0 && d <= winEnd) (marks[d] ??= []).push(html); };
+  addMark(m.lastPo, '<span class="badge po" title="最晚下单日">下单</span>');
+  addMark(m.lastShip, '<span class="badge sh" title="最晚发货日">发货</span>');
+  for (const s of m.sugs.filter((s) => s.on)) addMark(s.S, `<span class="badge sg" title="建议货件发货日 · ${esc(s.ch.name)}">发${fmtN(s.qty)}</span>`);
+  for (const x of m.plans.filter((x) => x.on !== false && x.shipDay != null)) addMark(x.shipDay, `<span class="badge pl" title="预发货计划发货日">发${fmtN(x.qty)}</span>`);
+  for (const r of outRuns(days)) addMark(r.from, `<span class="badge so" title="${r.final ? '断货且没有已知到货补上' : '临时断货，' + fmtD(r.to + 1) + ' 有货到'}：${fmtD(r.from)}~${fmtD(r.to)} 共缺 ${fmtN(r.qty)} 件">断货</span>`);
+  const calTable = (g) => {
+    const cols = g.days.length;
+    return `<div class="mt">${g.y} 年 ${g.m + 1} 月</div><table><colgroup><col style="width:78px">${'<col>'.repeat(cols)}</colgroup>
+    <tr><th>日期</th>${g.days.map((x) => `<th class="${x.d === today0 ? 'today' : (W(x.d) === 0 || W(x.d) === 6 ? 'we' : '')}">${D(x.d)}<span class="wd">${WD[W(x.d)].slice(1)}</span></th>`).join('')}</tr>
+    <tr><td>预估销量</td>${g.days.map((x) => { const c = m.perOf(x.d); return `<td class="${c ? 'cus' : ''}" ${c ? `title="自定义时段 ${esc(c.from)}~${esc(c.to)}"` : ''}>${fmtN(x.sales, x.sales < 10 ? 1 : 0)}</td>`; }).join('')}</tr>
+    <tr><td>到货</td>${g.days.map((x) => { const sum = (k) => x.inn.filter((a) => a.kind === k).reduce((s, a) => s + a.qty, 0);
+      const b = sum('ship'), y = sum('overdue'), s = sum('sug'), pl = sum('plan');
+      return `<td>${b ? `<span class="badge" title="${esc(x.inn.filter((a) => a.kind === 'ship').map((a) => a.ref).join('、'))}">${fmtN(b)}</span>` : ''}${y ? `<span class="badge y" title="逾期未收，按明天到">${fmtN(y)}</span>` : ''}${pl ? `<span class="badge pl" title="预发货计划到货">${fmtN(pl)}</span>` : ''}${s ? `<span class="badge sg" title="建议货件到货">${fmtN(s)}</span>` : ''}</td>`; }).join('')}</tr>
+    <tr><td>期末库存</td>${g.days.map((x) => { const cls = x.stock <= 0 ? 'out' : (x.sales > 0 && x.stock / x.sales < m.redDays ? 'low' : ''); return `<td class="${cls}">${fmtN(x.stock)}</td>`; }).join('')}</tr>
+    <tr><td>缺货</td>${g.days.map((x) => `<td class="short">${x.short > 0 ? fmtN(x.short, x.short < 10 ? 1 : 0) : ''}</td>`).join('')}</tr>
+    <tr><td>节点</td>${g.days.map((x) => `<td>${(marks[x.d] || []).join('<br>')}</td>`).join('')}</tr>
+    </table>`;
+  };
+  const c6 = `<div class="card"><h3>⑦ 库存日历 <small>${fmtFull(today0)} → ${fmtFull(winEnd)} · 起点＝FBA可售+预留 ${fmtN(m.stock0)} · 每天销量取④的当月预估日均</small></h3>
+    <div class="legend">
+      <span><i style="background:#fde3e1;border:1px solid #f3b0aa"></i>可售天数 &lt; ${m.redDays} 天（发货提前期 ${m.shipLead} + 安全 ${n0(p.safety)}，现在发也接不上）</span>
+      <span><i style="background:var(--out)"></i>断货</span>
+      <span><i style="background:var(--teal)"></i>在途到货（到仓即入库）</span><span><i style="background:var(--yellow)"></i>逾期未收</span>
+      <span><i style="background:#9b7bff"></i>预发货计划</span><span><i style="background:#fff;border:1px dashed var(--green)"></i>建议货件（⑥勾选）</span>
+      <span><i style="background:#fff0e0;border:1px solid var(--brand-line)"></i>预估销量取自定义时段</span><span><i style="background:var(--violet)"></i>最晚下单</span><span><i style="background:var(--green)"></i>最晚发货</span>
+    </div>
+    ${m.stock0 + m.arrivals.reduce((s, a) => s + a.qty, 0) + p.months.reduce((s, v) => s + n0(v), 0) > 0 ? `<div class="cal">${byMonth.map(calTable).join('')}</div>` : '<div class="empty">没有库存也没有预估销量</div>'}
+  </div>`;
+
+  $('main').innerHTML = head + c2 + c3 + c4 + c5 + c6p + c6;
+  bindTrend(days.slice(0, CHART_DAYS));
+}
+
+// ===== 编辑事件（事件委托，改完重算） =====
+document.addEventListener('change', (e) => {
+  if (!SEL) return;
+  const t = e.target;
+  if (t.dataset.m != null) { const p = cur(SEL); const months = p.months.slice(); months[+t.dataset.m] = t.value === '' ? 0 : Number(t.value); setEdit(SEL, { months }); render(); }
+  else if (t.dataset.p) { setEdit(SEL, { [t.dataset.p]: t.value === '' ? 0 : Number(t.value) }); render(); }
+  else if (t.id === 'splitOn') { setEdit(SEL, { split: t.checked }); render(); }
+  else if (t.dataset.sug) { const on = Object.assign({}, cur(SEL).sugOn || {}); on[t.dataset.sug] = t.checked; setEdit(SEL, { sugOn: on }); render(); }
+  else if (t.dataset.plan != null) {
+    const plans = (cur(SEL).plans || []).map((x) => ({ ...x })); const x = plans[+t.dataset.plan]; if (!x) return;
+    const f = t.dataset.f;
+    if (f === 'on') x.on = t.checked;
+    else if (f === 'date') x.date = t.value;
+    else if (f === 'ch') { x.ch = t.value; const c = CHANNELS.find((c) => c.name === t.value && c.country === SEL.country); if (c) x.days = c.days; }
+    else x[f] = t.value === '' ? 0 : Number(t.value);
+    setEdit(SEL, { plans }); render();
+  }
+  else if (t.dataset.per != null) {
+    const periods = (cur(SEL).periods || []).map((x) => ({ ...x })); const x = periods[+t.dataset.per]; if (!x) return;
+    const f = t.dataset.f;
+    if (f === 'on') x.on = t.checked; else if (f === 'daily') x.daily = t.value === '' ? '' : Number(t.value); else x[f] = t.value;
+    setEdit(SEL, { periods }); render();
+  }
+  else if (t.id === 'npCh') { const c = CHANNELS.find((c) => c.name === t.value && c.country === SEL.country); if (c) $('npDays').value = c.days; }
+});
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-act]'); if (!b || !SEL) return;
+  const a = b.dataset.act, d = defaults(SEL);
+  if (a === 'd30' || a === 'd7') setEdit(SEL, { months: Array(MONTHS).fill(Math.round(SEL[a] * 100) / 100) });
+  if (a === 'resetM') setEdit(SEL, { months: d.months });
+  if (a === 'resetP') setEdit(SEL, Object.fromEntries(PARAMS.map(([k]) => [k, d[k]])));
+  const m = a.startsWith('sug') ? model(SEL) : null;
+  if (a === 'sugAll' || a === 'sugNone') setEdit(SEL, { sugOn: Object.fromEntries(m.sugs.map((s) => [s.id, a === 'sugAll'])) });
+  if (a === 'sugToPlan') {   // 勾选的建议 → 固化成预发货计划，并清掉建议勾选
+    const picked = m.sugs.filter((s) => s.on); if (!picked.length) { alert('先勾选要转换的建议货件'); return; }
+    const plans = (cur(SEL).plans || []).concat(picked.map((s) => ({ date: fmtFull(s.S), qty: s.qty, ch: s.ch.name, days: s.legs.length > 1 ? n0(cur(SEL).freight) : s.ch.days, on: true })));
+    setEdit(SEL, { plans, sugOn: {} });
+  }
+  if (a === 'addPlan') {
+    const date = $('npDate').value, qty = Number($('npQty').value), days = Number($('npDays').value);
+    if (!date || !(qty > 0)) { alert('请填发货日期和发货数量'); return; }
+    setEdit(SEL, { plans: (cur(SEL).plans || []).concat([{ date, qty, ch: $('npCh').value, days: isNaN(days) ? 0 : days, on: true }]) });
+  }
+  if (a === 'perPreset') { e.preventDefault(); $('pfDaily').value = Math.round(SEL[b.dataset.k] * 10) / 10; return; }
+  if (a === 'addPer') {
+    const from = $('pfFrom').value, to = $('pfTo').value, daily = $('pfDaily').value;
+    if (!from || !to || ds(to) < ds(from)) { alert('请填开始、结束日期（结束不能早于开始）'); return; }
+    if (daily === '' || isNaN(Number(daily))) { alert('请填日均销量'); return; }
+    setEdit(SEL, { periods: (cur(SEL).periods || []).concat([{ from, to, daily: Number(daily), on: true }]) });
+  }
+  if (a === 'delPer') { const periods = (cur(SEL).periods || []).slice(); periods.splice(+b.dataset.i, 1); setEdit(SEL, { periods }); }
+  if (a === 'delPlan') { const plans = (cur(SEL).plans || []).slice(); plans.splice(+b.dataset.i, 1); setEdit(SEL, { plans }); }
+  render();
+});
+
+// ===== 应用版：按表 ID 实时读多维表（飞书应用自定义插件，硬规矩见 wiki/页面设计/概念/飞书应用自定义插件页.md） =====
+const SDK_URL = 'https://cdn.jsdelivr.net/npm/@lark-base-open/js-sdk@1.0.2/dist/index.mjs';
+const BASE_TOKEN = 'JGvebyaAYapWtOslxc9cuKYXnwd';   // 灯具组-全流程
+const TABLES = {
+  bh: { id: 'tblBymnJvmClZQdy', name: '销量预估-备货表', fields: ['领星SKU', '国家', 'ASIN', '品名', '店铺', 'SPU', '负责人', 'FBA可售', '本地仓可用', '采购在途',
+    '生产天数', '头程天数', '安全天数', '发货备货天数', '采购备货天数', '单箱数量', '头程渠道', ...Array.from({ length: 12 }, (_, i) => `${i + 1}月日均`),
+    '建议发货量', '建议采购量', '预计断货日', '本周动作'] },
+  master: { id: 'tblqksywqgYvywOT', name: '产品主表-灯类+精铺', fields: ['领星SKU', '国家文本', '销售季分类'] },
+  ov: { id: 'tbl23j9fj1autV9a', name: 'ASIN库存概况-灯', fields: ['记录键', '品名', '图片URL', '店铺', '近7天日均', '近14天日均', '近30天日均',
+    'FBA可售', 'FBA预留', 'FBA入库中', 'FBA在途', 'FBA计划入库', '数据更新日'] },
+  ship: { id: 'tblDvoc2YSab7TMr', name: 'FBA在途货件明细-灯', fields: ['ASIN', 'SKU', '国家', '店铺', '货件号', '发货单号', '货件状态', '目的仓', '发货量', '已收量',
+    '建单日', '发货日', '预计到仓日', '到仓日来源', '物流渠道'] },
+  ch: { id: 'tblxl08WV9pLwxdi', name: '头程渠道时效', fields: ['物流渠道', '国家', '运输方式', '标准时效天数', '历史样本数', '启用'] },
+};
+let DATA = [];
+let CHANNELS = [];
+let SDK = null;
+const WARN = [];
+
+// 单元格值 → 普通值（文本段拼接、单选取 text、人员取 name、多选用顿号连接）
+function cell(v) {
+  if (v == null) return null;
+  if (typeof v === 'number' || typeof v === 'string' || typeof v === 'boolean') return v;
+  if (Array.isArray(v)) {
+    if (!v.length) return null;
+    if (v.every((x) => x && typeof x === 'object' && 'text' in x && !('id' in x && 'name' in x && !('type' in x)))) return v.map((x) => x.text ?? '').join('');
+    if (v.length === 1) return cell(v[0]);
+    return v.map(cell).join('、');
+  }
+  if (typeof v === 'object') {
+    if ('text' in v) return v.text;
+    if ('name' in v) return v.name;
+    if ('value' in v) return cell(v.value);
+  }
+  return String(v);
+}
+async function readTable(key) {
+  const cfg = TABLES[key];
+  const table = await SDK.bitable.base.getTableById(cfg.id);
+  const fields = await table.getFieldMetaList();
+  const idByName = Object.fromEntries(fields.map((f) => [f.name, f.id]));
+  const missing = cfg.fields.filter((w) => !idByName[w]);
+  if (missing.length) WARN.push(`${cfg.name} 缺字段：${missing.join('、')}`);
+  const rows = [];
+  let pageToken;
+  for (let guard = 0; guard < 500; guard++) {
+    const res = await table.getRecordsByPage({ pageSize: 200, pageToken });
+    for (const r of res.records) {
+      const o = { _id: r.recordId };
+      for (const w of cfg.fields) if (idByName[w]) o[w] = cell(r.fields[idByName[w]]);
+      rows.push(o);
+    }
+    if (!res.hasMore) break;
+    pageToken = res.pageToken;
+  }
+  return rows;
+}
+const msDay = (v) => (v == null || v === '' || isNaN(v)) ? '' : fmtFull(dn(v));   // 日期字段（毫秒）→ 'YYYY-MM-DD'
+const first = (v) => String(v ?? '').split('、')[0];
+
+// 备货表(SKU×国家) 按 ASIN×国家 汇总，只要四季品（产品主表 销售季分类）
+function buildData(T) {
+  const season = {};
+  for (const r of T.master) season[`${r['领星SKU']}|${r['国家文本']}`] = String(r['销售季分类'] || '').split('、');
+  const ovk = {};
+  for (const r of T.ov) if (r['记录键']) ovk[r['记录键']] = r;
+  const groups = {};
+  for (const r of T.bh) {
+    if (!(season[`${r['领星SKU']}|${r['国家']}`] || []).includes('四季品')) continue;
+    const asin = first(r.ASIN); if (!asin) continue;
+    (groups[`${asin}|${r['国家']}`] ??= []).push(r);
+  }
+  const shipsBy = {};
+  for (const s of T.ship) (shipsBy[`${first(s.ASIN)}|${first(s['国家'])}`] ??= []).push(s);
+  const out = [];
+  for (const [k, rows] of Object.entries(groups)) {
+    rows.sort((a, b) => (String(a['领星SKU']).includes('-8.5') - String(b['领星SKU']).includes('-8.5')) || String(a['领星SKU']).localeCompare(String(b['领星SKU'])));
+    const main = rows[0], o = ovk[k] || {};
+    const [asin, country] = k.split('|');
+    const ships = [];
+    for (const s of shipsBy[k] || []) {
+      if (n0(s['发货量']) - n0(s['已收量']) <= 0) continue;
+      ships.push({ '货件号': s['货件号'], SKU: s.SKU, '状态': first(s['货件状态']), '发货量': n0(s['发货量']), '已收量': n0(s['已收量']),
+        '建单日': msDay(s['建单日']), '发货日': msDay(s['发货日']), '预计到仓日': msDay(s['预计到仓日']), '估算': String(s['到仓日来源'] || '').includes('估算'),
+        '渠道': s['物流渠道'], '目的仓': s['目的仓'], '发货单号': s['发货单号'], '店铺': first(s['店铺']) });
+    }
+    const sum = (f) => rows.reduce((t, r) => t + n0(r[f]), 0);
+    out.push({ key: k, asin, country, name: o['品名'] || main['品名'], img: o['图片URL'], store: o['店铺'] || main['店铺'], spu: main.SPU, owner: first(main['负责人']),
+      skus: rows.map((r) => r['领星SKU']),
+      d7: n0(o['近7天日均']), d14: n0(o['近14天日均']), d30: n0(o['近30天日均']),
+      fba: n0(o['FBA可售']), res: n0(o['FBA预留']), recv: n0(o['FBA入库中']), fbaTransit: n0(o['FBA在途']), plan: n0(o['FBA计划入库']),
+      local: sum('本地仓可用'), po: sum('采购在途'),
+      months: Array.from({ length: 12 }, (_, i) => Math.round(sum(`${i + 1}月日均`) * 100) / 100),
+      prod: n0(main['生产天数']), freight: n0(main['头程天数']), safety: n0(main['安全天数']), shipCover: n0(main['发货备货天数']), poCover: n0(main['采购备货天数']),
+      box: n0(main['单箱数量']) || 1, channel: first(main['头程渠道']) || null,
+      tbl: { '建议发货量': sum('建议发货量'), '建议采购量': sum('建议采购量'), '预计断货日': main['预计断货日'], '本周动作': main['本周动作'] },
+      updated: msDay(o['数据更新日']), ships });
+  }
+  out.sort((a, b) => b.d30 - a.d30);
+  const ch = [];
+  for (const r of T.ch) {
+    if (!r['启用'] || !(n0(r['标准时效天数']) > 0) || !r['运输方式']) continue;
+    for (const c of String(r['国家'] || '').split('、').filter(Boolean)) {
+      ch.push({ name: r['物流渠道'], country: c, mode: first(r['运输方式']), days: n0(r['标准时效天数']), samples: n0(r['历史样本数']) });
+    }
+  }
+  return { out, ch };
+}
+
+async function loadLive() {
+  SDK = await import(SDK_URL);
+  setupSave();
+  const keys = Object.keys(TABLES);
+  // 核心表读不到直接报错；头程渠道表读不到只降级（没有渠道建议）
+  const res = await Promise.all(keys.map((k) => readTable(k).catch((e) => {
+    if (k === 'ch') { WARN.push(`${TABLES[k].name} 读不到（${e && e.message ? e.message : e}）`); return []; }
+    throw new Error(`${TABLES[k].name}：${e && e.message ? e.message : e}`);
+  })));
+  const T = Object.fromEntries(keys.map((k, i) => [k, res[i]]));
+  const { out, ch } = buildData(T);
+  DATA = out; CHANNELS = ch;
+}
+
+// ===== 保存（宿主不提供保存按钮：创建/配置态由插件自己调 saveConfig，并登记本页读的每张表以获得授权） =====
+function setupSave() {
+  const dash = SDK && SDK.dashboard;
+  let st = '';
+  try { st = dash && dash.state; } catch (e) { st = '读取失败'; }
+  $('saveMsg').textContent = `（插件状态：${st || '未知'}）`;
+  if (dash && typeof dash.saveConfig === 'function' && st !== 'View' && st !== 'FullScreen') {
+    $('savebar').classList.add('show');
+    $('saveBtn').onclick = async () => {
+      $('saveBtn').disabled = true; $('saveMsg').textContent = '保存中…';
+      try {
+        const ok = await dash.saveConfig({
+          dataConditions: Object.values(TABLES).map((t) => ({ tableId: t.id, baseToken: BASE_TOKEN, dataRange: { type: 'ALL' }, series: 'COUNTA' })),
+          customConfig: { page: 'beihuo-plan', version: 1 },
+        });
+        $('saveMsg').textContent = ok === false ? '保存失败，请重试' : '已保存 ✔';
+      } catch (e) {
+        $('saveMsg').textContent = '保存失败：' + (e && e.message ? e.message : e);
+      } finally { $('saveBtn').disabled = false; }
+    };
+  } else if (dash && dash.setRendered) {
+    dash.setRendered().catch(() => {});
+  }
+}
+
+// ===== 诊断（加载失败时自动跑，截一张图即可定位） =====
+async function diagnose() {
+  const res = [];
+  const t = async (name, fn) => {
+    try {
+      const v = await Promise.race([fn(), new Promise((_, rej) => setTimeout(() => rej(new Error('超时 8s')), 8000))]);
+      let shown; try { shown = typeof v === 'string' ? v : JSON.stringify(v); } catch (x) { shown = String(v); }
+      res.push(['✔', name, String(shown).slice(0, 200)]); return v;
+    } catch (e) { res.push(['✘', name, e && e.message ? e.message : String(e)]); return undefined; }
+  };
+  const { bitable, dashboard } = SDK;
+  await t('dashboard.state', async () => dashboard.state);
+  await t('dashboard.getConfig', () => dashboard.getConfig());
+  for (const cfg of Object.values(TABLES)) {
+    const tb = await t(`打开表 ${cfg.name}`, () => bitable.base.getTableById(cfg.id));
+    if (tb) await t(`读记录 ${cfg.name}`, () => tb.getRecordsByPage({ pageSize: 1 }).then((r) => `${r.records.length} 行样本`));
+  }
+  return `<div class="card"><h3>接口诊断 <small>请把这块整体截图发回</small></h3><table class="tbl"><tbody>${res.map((r) =>
+    `<tr><td style="width:24px">${r[0]}</td><td>${esc(r[1])}</td><td style="white-space:normal;color:var(--sub)">${esc(r[2])}</td></tr>`).join('')}</tbody></table></div>`;
+}
+
+(async () => {
+  try {
+    await loadLive();
+    $('meta').textContent = `四季品 ${DATA.length} 个 ASIN×国家 · 在途货件 ${DATA.reduce((s, o) => s + o.ships.length, 0)} 票 · 渠道 ${CHANNELS.length} 条`
+      + (WARN.length ? ` · ⚠ ${WARN.join('；')}（可在插件「⋮→配置」里重新点一次「保存到页面」授权）` : '');
+    if (!DATA.length) { $('main').innerHTML = '<div class="card empty">没有读到四季品（产品主表 销售季分类=四季品 且在销量预估-备货表里）</div>'; return; }
+    bindPicker();
+    let last = null; try { last = localStorage.getItem('beihuo-plan-last'); } catch (e) { /* 忽略 */ }
+    select(DATA.some((x) => x.key === last) ? last : DATA[0].key);
+  } catch (e) {
+    const msg = esc(e && e.message ? e.message : e);
+    $('meta').textContent = '';
+    $('main').innerHTML = `<div class="card err">加载失败：${msg}</div><div class="card">正在诊断…</div>`;
+    if (SDK) { try { $('main').innerHTML = `<div class="card err">加载失败：${msg}</div>` + await diagnose(); } catch (e2) { /* 保留上面的报错 */ } }
+  }
+})();
+</script>
+</body>
+</html>
