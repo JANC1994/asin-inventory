@@ -135,6 +135,11 @@
   .cal th.we, .cal th.we .wd { color: var(--weekend); }
   .cal th.today { background: var(--brand); color: #fff; } .cal th.today .wd { color: #fff; }
   .cal .mt { font-weight: 700; font-size: 14px; margin: 6px 0 8px; color: var(--brand-deep); }
+  .sib td { vertical-align: middle; } .sib td.soon { color: var(--yellow); font-weight: 700; } .sib td.short { color: var(--red); font-weight: 700; }
+  .sib td.hlnum { color: var(--brand-deep); font-weight: 700; }
+  .sibname { display: flex; gap: 8px; align-items: center; min-width: 260px; white-space: normal; }
+  .sibname img { width: 34px; height: 34px; object-fit: cover; border-radius: 6px; background: #f3ece6; flex: none; }
+  .sibname .meta { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .cal td.cus { background: #fff0e0; color: var(--brand-deep); font-weight: 700; }
   .tbl tr.eff td { background: var(--brand-soft); color: var(--brand-deep); }
   .tbl td.up { color: var(--brand-deep); } .tbl td.down { color: var(--teal); }
@@ -179,6 +184,7 @@
       <li><b>④⑤ 填假设</b>月预估日均、生产/头程/安全/备货天数，默认取销量预估-备货表，改了只影响本页。</li>
       <li><b>⑥ 排发货</b>建议货件每 2 周一批、按整箱取整；常规渠道来不及就拆出加急批。美国可勾「分仓」，每批平均拆 5 份分别 30/30/35/45/50 天到仓。</li>
       <li><b>⑦ 看结果</b>库存日历逐日看库存、到货、缺货；红色＝可售天数低于「头程 + 安全天数」。</li>
+      <li><b>⑧ 同 SPU</b>同款其他 ASIN 按本页预估 × 倍数，一起看断货日和补货量。</li>
     </ol>
   </header>
   <div class="savebar" id="savebar">
@@ -256,7 +262,7 @@ function outRuns(days) {
   for (const r of runs) r.final = !!last && r.to === last.d;
   return runs;
 }
-function model(o) {
+function model(o, opt = {}) {
   const p = cur(o);
   // 自定义时段日均（勾选的才生效）：落在时段内的天用时段日均，重叠时下面的行优先；其余天用月均
   const periods = (p.periods || []).map((x, i) => ({ ...x, i, a: ds(x.from), b: ds(x.to) }))
@@ -268,7 +274,7 @@ function model(o) {
     const k = (Y(d) - winMonths[0].y) * 12 + M(d) - winMonths[0].m;
     return n0(p.months[Math.max(0, k)]);
   };
-  const fcOf = (d) => { const x = perOf(d); return x ? n0(x.daily) : monthOf(d); };
+  const fcOf = opt.fc || ((d) => { const x = perOf(d); return x ? n0(x.daily) : monthOf(d); });
   // 到货即计入库存（不再加上架天数）
   const shipLead = n0(p.freight), poLead = n0(p.prod) + shipLead;
   const box = Math.max(1, o.box);
@@ -411,6 +417,7 @@ function bindPicker() {
   $('menu').addEventListener('click', (e) => { const el = e.target.closest('.opt'); if (el && el.dataset.k) select(el.dataset.k); });
 }
 let SEL = null;
+const SYNC_MSG = {};   // 每个 ASIN 最近一次同步结果
 function select(key) {
   const o = DATA.find((x) => x.key === key); if (!o) return;
   SEL = o;
@@ -544,7 +551,9 @@ function render() {
     </tbody></table></div>
     ${o.d30 > 0 && p.months.some((v) => !n0(v)) ? `<div class="warnline">⚠ 有月份预估为 0（多半是新品没有去年同月数据）——这几个月按 0 销量算，会让建议采购量偏少，请手填。</div>` : ''}
     <div class="btns"><button class="btn" data-act="d30">全部填 30 天日均（${fmtN(o.d30, 1)}）</button><button class="btn" data-act="d7">全部填 7 天日均（${fmtN(o.d7, 1)}）</button>
-      <button class="btn" data-act="resetM">恢复备货表值</button></div>
+      <button class="btn" data-act="resetM">恢复备货表值</button>
+      <button class="btn primary" data-act="syncM">⇪ 同步到多维表</button>
+      <span class="meta" id="syncMsg">${esc(SYNC_MSG[o.key] || '把上面 6 个月的「预估日均」写回销量预估-备货表（主SKU行；-8.5 副款行写 0）。自定义时段只在本页生效，不同步')}</span></div>
     <div class="sub-h" style="margin-top:18px">按时段自定义日均 <small>不按月份：给任意一段日期指定日均（如大促、断档恢复期、新品爬坡），落在时段内的天优先用它，其余天仍用上面的月均；时段重叠时下面的行优先。勾选才生效，日历/趋势图/建议货件/断货日全部按它重算</small></div>
     ${m.periods.length ? `<div class="scroll"><table class="tbl plan"><thead><tr><th style="width:28px"></th><th>开始日期</th><th>结束日期</th><th class="num">日均销量</th><th class="num">天数</th><th class="num">时段销量</th><th class="num">对比月均</th><th></th></tr></thead><tbody>
       ${m.periods.map((x) => { const nd = x.valid ? x.b - x.a + 1 : 0; let base = 0; if (x.valid) for (let d = x.a; d <= x.b; d++) base += m.monthOf(d);
@@ -666,7 +675,43 @@ function render() {
     ${m.stock0 + m.arrivals.reduce((s, a) => s + a.qty, 0) + p.months.reduce((s, v) => s + n0(v), 0) > 0 ? `<div class="cal">${byMonth.map(calTable).join('')}</div>` : '<div class="empty">没有库存也没有预估销量</div>'}
   </div>`;
 
-  $('main').innerHTML = head + c2 + c3 + c4 + c5 + c6p + c6;
+  // ⑧ 同 SPU 其他 ASIN：预估＝当前 ASIN 的逐日预估（含自定义时段）× 倍数；库存/在途/时效/分仓用它们自己的
+  const sibs = o.spu ? DATA.filter((x) => x.spu === o.spu && x.key !== o.key) : [];
+  const histMult = (x) => (o.d30 > 0 ? Math.round(x.d30 / o.d30 * 100) / 100 : 0);
+  const multOf = (x) => { const v = (p.mult || {})[x.key]; return v != null && v !== '' && !isNaN(v) ? Number(v) : histMult(x); };
+  const sibCalc = sibs.map((x) => {
+    const k = multOf(x); const mx = model(x, { fc: (d) => m.fcOf(d) * k });
+    const first = mx.sugs.length ? mx.sugs[0].S : null;
+    const firstQty = mx.sugs.filter((s) => s.S === first).reduce((s, q) => s + q.qty, 0);
+    const shipTot = mx.sugs.reduce((s, q) => s + q.qty, 0);
+    const transit = mx.arrivals.filter((a) => a.kind === 'ship' || a.kind === 'overdue').reduce((s, a) => s + a.qty, 0);
+    return { x, k, mx, first, firstQty, shipTot, transit, custom: (p.mult || {})[x.key] != null };
+  });
+  const tot = (f) => sibCalc.reduce((s, r) => s + f(r), 0);
+  const c8 = `<div class="card"><h3>⑧ 同 SPU 其他 ASIN <small>SPU：${esc(o.spu || '—')} · 预估日销＝本页 ${esc(o.asin)} 的逐日预估（含④的自定义时段）× 倍数；库存、在途、时效参数、分仓用各自的</small></h3>
+    ${!o.spu ? '<div class="empty">这个 ASIN 在备货表里没有 SPU</div>' : !sibs.length ? '<div class="empty">同 SPU 下没有其他四季品 ASIN</div>' : `
+    <div class="scroll" style="max-height:none"><table class="tbl plan sib"><thead><tr><th>ASIN</th><th class="num">近30天日均</th><th class="num">历史倍数</th><th class="num">倍数（可改）</th><th class="num">折算本月日均</th>
+      <th class="num">可售+预留</th><th class="num">在途</th><th class="num">国内仓+采购在途</th><th>补货断货日</th><th>最晚发货</th><th>最晚下单</th><th class="num">下次建议发货</th><th class="num">120天建议发货</th><th class="num">建议采购</th><th></th></tr></thead><tbody>
+    ${sibCalc.map((r) => { const x = r.x, mx = r.mx; const dcls = (d) => d == null ? '' : d < today0 ? 'short' : d - today0 <= 7 ? 'soon' : '';
+      return `<tr><td><div class="sibname"><img src="${esc(x.img || '')}" onerror="this.style.visibility='hidden'"><div><b>${esc(x.asin)}</b> <span class="tag ${x.country === '加拿大' ? 'ca' : 'us'}">${esc(x.country)}</span><div class="meta">${esc(x.name)}</div></div></div></td>
+        <td class="num">${fmtN(x.d30, 1)}</td><td class="num">${fmtN(histMult(x), 2)}</td>
+        <td class="num"><input class="num ${r.custom ? 'changed' : ''}" type="number" min="0" step="0.05" data-mult="${esc(x.key)}" value="${r.k}"></td>
+        <td class="num">${fmtN(m.fcOf(today0) * r.k, 1)}</td>
+        <td class="num">${fmtN(mx.stock0)}</td><td class="num">${fmtN(r.transit)}</td><td class="num">${fmtN(x.local + x.po)}</td>
+        <td class="${dcls(mx.stockout)}">${mx.stockout != null ? fmtFull(mx.stockout) : '窗口内不断'}${mx.gaps.length ? `<div class="meta">另有临时断档 ${mx.gaps.length} 段</div>` : ''}</td>
+        <td class="${dcls(mx.lastShip)}">${mx.lastShip != null ? fmtFull(mx.lastShip) : '—'}</td><td class="${dcls(mx.lastPo)}">${mx.lastPo != null ? fmtFull(mx.lastPo) : '—'}</td>
+        <td class="num">${r.first != null ? `<b>${fmtN(r.firstQty)}</b><div class="meta">${fmtD(r.first)} 发${mx.sugs.some((s) => s.S === r.first && s.urgent) ? ' · 含加急' : ''}</div>` : '—'}</td>
+        <td class="num">${fmtN(r.shipTot)}</td><td class="num ${mx.sugPo > 0 ? 'hlnum' : ''}">${fmtN(mx.sugPo)}</td>
+        <td><button class="btn" data-act="sibGo" data-k="${esc(x.key)}">查看</button> <button class="btn" data-act="sibApply" data-k="${esc(x.key)}" data-mult="${r.k}" title="把当前预估×倍数写成该 ASIN 的预估，并切过去">套用预估</button></td></tr>`; }).join('')}
+      <tr class="eff"><td><b>同 SPU 合计（不含本 ASIN）</b></td><td class="num">${fmtN(tot((r) => r.x.d30), 1)}</td><td></td><td class="num">${fmtN(tot((r) => r.k), 2)}</td><td class="num">${fmtN(tot((r) => m.fcOf(today0) * r.k), 1)}</td>
+        <td class="num">${fmtN(tot((r) => r.mx.stock0))}</td><td class="num">${fmtN(tot((r) => r.transit))}</td><td class="num">${fmtN(tot((r) => r.x.local + r.x.po))}</td><td></td><td></td><td></td>
+        <td class="num">${fmtN(tot((r) => r.firstQty))}</td><td class="num">${fmtN(tot((r) => r.shipTot))}</td><td class="num">${fmtN(tot((r) => r.mx.sugPo))}</td><td></td></tr>
+    </tbody></table></div>
+    <div class="btns"><button class="btn" data-act="sibReset">倍数全部恢复为历史倍数</button>
+      <span class="meta">历史倍数＝该 ASIN 近30天日均 ÷ 本页 ASIN 近30天日均。「查看」切到该 ASIN 看完整日历（用它自己的预估）；「套用预估」把这里的折算预估写成它自己的预估再切过去，确认后可在它的④点「同步到多维表」。</span></div>`}
+  </div>`;
+
+  $('main').innerHTML = head + c2 + c3 + c4 + c5 + c6p + c6 + c8;
   bindTrend(days.slice(0, CHART_DAYS));
 }
 
@@ -676,6 +721,7 @@ document.addEventListener('change', (e) => {
   const t = e.target;
   if (t.dataset.m != null) { const p = cur(SEL); const months = p.months.slice(); months[+t.dataset.m] = t.value === '' ? 0 : Number(t.value); setEdit(SEL, { months }); render(); }
   else if (t.dataset.p) { setEdit(SEL, { [t.dataset.p]: t.value === '' ? 0 : Number(t.value) }); render(); }
+  else if (t.dataset.mult) { const mult = { ...(cur(SEL).mult || {}) }; if (t.value === '') delete mult[t.dataset.mult]; else mult[t.dataset.mult] = Number(t.value); setEdit(SEL, { mult }); render(); }
   else if (t.id === 'splitOn') { setEdit(SEL, { split: t.checked }); render(); }
   else if (t.dataset.sug) { const on = Object.assign({}, cur(SEL).sugOn || {}); on[t.dataset.sug] = t.checked; setEdit(SEL, { sugOn: on }); render(); }
   else if (t.dataset.plan != null) {
@@ -700,6 +746,25 @@ document.addEventListener('click', (e) => {
   const a = b.dataset.act, d = defaults(SEL);
   if (a === 'd30' || a === 'd7') setEdit(SEL, { months: Array(MONTHS).fill(Math.round(SEL[a] * 100) / 100) });
   if (a === 'resetM') setEdit(SEL, { months: d.months });
+  if (a === 'syncM') {
+    if (typeof syncMonthsToBase !== 'function') { alert('这是本地快照预览版，不能同步。在飞书应用的「四季品备货计划」页面里点这个按钮，才会写回多维表。'); return; }
+    const o = SEL; b.disabled = true; $('syncMsg').textContent = '同步中…';
+    syncMonthsToBase(o, cur(o).months)
+      .then((r) => { if (r) SYNC_MSG[o.key] = r; if (SEL === o) render(); })
+      .catch((err) => { SYNC_MSG[o.key] = '✘ 同步失败：' + (err && err.message ? err.message : err); if (SEL === o) render(); });
+    return;
+  }
+  if (a === 'sibGo') { select(b.dataset.k); window.scrollTo(0, 0); return; }
+  if (a === 'sibApply') {   // 把「当前 ASIN 预估 × 倍数」写成该 ASIN 自己的月日均和时段（本浏览器），切过去后可再同步到多维表
+    const x = DATA.find((y) => y.key === b.dataset.k); if (!x) return;
+    const k = n0(b.dataset.mult); const pc = cur(SEL);
+    if (!confirm(`把 ${SEL.asin} 的预估 × ${k} 套用到 ${x.asin}（${x.country}）？\n会覆盖它在本页的 6 个月预估日均和自定义时段。`)) return;
+    setEdit(x, { months: pc.months.map((v) => Math.round(n0(v) * k * 100) / 100),
+                 periods: (pc.periods || []).map((q) => ({ ...q, daily: q.daily === '' || q.daily == null ? q.daily : Math.round(n0(q.daily) * k * 100) / 100 })) });
+    SYNC_MSG[x.key] = `已套用 ${SEL.asin} × ${k} 的预估（只在本浏览器），确认无误可点「同步到多维表」`;
+    select(x.key); window.scrollTo(0, 0); return;
+  }
+  if (a === 'sibReset') { const pc = cur(SEL); const mult = { ...(pc.mult || {}) }; for (const k of Object.keys(mult)) delete mult[k]; setEdit(SEL, { mult }); }
   if (a === 'resetP') setEdit(SEL, Object.fromEntries(PARAMS.map(([k]) => [k, d[k]])));
   const m = a.startsWith('sug') ? model(SEL) : null;
   if (a === 'sugAll' || a === 'sugNone') setEdit(SEL, { sugOn: Object.fromEntries(m.sugs.map((s) => [s.id, a === 'sugAll'])) });
@@ -743,6 +808,7 @@ let DATA = [];
 let CHANNELS = [];
 let SDK = null;
 const WARN = [];
+const META = {};   // 表 key → {字段名: 字段ID}（同步回写要用）
 
 // 单元格值 → 普通值（文本段拼接、单选取 text、人员取 name、多选用顿号连接）
 function cell(v) {
@@ -766,6 +832,7 @@ async function readTable(key) {
   const table = await SDK.bitable.base.getTableById(cfg.id);
   const fields = await table.getFieldMetaList();
   const idByName = Object.fromEntries(fields.map((f) => [f.name, f.id]));
+  META[key] = idByName;
   const missing = cfg.fields.filter((w) => !idByName[w]);
   if (missing.length) WARN.push(`${cfg.name} 缺字段：${missing.join('、')}`);
   const rows = [];
@@ -814,6 +881,7 @@ function buildData(T) {
     const sum = (f) => rows.reduce((t, r) => t + n0(r[f]), 0);
     out.push({ key: k, asin, country, name: o['品名'] || main['品名'], img: o['图片URL'], store: o['店铺'] || main['店铺'], spu: main.SPU, owner: first(main['负责人']),
       skus: rows.map((r) => r['领星SKU']),
+      rows: rows.map((r) => ({ id: r._id, sku: r['领星SKU'], months: Array.from({ length: 12 }, (_, i) => n0(r[`${i + 1}月日均`])) })),   // 第 1 行＝主SKU
       d7: n0(o['近7天日均']), d14: n0(o['近14天日均']), d30: n0(o['近30天日均']),
       fba: n0(o['FBA可售']), res: n0(o['FBA预留']), recv: n0(o['FBA入库中']), fbaTransit: n0(o['FBA在途']), plan: n0(o['FBA计划入库']),
       local: sum('本地仓可用'), po: sum('采购在途'),
@@ -846,6 +914,42 @@ async function loadLive() {
   const T = Object.fromEntries(keys.map((k, i) => [k, res[i]]));
   const { out, ch } = buildData(T);
   DATA = out; CHANNELS = ch;
+}
+
+// ===== ④「同步到多维表」：把 6 个月预估日均写回 销量预估-备货表（主SKU行写值，-8.5 等副款行写 0，与「库存按 ASIN 算」口径一致） =====
+async function syncMonthsToBase(o, months) {
+  const ids = META.bh || {};
+  const miss = winMonths.map((w) => `${w.m + 1}月日均`).filter((n) => !ids[n]);
+  if (miss.length) throw new Error(`备货表找不到字段：${miss.join('、')}`);
+  const plan = [];
+  o.rows.forEach((r, ri) => {
+    const fields = {}, diffs = [];
+    winMonths.forEach((w, i) => {
+      const name = `${w.m + 1}月日均`;
+      const nv = ri === 0 ? Math.round(n0(months[i]) * 100) / 100 : 0;
+      if (Math.abs(nv - r.months[w.m]) > 1e-6) { fields[ids[name]] = nv; diffs.push(`  ${name}：${fmtN(r.months[w.m], 2)} → ${fmtN(nv, 2)}`); }
+    });
+    if (diffs.length) plan.push({ r, fields, diffs });
+  });
+  if (!plan.length) return '✔ 多维表里已经是这些值，无需同步';
+  const text = plan.map((x) => `${x.r.sku}${x.r === o.rows[0] ? '（主SKU）' : '（副款，写 0）'}\n${x.diffs.join('\n')}`).join('\n');
+  if (!confirm(`确认把 ${o.asin}（${o.country}）的预估日均写回「销量预估-备货表」？\n\n${text}`)) return null;
+  const table = await SDK.bitable.base.getTableById(TABLES.bh.id);
+  await table.setRecords(plan.map((x) => ({ recordId: x.r.id, fields: x.fields })));
+  // 回读校验，并更新页面内存（「备货表月日均」那一行随之变成新值）
+  const nameById = Object.fromEntries(Object.entries(ids).map(([n, id]) => [id, n]));
+  let bad = 0;
+  for (const x of plan) {
+    for (const [fid, v] of Object.entries(x.fields)) {
+      const got = n0(cell(await table.getCellValue(fid, x.r.id)));
+      if (Math.abs(got - v) > 0.005) bad++;
+      x.r.months[Number(nameById[fid].replace('月日均', '')) - 1] = got;
+    }
+  }
+  o.months = Array.from({ length: 12 }, (_, i) => Math.round(o.rows.reduce((s, r) => s + r.months[i], 0) * 100) / 100);
+  const now = new Date(); const hm = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+  return bad ? `⚠ ${hm} 已写入 ${plan.length} 行，但有 ${bad} 个值回读不一致，请到备货表核对`
+             : `✔ ${hm} 已同步到多维表（${plan.length} 行 · ${plan.reduce((s, x) => s + x.diffs.length, 0)} 个月份）；备货表的建议量/断货日等公式会随之重算`;
 }
 
 // ===== 保存（宿主不提供保存按钮：创建/配置态由插件自己调 saveConfig，并登记本页读的每张表以获得授权） =====
