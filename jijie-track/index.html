@@ -85,6 +85,14 @@
   .ptbl th { color: var(--sub); font-weight: normal; }
   .ptbl tr.cur td { background: var(--or-soft); color: var(--or-d); font-weight: 600; }
   .ptbl tfoot td { color: var(--sub); }
+  .ptbl .pin { width: 52px; text-align: right; font: inherit; font-variant-numeric: tabular-nums; color: inherit; background: transparent;
+               border: 1px dashed transparent; border-radius: 4px; padding: 1px 4px; cursor: text; }
+  .ptbl .pin.est { font-weight: 700; }
+  .ptbl .pin:hover:not(:disabled) { border-color: var(--or-soft2); background: #fff; }
+  .ptbl .pin:focus { outline: none; border: 1px solid var(--or); background: #fff; }
+  .ptbl .pin.dirty { border: 1px solid #f2b705; background: #fffbea; }
+  .ptbl .pin::placeholder { color: #c3b8ad; }
+  .pfoot { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 0 10px 8px; font-size: 11.5px; color: var(--sub); }
   .lbar { flex: 1; min-width: 60px; height: 8px; border-radius: 4px; overflow: hidden; display: flex; gap: 2px; }
   .lbar i { display: block; height: 100%; }
   .sd { display: inline-flex; align-items: center; gap: 3px; font-size: 12px; color: var(--sub); }
@@ -447,12 +455,71 @@ function stagePlan(x) {
   const rows = STAGES.map((s) => ({ s, range: c[s] || '', days: num(c[s + '天数']), avg: num(c[s + '日均']) }))
     .map((r) => ({ ...r, est: r.days != null && r.avg != null ? Math.round(r.days * r.avg) : null }));
   const total = num(c['预估销量-整季']), sold = num(c['累计销量']), prog = num(c['销售进度']);
-  const tr = rows.map((r) => `<tr class="${r.s === x.stage ? 'cur' : ''}"><td>${r.s}</td><td>${esc(r.range || '—')}</td>
-    <td>${r.days != null ? fmtN(r.days) : '—'}</td><td>${r.avg != null ? fmtN(r.avg, 1) : '<span class="tbd">未填</span>'}</td>
-    <td><b>${r.est != null ? fmtN(r.est) : '—'}</b></td><td>${r.est != null && total ? pct(r.est / total) : '—'}</td></tr>`).join('');
-  return `<details class="plan"><summary>五个期预估销量 <span class="meta">整季预估 ${fmtN(total)} · 已售 ${fmtN(sold)} · 进度 ${pct(prog)}</span></summary>
-    <table class="ptbl"><thead><tr><th>阶段</th><th>日期</th><th>天数</th><th>日均</th><th>预估</th><th>占比</th></tr></thead>
-    <tbody>${tr}</tbody><tfoot><tr><td colspan="4">整季预估（表字段）</td><td><b>${fmtN(total)}</b></td><td></td></tr></tfoot></table></details>`;
+  // 日均、预估都可直接点开改：改日均→预估跟着算；改预估→日均 = 预估 ÷ 天数。保存只写战役行的「X期日均」（预估是表里公式算的）
+  const tr = rows.map((r) => `<tr class="${r.s === x.stage ? 'cur' : ''}" data-s="${r.s}" data-days="${r.days ?? ''}"><td>${r.s}</td><td>${esc(r.range || '—')}</td>
+    <td>${r.days != null ? fmtN(r.days) : '—'}</td>
+    <td><input class="pin" data-k="avg" inputmode="decimal" value="${r.avg != null ? +r.avg.toFixed(2) : ''}" placeholder="未填" data-orig="${r.avg ?? ''}"></td>
+    <td><input class="pin est" data-k="est" inputmode="numeric" value="${r.est ?? ''}" placeholder="—"${r.days ? '' : ' disabled title="该阶段天数为 0，不能按预估反推日均"'}></td>
+    <td data-pct>${r.est != null && total ? pct(r.est / total) : '—'}</td></tr>`).join('');
+  return `<details class="plan"><summary>阶段预估销量 <span class="meta">整季预估 ${fmtN(total)} · 已售 ${fmtN(sold)} · 进度 ${pct(prog)}</span></summary>
+    <table class="ptbl"><thead><tr><th>阶段</th><th>日期</th><th>天数</th><th>日均 ✎</th><th>预估 ✎</th><th>占比</th></tr></thead>
+    <tbody>${tr}</tbody><tfoot><tr><td colspan="4">整季预估</td><td><b data-total>${fmtN(total)}</b></td><td></td></tr></tfoot></table>
+    <div class="pfoot"><span data-pmsg>点日均或预估的数字即可修改</span><button class="btn primary" data-psave style="display:none">保存阶段预估</button></div></details>`;
+}
+
+// 阶段预估：输入联动 + 写回战役行的 X期日均
+function bindPlan(el, x) {
+  const box = el.querySelector('details.plan');
+  if (!box) return;
+  const trs = [...box.querySelectorAll('tbody tr')];
+  const btn = box.querySelector('[data-psave]'), msg = box.querySelector('[data-pmsg]');
+  const val = (inp) => (inp.value.trim() === '' || isNaN(inp.value)) ? null : Number(inp.value);
+  const refresh = () => {
+    let sum = 0, any = false, dirty = 0;
+    for (const tr of trs) {
+      const est = val(tr.querySelector('[data-k="est"]'));
+      if (est != null) { sum += est; any = true; }
+      const a = tr.querySelector('[data-k="avg"]');
+      const changed = String(val(a) ?? '') !== String(a.dataset.orig === '' ? '' : +Number(a.dataset.orig).toFixed(2));
+      a.classList.toggle('dirty', changed); if (changed) dirty++;
+    }
+    box.querySelector('[data-total]').textContent = any ? fmtN(sum) : '—';
+    trs.forEach((tr) => { const e = val(tr.querySelector('[data-k="est"]')); tr.querySelector('[data-pct]').textContent = e != null && sum ? pct(e / sum) : '—'; });
+    btn.style.display = dirty ? '' : 'none';
+    msg.textContent = dirty ? `改了 ${dirty} 个阶段，记得保存` : '点日均或预估的数字即可修改';
+  };
+  for (const tr of trs) {
+    const days = Number(tr.dataset.days) || 0;
+    const a = tr.querySelector('[data-k="avg"]'), e = tr.querySelector('[data-k="est"]');
+    a.oninput = () => { const v = val(a); e.value = v != null && days ? Math.round(v * days) : ''; refresh(); };
+    e.oninput = () => { const v = val(e); a.value = v != null && days ? +(v / days).toFixed(2) : ''; refresh(); };
+    [a, e].forEach((i) => i.onkeydown = (ev) => { if (ev.key === 'Enter') btn.click(); });
+  }
+  btn.onclick = async () => {
+    if (!TBLS.track) { msg.textContent = '预览模式不能写回'; return; }
+    const fields = {}, changed = [];
+    for (const tr of trs) {
+      const a = tr.querySelector('[data-k="avg"]');
+      if (!a.classList.contains('dirty')) continue;
+      const fid = FIDS.track[tr.dataset.s + '日均'];
+      if (!fid) { msg.textContent = `表里找不到字段「${tr.dataset.s}日均」`; return; }
+      fields[fid] = val(a); changed.push([tr.dataset.s, val(a)]);
+    }
+    btn.disabled = true; msg.textContent = '保存中…';
+    try {
+      await TBLS.track.setRecord(x.c._id, { fields });
+      for (const [st, v] of changed) x.c[st + '日均'] = v;
+      x.c['预估销量-整季'] = STAGES.reduce((t, st) => t + (num(x.c[st + '天数']) || 0) * (num(x.c[st + '日均']) || 0), 0);
+      if (x.hasStage) x.target = num(x.c[x.stage + '日均']);
+      for (const k of [...ALL, ...CARDS]) if (k.c === x.c) k.target = x.target;   // ALL/CARDS 共用同一个战役行对象 c
+      render();
+      const card = document.querySelector(`.pc[data-id="${x.c._id}"]`);
+      if (card) { const d = card.querySelector('details.plan'); d.open = true; d.querySelector('[data-pmsg]').textContent = `已保存 ${changed.length} 个阶段日均 ✔`; }
+    } catch (e) {
+      msg.textContent = '保存失败：' + (e && e.message ? e.message : e) + '（应用数据权限要对追踪表开「可编辑」）';
+      btn.disabled = false;
+    }
+  };
 }
 
 function render() {
@@ -500,6 +567,7 @@ function render() {
 // ===== ⑤ 今日分析写回日行 =====
 function bindCard(el) {
   const x = CARDS.find((k) => k.c._id === el.dataset.id);
+  if (x) bindPlan(el, x);
   if (!x || !x.today) return;
   const tas = [...el.querySelectorAll('textarea')];
   const editBtn = el.querySelector('[data-edit]'), saveBtn = el.querySelector('[data-save]'), msg = el.querySelector('[data-msg]');
