@@ -97,15 +97,19 @@
   .plan summary::-webkit-details-marker { display: none; }
   .plan summary::before { content: '▸'; color: var(--or); }
   .plan[open] summary::before { content: '▾'; }
-  .plan summary .meta { font-weight: normal; margin-left: auto; }
-  .ptbl { width: 100%; font-size: 12px; font-variant-numeric: tabular-nums; margin: 0 0 6px; }
-  .ptbl th, .ptbl td { padding: 4px 6px; text-align: right; border-top: 1px solid var(--line); white-space: nowrap; }
-  .ptbl th:first-child, .ptbl td:first-child { padding-left: 10px; } .ptbl th:last-child, .ptbl td:last-child { padding-right: 10px; }
+  .plan summary { flex-wrap: wrap; }
+  .plan summary .meta { font-weight: normal; margin-left: auto; white-space: nowrap; }
+  .ptbl { width: 100%; table-layout: fixed; font-size: 12px; font-variant-numeric: tabular-nums; margin: 0 0 6px; }
+  .ptbl th, .ptbl td { padding: 4px 3px; text-align: right; border-top: 1px solid var(--line); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ptbl th:nth-child(1) { width: 17%; } .ptbl th:nth-child(2) { width: 24%; } .ptbl th:nth-child(3) { width: 10%; }
+  .ptbl th:nth-child(4) { width: 15%; } .ptbl th:nth-child(5) { width: 19%; } .ptbl th:nth-child(6) { width: 15%; }
+  .ptbl tfoot td:first-child { overflow: visible; }
+  .ptbl th:first-child, .ptbl td:first-child { padding-left: 8px; } .ptbl th:last-child, .ptbl td:last-child { padding-right: 8px; }
   .ptbl th:first-child, .ptbl td:first-child, .ptbl th:nth-child(2), .ptbl td:nth-child(2) { text-align: left; }
   .ptbl th { color: var(--sub); font-weight: normal; }
   .ptbl tr.cur td { background: var(--or-soft); color: var(--or-d); font-weight: 600; }
   .ptbl tfoot td { color: var(--sub); }
-  .ptbl .pin { width: 52px; text-align: right; font: inherit; font-variant-numeric: tabular-nums; color: inherit; background: transparent;
+  .ptbl .pin { width: 100%; max-width: 58px; box-sizing: border-box; text-align: right; font: inherit; font-variant-numeric: tabular-nums; color: inherit; background: transparent;
                border: 1px dashed transparent; border-radius: 4px; padding: 1px 4px; cursor: text; }
   .ptbl .pin.est { font-weight: 700; }
   .ptbl .pin:hover:not(:disabled) { border-color: var(--or-soft2); background: #fff; }
@@ -127,7 +131,7 @@
   .inv-bar i { display: block; height: 100%; }
   .inv-leg { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 6px; font-size: 11.5px; color: var(--sub); }
   .inv-leg b { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
-  .inv-k { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 8px; }
+  .inv .sec-t .meta b { color: var(--ink); } .inv .sec-t .meta b.bad { color: var(--red); }
   .inv-d { margin-top: 8px; padding-top: 6px; border-top: 1px dashed var(--line2); }
   .inv-d summary { cursor: pointer; font-size: 11.5px; color: var(--or-d); list-style: none; }
   .inv-d summary::-webkit-details-marker { display: none; }
@@ -522,7 +526,7 @@ function stagePlan(x, opt = {}) {
     <td><input class="pin est" data-k="est" inputmode="numeric" value="${r.est ?? ''}" placeholder="—"${r.days ? '' : ' disabled title="该阶段天数为 0，不能按预估反推日均"'}></td>
     <td data-pct>${r.est != null && total ? pct(r.est / total) : '—'}</td></tr>`).join('');
   return `<details class="plan"${opt.open ? ' open' : ''}><summary>${opt.title || '阶段预估销量'} <span class="meta">整季预估 ${fmtN(total)} · 已售 ${fmtN(sold)} · 进度 ${pct(prog)}</span></summary>
-    <table class="ptbl"><thead><tr><th>阶段</th><th>日期</th><th>天数</th><th>${opt.avgLab || '日均'} ✎</th><th>${opt.estLab || '预估'} ✎</th><th>占比</th></tr></thead>
+    <table class="ptbl"><thead><tr><th>阶段</th><th>日期</th><th>天数</th><th title="点数字可修改">${opt.avgLab || '日均'}</th><th title="点数字可修改">${opt.estLab || '预估'}</th><th>占比</th></tr></thead>
     <tbody>${tr}</tbody><tfoot><tr><td colspan="4">整季预估</td><td><b data-total>${fmtN(total)}</b></td><td></td></tr></tfoot></table>
     ${opt.goals ? `<div class="goals">${STAGES.map((st) => `<div class="goal${st === x.stage ? ' cur' : ''}"><label>${st}目标</label>
       <textarea data-goal="${st}" rows="1" placeholder="这个阶段要达成什么，如：冲进类目前 50 / 广告 ACOS 压到 30%">${esc(c[st + '目标'] || '')}</textarea></div>`).join('')}</div>` : ''}
@@ -538,15 +542,14 @@ function invHtml(x) {
   const segs = [['已售', sold, '#cfc5ba'], ['FBA可售', fba, '#34c759'], ['在途', inb, '#f59a3c'], ['其他', other, '#ece5dd']];
   const bar = segs.filter((g) => g[1] > 0).map((g) => `<i style="flex:${g[1]};background:${g[2]}" title="${g[0]} ${g[1]}"></i>`).join('');
   const leg = segs.filter((g) => g[0] !== '其他' || g[1] > 0).map((g) => `<span><b style="background:${g[2]}"></b>${g[0]} ${fmtN(g[1])}</span>`).join('');
-  const rate = num(c['售罄率']), days = num(c['剩余可售天数']), dom = num(c['国内仓可用-SKU级共享']), red = num(c['预计冗余数量']);
+  const rate = num(c['售罄率']), days = num(c['剩余可售天数']);
   const snap = String(c['库存快照'] || '').trim();
   const more = /另(\d+)票/.exec(snap);
   const shipN = (snap.match(/FBA[0-9A-Z]{6,}/g) || []).length + (more ? Number(more[1]) : 0);
   return `<div class="inv">
-    <div class="sec-t">库存 <span class="meta">本季已发货 ${fmtN(ship)} · 售罄率 ${pct(rate)}</span></div>
+    <div class="sec-t">库存 <span class="meta">本季已发货 ${fmtN(ship)} · 售罄率 ${pct(rate)} · 可售 ${days === 0 && fba + inb > 0 ? '—（近7天无销量）' : `<b class="${days != null && days > 0 && days < 7 ? 'bad' : ''}">${fmtN(days)}</b> 天`}</span></div>
     <div class="inv-bar">${bar || '<i style="flex:1;background:#ece5dd"></i>'}</div>
     <div class="inv-leg">${leg}</div>
-    <div class="inv-k">${kpi('可售天数', days === 0 && fba + inb > 0 ? '<small>近7天无销量</small>' : fmtN(days), days != null && days > 0 && days < 7 ? 'bad' : '')}${kpi('国内仓可用', fmtN(dom))}${kpi('预计冗余', fmtN(red), red > 0 ? 'bad' : '')}</div>
     ${snap ? `<details class="inv-d"><summary>库存明细 · ${shipN ? `货件 ${shipN} 票` : '近30天无货件'}</summary><div class="inv-snap">${esc(snap)}</div></details>` : ''}
   </div>`;
 }
@@ -598,7 +601,7 @@ function targetCardHtml(x) {
       <div class="sec-t">近 7 天 <span class="meta">柱色 = 当天红绿灯 · 虚线 = 当前阶段日均目标</span></div>
       ${week7(x)}
     </div>
-    ${stagePlan(x, { open: true, goals: true, title: '阶段目标', avgLab: '日均目标', estLab: '销量目标' })}
+    ${stagePlan(x, { open: true, goals: true, title: '阶段目标', avgLab: '日均', estLab: '销量目标' })}
   </div>`;
 }
 
