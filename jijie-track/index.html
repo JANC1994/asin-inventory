@@ -122,6 +122,17 @@
   .goal textarea:focus { outline: none; border: 1px solid var(--or); background: #fff; }
   .goal textarea.dirty { border: 1px solid #f2b705; background: #fffbea; }
   .goal textarea::placeholder { color: #cdc3b8; }
+  .inv { border: 1px solid var(--line); border-radius: 10px; padding: 10px; background: #fcfaf7; }
+  .inv-bar { display: flex; height: 12px; border-radius: 6px; overflow: hidden; gap: 1px; background: #f3eee8; }
+  .inv-bar i { display: block; height: 100%; }
+  .inv-leg { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 6px; font-size: 11.5px; color: var(--sub); }
+  .inv-leg b { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
+  .inv-k { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 8px; }
+  .inv-d { margin-top: 8px; padding-top: 6px; border-top: 1px dashed var(--line2); }
+  .inv-d summary { cursor: pointer; font-size: 11.5px; color: var(--or-d); list-style: none; }
+  .inv-d summary::-webkit-details-marker { display: none; }
+  .inv-d summary::before { content: '▸ '; } .inv-d[open] summary::before { content: '▾ '; }
+  .inv-snap { margin-top: 4px; font-size: 11.5px; color: var(--sub); white-space: pre-wrap; line-height: 1.55; }
   .pfoot { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 0 10px 8px; font-size: 11.5px; color: var(--sub); }
   .lbar { flex: 1; min-width: 60px; height: 8px; border-radius: 4px; overflow: hidden; display: flex; gap: 2px; }
   .lbar i { display: block; height: 100%; }
@@ -230,6 +241,7 @@ const TABLES = {
     '销售季分类', '当前阶段', '销售状态', '当日红绿灯', '红绿灯原因', '_当日销售进度值',
     '今日销量', '今日TACOS', '今日利润率', '今日销售额', '今日广告花费', '剩余可售天数', 'FBA可售', 'FBA在途入库',
     '近7日均量', '阶段达成率', '正价段目标销量', '应达销量',
+    '采购数量', '国内仓可用-SKU级共享', '售罄率', '预计冗余数量', '库存快照',
     ...STAGES.map((s) => s + '日均'), ...STAGES, ...STAGES.map((s) => s + '天数'), ...STAGES.map((s) => s + '目标'), '预估销量-整季', '累计销量', '销售进度',
     ...ANA_FIELDS] },
   pm: { id: 'tblqksywqgYvywOT', name: '产品主表-灯类+精铺', fields: ['领星SKU', '国家文本', '图片'] },
@@ -467,6 +479,7 @@ function cardHtml(x) {
       ${kpi('FBA可售', fmtN(fba))}
       ${kpi('在途', fmtN(inb))}
     </div>
+    ${invHtml(x)}
     <div class="reason ${x.light}">${esc((x.today && x.today['红绿灯原因']) || c['红绿灯原因'] || '（表里无红绿灯原因）')}</div>
     <div class="ana">
       <div class="ana-h"><b>今日分析 · ${dateTxt}</b><span data-msg></span></div>
@@ -516,6 +529,28 @@ function stagePlan(x, opt = {}) {
     <div class="pfoot"><span data-pmsg>${opt.goals ? '点数字或文字即可修改' : '点日均或预估的数字即可修改'}</span><button class="btn primary" data-psave style="display:none">${opt.goals ? '保存阶段目标' : '保存阶段预估'}</button></div></details>`;
 }
 
+// ===== 库存块：本季已发货 = 已售 + FBA可售 + 在途 + 其他（调拨/不可售/差额），数都取战役行 =====
+function invHtml(x) {
+  const c = x.c;
+  const ship = num(c['采购数量']), sold = num(c['累计销量']) || 0, fba = num(c['FBA可售']) || 0, inb = num(c['FBA在途入库']) || 0;
+  const other = ship != null ? Math.max(0, ship - sold - fba - inb) : 0;
+  const base = Math.max(ship || 0, sold + fba + inb + other) || 1;
+  const segs = [['已售', sold, '#cfc5ba'], ['FBA可售', fba, '#34c759'], ['在途', inb, '#f59a3c'], ['其他', other, '#ece5dd']];
+  const bar = segs.filter((g) => g[1] > 0).map((g) => `<i style="flex:${g[1]};background:${g[2]}" title="${g[0]} ${g[1]}"></i>`).join('');
+  const leg = segs.filter((g) => g[0] !== '其他' || g[1] > 0).map((g) => `<span><b style="background:${g[2]}"></b>${g[0]} ${fmtN(g[1])}</span>`).join('');
+  const rate = num(c['售罄率']), days = num(c['剩余可售天数']), dom = num(c['国内仓可用-SKU级共享']), red = num(c['预计冗余数量']);
+  const snap = String(c['库存快照'] || '').trim();
+  const more = /另(\d+)票/.exec(snap);
+  const shipN = (snap.match(/FBA[0-9A-Z]{6,}/g) || []).length + (more ? Number(more[1]) : 0);
+  return `<div class="inv">
+    <div class="sec-t">库存 <span class="meta">本季已发货 ${fmtN(ship)} · 售罄率 ${pct(rate)}</span></div>
+    <div class="inv-bar">${bar || '<i style="flex:1;background:#ece5dd"></i>'}</div>
+    <div class="inv-leg">${leg}</div>
+    <div class="inv-k">${kpi('可售天数', days === 0 && fba + inb > 0 ? '<small>近7天无销量</small>' : fmtN(days), days != null && days > 0 && days < 7 ? 'bad' : '')}${kpi('国内仓可用', fmtN(dom))}${kpi('预计冗余', fmtN(red), red > 0 ? 'bad' : '')}</div>
+    ${snap ? `<details class="inv-d"><summary>库存明细 · ${shipN ? `货件 ${shipN} 票` : '近30天无货件'}</summary><div class="inv-snap">${esc(snap)}</div></details>` : ''}
+  </div>`;
+}
+
 // ===== 目标填写页卡片：头部 + 当前状态 + 近 7 天概览 + 阶段目标（可编辑） =====
 function week7(x) {
   const ds = x.ds.slice(0, 7).reverse();
@@ -555,12 +590,10 @@ function targetCardHtml(x) {
         ${kpi('当前阶段', esc(x.stage || '—'))}
         ${kpi('阶段达成率', pct(ach), ach != null && ach < 0.8 && x.hasStage ? 'bad' : '')}
         ${kpi('应达 / 累计', `${fmtN(num(c['应达销量']))}<small> / ${fmtN(num(c['累计销量']))}</small>`)}
-        ${kpi('可售天数', fmtN(num(c['剩余可售天数'])))}
-        ${kpi('FBA可售', fmtN(num(c['FBA可售'])))}
-        ${kpi('在途', fmtN(num(c['FBA在途入库'])))}
       </div>
       <div class="reason ${x.light}" style="margin-top:8px">${esc(t['红绿灯原因'] || '（表里无红绿灯原因）')}</div>
     </div>
+    ${invHtml(x)}
     <div>
       <div class="sec-t">近 7 天 <span class="meta">柱色 = 当天红绿灯 · 虚线 = 当前阶段日均目标</span></div>
       ${week7(x)}
