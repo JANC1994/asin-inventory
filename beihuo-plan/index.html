@@ -62,6 +62,10 @@
   .grp:first-child { border-top: 0; }
   .owner-sel { height: 40px; padding: 0 12px; border: 1.5px solid var(--brand-line); border-radius: 10px; font-size: 14px; background: #fff; color: var(--ink); outline: none; cursor: pointer; }
   .owner-sel:focus { border-color: var(--brand); box-shadow: 0 0 0 3px rgba(247, 107, 21, .15); }
+  .savebox { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--line2); }
+  .savebox .st { font-size: 13px; color: var(--sub); }
+  .savebox .st.dirty { color: var(--yellow); font-weight: 600; }
+  .savebox .st.ok { color: var(--green); }
   .mask { position: fixed; inset: 0; z-index: 100; background: rgba(42, 33, 27, .38); display: flex; align-items: center; justify-content: center; padding: 16px; animation: fade .12s ease-out; }
   @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
   .dlg { width: min(560px, 100%); max-height: 86vh; display: flex; flex-direction: column; background: var(--card); border-radius: 14px; box-shadow: 0 18px 50px rgba(60, 30, 0, .25); overflow: hidden; }
@@ -271,7 +275,9 @@ function defaults(o) {
   return { months: winMonths.map((w) => o.months[w.m]), prod: o.prod, freight: o.freight, safety: o.safety, shipCover: o.shipCover, poCover: o.poCover };
 }
 function cur(o) { return Object.assign(defaults(o), EDIT[o.key] || {}); }
-function setEdit(o, patch) { EDIT[o.key] = Object.assign(cur(o), patch); persist(); }
+function setEdit(o, patch) { EDIT[o.key] = Object.assign(cur(o), patch, { _ts: Date.now() }); persist(); }
+const SAVED = {};      // 页面存档（多维表「备货计划-页面存档」）：key → {id, by, at, data}
+const SAVE_MSG = {};   // 每个 ASIN 最近一次保存结果
 
 // ===== 计算 =====
 // 逐日结果里的缺货段：[{from, to, qty, final}]，final＝一直缺到窗口最后一天
@@ -431,6 +437,19 @@ function foldMonths(o) {
 }
 const activePeriods = (o) => (cur(o).periods || []).filter((x) => x.on !== false && !x.folded && x.from && x.to && x.daily !== '' && x.daily != null);
 
+// ===== 保存到页面：④⑤⑥ 的预估、时段、参数、发货计划整套存进「备货计划-页面存档」，换电脑/清缓存都在，不改备货表 =====
+function saveBox(o) {
+  const s = SAVED[o.key], e = EDIT[o.key];
+  const dirty = e && (!s || (e._ts || 0) > s.at);
+  const when = (ms) => { const d = new Date(ms); return `${d.getMonth() + 1}-${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
+  const st = SAVE_MSG[o.key] ? `<span class="st ${SAVE_MSG[o.key].startsWith('✘') ? 'dirty' : 'ok'}">${esc(SAVE_MSG[o.key])}</span>`
+    : dirty ? `<span class="st dirty">● 有未保存的修改（现在只存在这台电脑，清缓存会丢）</span>`
+    : s ? `<span class="st ok">✔ 已保存到页面 · ${esc(s.by || '—')} · ${when(s.at)}</span>`
+    : '<span class="st">还没有保存过 · 当前用的是备货表的值</span>';
+  return `<div class="savebox"><button class="btn primary" data-act="saveArc">💾 保存到页面</button>${st}
+    <span class="meta">保存的是本页 ④预估/时段 ⑤参数 ⑥发货计划，下次打开原样恢复（备货表之后再变也不影响）；不会改动备货表。全组共用一份，后保存的覆盖先保存的。</span></div>`;
+}
+
 // ===== 确认弹窗（同步到多维表前列出每行改动）：rows = [{title, tag, items:[{name, from, to}]}] → Promise<boolean> =====
 function askConfirm({ title, sub = '', rows = [], ok = '确认同步' }) {
   return new Promise((resolve) => {
@@ -582,7 +601,7 @@ function render() {
       <div><div class="name">${esc(o.name)}</div>
       <div class="meta">${esc(o.asin)} · <span class="tag ${o.country === '加拿大' ? 'ca' : 'us'}">${esc(o.country)}</span> · ${esc(o.store)} · SPU：${esc(o.spu || '—')} · 负责人：${esc(o.owner || '—')}</div>
       <div class="meta">SKU：${o.skus.map(esc).join('、')} · 单箱 ${fmtN(o.box)} 件 · 头程渠道：${esc(o.channel || '未填')}</div></div>
-    </div></div>`;
+    </div>${saveBox(o)}</div>`;
 
   // ② 库存与销量
   const c2 = `<div class="card"><h3>② 库存与销量 <small>领星快照 ${esc(o.updated)}</small></h3>
@@ -631,8 +650,8 @@ function render() {
     <div class="btns"><button class="btn" data-act="d30">全部填 30 天日均（${fmtN(o.d30, 1)}）</button><button class="btn" data-act="d7">全部填 7 天日均（${fmtN(o.d7, 1)}）</button>
       <button class="btn" data-act="resetM">恢复备货表值</button>
       <button class="btn primary" data-act="syncM">⇪ 同步到多维表</button>
-      <span class="meta" id="syncMsg">${esc(SYNC_MSG[o.key] || '把 6 个月预估写回销量预估-备货表（主SKU行；-8.5 副款行写 0）。勾选的自定义时段会按天折算进月日均一起写入，写入后时段标为「已折算」只留记录')}</span></div>
-    <div class="sub-h" style="margin-top:18px">按时段自定义日均 <small>不按月份：给任意一段日期指定日均（如大促、断档恢复期、新品爬坡），落在时段内的天优先用它，其余天仍用上面的月均；时段重叠时下面的行优先。勾选才生效，日历/趋势图/建议货件/断货日全部按它重算；点上方「同步到多维表」后，时段按天折算进月日均写回备货表，并标为「已折算」</small></div>
+      <span class="meta" id="syncMsg">${esc(SYNC_MSG[o.key] || '把 6 个月预估写回销量预估-备货表（主SKU行；-8.5 副款行写 0）。勾选的自定义时段会按天折算进月日均一起写入；页面上的原始预估和时段会自动「保存到页面」，下次打开趋势图不变')}</span></div>
+    <div class="sub-h" style="margin-top:18px">按时段自定义日均 <small>不按月份：给任意一段日期指定日均（如大促、断档恢复期、新品爬坡），落在时段内的天优先用它，其余天仍用上面的月均；时段重叠时下面的行优先。勾选才生效，日历/趋势图/建议货件/断货日全部按它重算；点上方「同步到多维表」后，备货表拿到的是折算后的月日均（月内平摊），本页仍按时段逐日算并自动保存</small></div>
     ${m.periods.length ? `<div class="scroll"><table class="tbl plan"><thead><tr><th style="width:28px"></th><th>开始日期</th><th>结束日期</th><th class="num">日均销量</th><th class="num">天数</th><th class="num">时段销量</th><th class="num">对比月均</th><th></th></tr></thead><tbody>
       ${m.periods.map((x) => { const nd = x.valid ? x.b - x.a + 1 : 0; let base = 0; if (x.valid) for (let d = x.a; d <= x.b; d++) base += m.monthOf(d);
         const tot = nd * n0(x.daily); const diff = tot - base;
@@ -834,11 +853,21 @@ document.addEventListener('click', (e) => {
       .then((r) => {
         if (r) {
           SYNC_MSG[o.key] = r;
-          if (!r.startsWith('✘')) setEdit(o, { months: folded, periods: (cur(o).periods || []).map((x) => (x.on !== false && !x.folded ? { ...x, on: false, folded: true } : x)) });
+          if (!r.startsWith('✘') && typeof saveArchive === 'function') {
+            return saveArchive(o).then((s) => { SAVE_MSG[o.key] = s; }, (err) => { SAVE_MSG[o.key] = '✘ 保存到页面失败：' + (err && err.message ? err.message : err); })
+              .finally(() => { if (SEL === o) render(); });
+          }
         }
         if (SEL === o) render();
       })
       .catch((err) => { SYNC_MSG[o.key] = '✘ 同步失败：' + (err && err.message ? err.message : err); if (SEL === o) render(); });
+    return;
+  }
+  if (a === 'saveArc') {
+    if (typeof saveArchive !== 'function') { alert('这是本地快照预览版，不能保存到页面。在飞书应用的「四季品备货计划」页面里点这个按钮才会保存。'); return; }
+    const o = SEL; b.disabled = true; SAVE_MSG[o.key] = ''; b.textContent = '保存中…';
+    saveArchive(o).then((s) => { SAVE_MSG[o.key] = s; }, (err) => { SAVE_MSG[o.key] = '✘ 保存失败：' + (err && err.message ? err.message : err); })
+      .finally(() => { if (SEL === o) render(); });
     return;
   }
   if (a === 'syncP') {
@@ -897,6 +926,7 @@ const TABLES = {
     'FBA可售', 'FBA预留', 'FBA入库中', 'FBA在途', 'FBA计划入库', '数据更新日'] },
   ship: { id: 'tblDvoc2YSab7TMr', name: 'FBA在途货件明细-灯', fields: ['ASIN', 'SKU', '国家', '店铺', '货件号', '发货单号', '货件状态', '目的仓', '发货量', '已收量',
     '建单日', '发货日', '预计到仓日', '到仓日来源', '物流渠道'] },
+  sv: { id: 'tblXt1ki1ZvR2o8U', name: '备货计划-页面存档', fields: ['记录键', '方案数据', '更新人', '更新时间'] },
   ch: { id: 'tblxl08WV9pLwxdi', name: '头程渠道时效', fields: ['物流渠道', '国家', '运输方式', '标准时效天数', '历史样本数', '启用'] },
 };
 // ⑤ 时效参数 ↔ 备货表字段（都是数字字段，可写）
@@ -1006,12 +1036,42 @@ async function loadLive() {
   const keys = Object.keys(TABLES);
   // 核心表读不到直接报错；头程渠道表读不到只降级（没有渠道建议）
   const res = await Promise.all(keys.map((k) => readTable(k).catch((e) => {
-    if (k === 'ch') { WARN.push(`${TABLES[k].name} 读不到（${e && e.message ? e.message : e}）`); return []; }
+    if (k === 'ch' || k === 'sv') { WARN.push(`${TABLES[k].name} 读不到（${e && e.message ? e.message : e}）`); return []; }
     throw new Error(`${TABLES[k].name}：${e && e.message ? e.message : e}`);
   })));
   const T = Object.fromEntries(keys.map((k, i) => [k, res[i]]));
   const { out, ch } = buildData(T);
   DATA = out; CHANNELS = ch;
+  // 页面存档：比本机草稿新（或本机没有）就用存档
+  for (const r of T.sv) {
+    const key = r['记录键']; if (!key) continue;
+    let data; try { data = JSON.parse(r['方案数据'] || '{}'); } catch (e) { continue; }
+    const at = Number(r['更新时间']) || 0;
+    SAVED[key] = { id: r._id, by: r['更新人'], at, data };
+    if (!EDIT[key] || (EDIT[key]._ts || 0) <= at) EDIT[key] = { ...data, _ts: at };
+  }
+  persist();
+}
+
+// ===== 保存到页面（写「备货计划-页面存档」，一个 ASIN×国家 一行；不动备货表） =====
+async function saveArchive(o) {
+  const ids = META.sv;
+  if (!ids) throw new Error('读不到「备货计划-页面存档」表：请管理员在插件 ⋮→配置 里重新点一次「保存到页面」授权，并在应用权限配置里给角色开这张表的「可编辑」');
+  const data = { ...cur(o) }; delete data._ts;
+  const text = (s) => [{ type: 'text', text: s }];
+  const fields = { [ids['记录键']]: text(o.key), [ids['ASIN']]: text(o.asin), [ids['国家']]: text(o.country),
+    [ids['方案数据']]: text(JSON.stringify(data)), [ids['时段数']]: (data.periods || []).length };
+  const table = await SDK.bitable.base.getTableById(TABLES.sv.id);
+  let id = SAVED[o.key] && SAVED[o.key].id;
+  if (id) await table.setRecord(id, { fields });
+  else id = await table.addRecord({ fields });
+  const back = cell(await table.getCellValue(ids['方案数据'], id));
+  if (back !== JSON.stringify(data)) throw new Error('写入后回读不一致，请重试');
+  const at = Date.now();
+  SAVED[o.key] = { id, by: '我', at, data };
+  EDIT[o.key] = { ...data, _ts: at }; persist();
+  const d = new Date(at);
+  return `✔ ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')} 已保存到页面（换电脑、清缓存都在；备货表没有改动）`;
 }
 
 // ===== ④「同步到多维表」：把 6 个月预估日均写回 销量预估-备货表（主SKU行写值，-8.5 等副款行写 0，与「库存按 ASIN 算」口径一致） =====
