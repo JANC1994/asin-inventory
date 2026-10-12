@@ -420,6 +420,17 @@ function model(o, opt = {}) {
            lastShip, lastPo, nextShip, nextPo, redDays, box, plans, sugs, chans, regular, finalArr, split, periods, perOf, monthOf };
 }
 
+// ===== 自定义时段折算：把勾选生效的时段按天折进 6 个月日均（本月按今天到月末算） =====
+function foldMonths(o) {
+  const m = model(o);
+  return winMonths.map((w, i) => {
+    const a = i === 0 ? today0 : dayOf(w.y, w.m, 1), b = dayOf(w.y, w.m + 1, 0);
+    let s = 0; for (let d = a; d <= b; d++) s += m.fcOf(d);
+    return Math.round(s / (b - a + 1) * 100) / 100;
+  });
+}
+const activePeriods = (o) => (cur(o).periods || []).filter((x) => x.on !== false && !x.folded && x.from && x.to && x.daily !== '' && x.daily != null);
+
 // ===== 确认弹窗（同步到多维表前列出每行改动）：rows = [{title, tag, items:[{name, from, to}]}] → Promise<boolean> =====
 function askConfirm({ title, sub = '', rows = [], ok = '确认同步' }) {
   return new Promise((resolve) => {
@@ -620,13 +631,13 @@ function render() {
     <div class="btns"><button class="btn" data-act="d30">全部填 30 天日均（${fmtN(o.d30, 1)}）</button><button class="btn" data-act="d7">全部填 7 天日均（${fmtN(o.d7, 1)}）</button>
       <button class="btn" data-act="resetM">恢复备货表值</button>
       <button class="btn primary" data-act="syncM">⇪ 同步到多维表</button>
-      <span class="meta" id="syncMsg">${esc(SYNC_MSG[o.key] || '把上面 6 个月的「预估日均」写回销量预估-备货表（主SKU行；-8.5 副款行写 0）。自定义时段只在本页生效，不同步')}</span></div>
-    <div class="sub-h" style="margin-top:18px">按时段自定义日均 <small>不按月份：给任意一段日期指定日均（如大促、断档恢复期、新品爬坡），落在时段内的天优先用它，其余天仍用上面的月均；时段重叠时下面的行优先。勾选才生效，日历/趋势图/建议货件/断货日全部按它重算</small></div>
+      <span class="meta" id="syncMsg">${esc(SYNC_MSG[o.key] || '把 6 个月预估写回销量预估-备货表（主SKU行；-8.5 副款行写 0）。勾选的自定义时段会按天折算进月日均一起写入，写入后时段标为「已折算」只留记录')}</span></div>
+    <div class="sub-h" style="margin-top:18px">按时段自定义日均 <small>不按月份：给任意一段日期指定日均（如大促、断档恢复期、新品爬坡），落在时段内的天优先用它，其余天仍用上面的月均；时段重叠时下面的行优先。勾选才生效，日历/趋势图/建议货件/断货日全部按它重算；点上方「同步到多维表」后，时段按天折算进月日均写回备货表，并标为「已折算」</small></div>
     ${m.periods.length ? `<div class="scroll"><table class="tbl plan"><thead><tr><th style="width:28px"></th><th>开始日期</th><th>结束日期</th><th class="num">日均销量</th><th class="num">天数</th><th class="num">时段销量</th><th class="num">对比月均</th><th></th></tr></thead><tbody>
       ${m.periods.map((x) => { const nd = x.valid ? x.b - x.a + 1 : 0; let base = 0; if (x.valid) for (let d = x.a; d <= x.b; d++) base += m.monthOf(d);
         const tot = nd * n0(x.daily); const diff = tot - base;
         return `<tr class="${x.on !== false && x.valid ? 'on' : ''}">
-        <td><input type="checkbox" data-per="${x.i}" data-f="on" ${x.on !== false ? 'checked' : ''}></td>
+        <td>${x.folded ? '<span class="meta" title="已折算进月日均并写回备货表，不再重复计算">已折算</span>' : `<input type="checkbox" data-per="${x.i}" data-f="on" ${x.on !== false ? 'checked' : ''}>`}</td>
         <td><input class="num" style="width:140px;text-align:left" type="date" data-per="${x.i}" data-f="from" value="${esc(x.from || '')}"></td>
         <td><input class="num" style="width:140px;text-align:left" type="date" data-per="${x.i}" data-f="to" value="${esc(x.to || '')}"></td>
         <td class="num"><input class="num" type="number" min="0" step="0.1" data-per="${x.i}" data-f="daily" value="${x.daily ?? ''}"></td>
@@ -818,8 +829,15 @@ document.addEventListener('click', (e) => {
   if (a === 'syncM') {
     if (typeof syncMonthsToBase !== 'function') { alert('这是本地快照预览版，不能同步。在飞书应用的「四季品备货计划」页面里点这个按钮，才会写回多维表。'); return; }
     const o = SEL; b.disabled = true; $('syncMsg').textContent = '同步中…';
-    syncMonthsToBase(o, cur(o).months)
-      .then((r) => { if (r) SYNC_MSG[o.key] = r; if (SEL === o) render(); })
+    const nPer = activePeriods(o).length, folded = foldMonths(o);
+    syncMonthsToBase(o, folded, nPer)
+      .then((r) => {
+        if (r) {
+          SYNC_MSG[o.key] = r;
+          if (!r.startsWith('✘')) setEdit(o, { months: folded, periods: (cur(o).periods || []).map((x) => (x.on !== false && !x.folded ? { ...x, on: false, folded: true } : x)) });
+        }
+        if (SEL === o) render();
+      })
       .catch((err) => { SYNC_MSG[o.key] = '✘ 同步失败：' + (err && err.message ? err.message : err); if (SEL === o) render(); });
     return;
   }
@@ -997,7 +1015,7 @@ async function loadLive() {
 }
 
 // ===== ④「同步到多维表」：把 6 个月预估日均写回 销量预估-备货表（主SKU行写值，-8.5 等副款行写 0，与「库存按 ASIN 算」口径一致） =====
-async function syncMonthsToBase(o, months) {
+async function syncMonthsToBase(o, months, nPer = 0) {
   const ids = META.bh || {};
   const miss = winMonths.map((w) => `${w.m + 1}月日均`).filter((n) => !ids[n]);
   if (miss.length) throw new Error(`备货表找不到字段：${miss.join('、')}`);
@@ -1013,7 +1031,7 @@ async function syncMonthsToBase(o, months) {
   });
   if (!plan.length) return '✔ 多维表里已经是这些值，无需同步';
   if (!await askConfirm({ title: '同步预估日均到「销量预估-备货表」',
-    sub: `${o.asin} · ${o.country} · 共 ${plan.length} 行、${plan.reduce((s, x) => s + x.items.length, 0)} 个月份。写入后全组可见，备货表公式会随之重算。`,
+    sub: `${o.asin} · ${o.country} · 共 ${plan.length} 行、${plan.reduce((s, x) => s + x.items.length, 0)} 个月份。${nPer ? `已把 ${nPer} 个自定义时段按天折算进月日均，同步后这些时段标为「已折算」。` : ''}写入后全组可见，备货表公式会随之重算。`,
     rows: plan.map((x) => ({ title: x.r.sku, tag: x.r === o.rows[0] ? '主SKU' : '副款，写 0', items: x.items })) })) return null;
   const table = await SDK.bitable.base.getTableById(TABLES.bh.id);
   await table.setRecords(plan.map((x) => ({ recordId: x.r.id, fields: x.fields })));
