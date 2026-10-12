@@ -998,54 +998,6 @@ async function diagnose() {
     `<tr><td style="width:24px">${r[0]}</td><td>${esc(r[1])}</td><td style="white-space:normal;color:var(--sub)">${esc(r[2])}</td></tr>`).join('')}</tbody></table></div>`;
 }
 
-// ===== 临时：写入权限测试（右下角按钮；用不同角色的账号各点一次，确认浏览态能否写表。测完删掉本段） =====
-async function writeTest() {
-  const res = [];
-  const t = async (name, fn) => {
-    try {
-      const v = await Promise.race([fn(), new Promise((_, rej) => setTimeout(() => rej(new Error('超时 8s')), 8000))]);
-      let shown; try { shown = typeof v === 'string' ? v : JSON.stringify(v); } catch (x) { shown = String(v); }
-      res.push(['✔', name, String(shown).slice(0, 200)]); return v;
-    } catch (e) { res.push(['✘', name, e && e.message ? e.message : String(e)]); return undefined; }
-  };
-  const o = SEL || DATA[0];
-  const r = o && o.rows[0];
-  const fname = '12月日均', fid = (META.bh || {})[fname];
-  await t('插件状态', async () => SDK.dashboard.state);
-  if (!r || !fid) { res.push(['✘', '准备', '没有可测的行/字段']); return res; }
-  const { bitable, PermissionEntity: PE, OperationType: OT } = SDK;
-  await t('权限查询：备货表 可编辑', () => bitable.base.getPermission({ entity: PE.Table, param: { tableId: TABLES.bh.id }, type: OT.Editable }));
-  await t(`权限查询：字段 ${fname} 可编辑`, () => bitable.base.getPermission({ entity: PE.Field, param: { tableId: TABLES.bh.id, fieldId: fid }, type: OT.Editable }));
-  await t(`权限查询：本行单元格 可编辑`, () => bitable.base.getPermission({ entity: PE.Cell, param: { tableId: TABLES.bh.id, recordId: r.id, fieldId: fid }, type: OT.Editable }));
-  const table = await bitable.base.getTableById(TABLES.bh.id);
-  const before = await t(`读原值 ${r.sku} ${fname}`, async () => n0(cell(await table.getCellValue(fid, r.id))));
-  if (before === undefined) return res;
-  const probe = Math.round((before + 0.01) * 100) / 100;
-  const wrote = await t(`写入测试值 ${probe}`, () => table.setRecord(r.id, { fields: { [fid]: probe } }).then(() => 'ok'));
-  if (wrote) {
-    await t('回读', async () => n0(cell(await table.getCellValue(fid, r.id))));
-    await t(`还原为 ${before}`, () => table.setRecord(r.id, { fields: { [fid]: before } }).then(() => 'ok'));
-    await t('还原后回读', async () => n0(cell(await table.getCellValue(fid, r.id))));
-  }
-  return res;
-}
-(() => {
-  const btn = document.createElement('button');
-  btn.textContent = '写入权限测试';
-  btn.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:99;height:32px;padding:0 14px;border:1px solid #ccc;border-radius:8px;background:#fff;cursor:pointer;font-size:13px';
-  const box = document.createElement('div');
-  box.style.cssText = 'position:fixed;right:16px;bottom:56px;z-index:99;max-width:560px;max-height:70vh;overflow:auto;background:#fff;border:1px solid #ccc;border-radius:10px;padding:12px;box-shadow:0 4px 16px rgba(0,0,0,.15);display:none;font-size:13px';
-  btn.onclick = async () => {
-    if (!SDK) return;
-    btn.disabled = true; box.style.display = 'block'; box.textContent = '测试中…';
-    const res = await writeTest().catch((e) => [['✘', '测试异常', e && e.message ? e.message : String(e)]]);
-    box.innerHTML = `<b>写入权限测试</b>（请截图发回）<table style="border-collapse:collapse;margin-top:6px">${res.map((x) =>
-      `<tr><td style="padding:3px 6px">${x[0]}</td><td style="padding:3px 6px">${esc(x[1])}</td><td style="padding:3px 6px;color:#666">${esc(x[2])}</td></tr>`).join('')}</table>`;
-    btn.disabled = false;
-  };
-  document.body.append(box, btn);
-})();
-
 (async () => {
   try {
     await loadLive();
