@@ -42,6 +42,26 @@
   .sticky.stuck { box-shadow: 0 6px 12px -8px rgba(80,50,20,.35); }
   .sticky.stuck .hero.hero-f { border-radius: 0 0 10px 10px; border-top: 0; }
   #filters .schips { margin-bottom: 8px; }
+  .seg { display: inline-flex; background: rgba(255,255,255,.22); border-radius: 9px; padding: 3px; gap: 2px; }
+  .seg button { height: 28px; padding: 0 14px; border: 0; border-radius: 7px; background: transparent; color: #fff; font-size: 13.5px; cursor: pointer; }
+  .seg button.on { background: #fff; color: var(--or-d); font-weight: 700; box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+  .lchip.fill-no { border-style: dashed; border-color: var(--or); color: var(--or-d); }
+  .lchip.fill-no.on, .lchip.fill-yes.on { border-style: solid; }
+  .tag.ok { background: var(--green-soft); color: var(--green); }
+  .sec-t { font-size: 12.5px; font-weight: 700; color: var(--or-d); margin-bottom: 6px; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .sec-t .meta { font-weight: normal; }
+  .w7 { border: 1px solid var(--line); border-radius: 10px; padding: 10px; background: #fcfaf7; }
+  .w7-bars { position: relative; display: flex; align-items: flex-end; gap: 6px; height: 86px; padding-top: 14px; }
+  .w7-b { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; min-width: 0; }
+  .w7-b .n { font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; margin-bottom: 2px; }
+  .w7-b i { display: block; width: 100%; max-width: 30px; border-radius: 4px 4px 0 0; min-height: 2px; }
+  .w7-x { display: flex; gap: 6px; margin-top: 4px; }
+  .w7-x span { flex: 1; text-align: center; font-size: 10.5px; color: var(--sub); }
+  .w7-t { position: absolute; left: 0; right: 0; border-top: 1.5px dashed var(--or); pointer-events: none; }
+  .w7-t span { position: absolute; right: 0; top: -15px; font-size: 10.5px; color: var(--or-d); background: #fcfaf7; padding: 0 3px; }
+  .w7-s { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--line2); }
+  .stat-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px 6px; background: #fcfaf7; border: 1px solid var(--line); border-radius: 10px; padding: 10px; }
+  .pending { font-size: 12px; color: var(--grey); border: 1px dashed #d5cbc0; border-radius: 8px; padding: 6px 10px; }
   .hero select.date { min-width: 150px; }
   .histnote { background: var(--or-soft); border: 1px solid var(--or-soft2); color: var(--or-d); border-radius: 8px; padding: 7px 12px; font-size: 12.5px; margin-bottom: 10px; }
   .hero { background: linear-gradient(120deg, #f07a12 0%, #f59a3c 60%, #f8b35f 100%); color: #fff; border-radius: 12px;
@@ -168,11 +188,13 @@
     <div class="hero-t">
       <h2>季节品每日追踪</h2>
       <p class="desc">每张卡 = 一个季节品链接（SKU×国家），同一 SPU 排在一行，红灯多的 SPU 排前。红黄绿灯和原因由系统每天按追踪表判定；
-        「今日分析」点「记动作」可直接写回多维表；「红/黄未分析」= 当天亮红/黄灯、但竞品动态/问题归因/计划/建议操作都还没填的产品。数据来源：季节品追踪表，每天更新。</p>
+        「今日分析」点「记动作」可直接写回多维表；「红/黄未分析」= 当天亮红/黄灯、但竞品动态/问题归因/计划/建议操作都还没填的产品。
+        切到「目标填写」：按产品填各阶段日均目标（阶段销量目标 = 日均 × 天数），并看当前状态和近 7 天表现。数据来源：季节品追踪表，每天更新。</p>
     </div>
   </div>
   <div class="sticky" id="sticky">
     <div class="hero hero-f">
+      <div class="seg" id="mode"><button data-mode="daily">每日追踪</button><button data-mode="target">目标填写</button></div>
       <select id="owner"><option value="">— 选择负责人 —</option></select>
       <select id="date" class="date"></select>
       <label class="ck"><input type="checkbox" id="showSold"> 显示售罄 <span id="soldCnt"></span></label>
@@ -196,7 +218,8 @@ const TABLES = {
   track: { id: 'tblKdwDOmVZxf6DN', name: '季节品追踪表', view: 'vew0aHeZlE', fields: [
     '行类型', '日期', '上级记录', '启用追踪', '负责人', '品名', 'ASIN', '国家文本', '店铺', '领星SKU', 'SPU',
     '销售季分类', '当前阶段', '销售状态', '当日红绿灯', '红绿灯原因', '_当日销售进度值',
-    '今日销量', '今日TACOS', '今日利润率', '剩余可售天数', 'FBA可售', 'FBA在途入库',
+    '今日销量', '今日TACOS', '今日利润率', '今日销售额', '今日广告花费', '剩余可售天数', 'FBA可售', 'FBA在途入库',
+    '近7日均量', '阶段达成率', '正价段目标销量', '应达销量',
     ...STAGES.map((s) => s + '日均'), ...STAGES, ...STAGES.map((s) => s + '天数'), '预估销量-整季', '累计销量', '销售进度',
     ...ANA_FIELDS] },
   pm: { id: 'tblqksywqgYvywOT', name: '产品主表-灯类+精铺', fields: ['领星SKU', '国家文本', '图片'] },
@@ -304,8 +327,8 @@ const lightOf = (s) => LIGHTS.find((l) => l.match(String(s || ''))).key;
 const analyzed = (x) => !!x.today && ANA_DONE_FIELDS.some((f) => String(x.today[f] || '').trim());
 const isTodo = (x) => (x.light === 'red' || x.light === 'yellow') && !analyzed(x);   // 红/黄未分析
 
-let ALL = [], CARDS = [], LATEST = null, DATES = [];
-let state = { owner: store.get('stp.owner') || '', date: null, light: 'all', season: 'all', stage: 'all', showSold: store.get('stp.showSold') === '1' };
+let ALL = [], CARDS = [], TCARDS = [], LATEST = null, DATES = [];
+let state = { mode: store.get('stp.mode') === 'target' ? 'target' : 'daily', fill: 'all', owner: store.get('stp.owner') || '', date: null, light: 'all', season: 'all', stage: 'all', showSold: store.get('stp.showSold') === '1' };
 const WK = '日一二三四五六';
 const isSold = (x) => String(x.c['销售状态'] || '').includes('售罄');   // 销售状态 = ⛔售罄
 
@@ -358,7 +381,15 @@ function applyDate() {
     const lightTxt = today['当日红绿灯'] || '';
     CARDS.push({ ...a, today, prev, lightTxt, light: lightOf(lightTxt) });
   }
+  // 目标填写页：每个启用追踪的产品一张卡，状态取它最新一天的日行
+  TCARDS = ALL.map((a) => { const today = a.ds[0] || null; const lightTxt = (today && today['当日红绿灯']) || '';
+    return { ...a, today, prev: a.ds[1] || null, lightTxt, light: lightOf(lightTxt) }; });
 }
+const LIST = () => state.mode === 'target' ? TCARDS : CARDS;
+// 「已填写」= 有天数的每个阶段都填了日均；没有节奏日历（各阶段天数都为 0）的算未填写
+const needStages = (x) => STAGES.filter((st) => (num(x.c[st + '天数']) || 0) > 0);
+const missingStages = (x) => needStages(x).filter((st) => num(x.c[st + '日均']) == null);
+const isFilled = (x) => needStages(x).length > 0 && missingStages(x).length === 0;
 
 // ===== ④ 渲染 =====
 function renderOwner() {
@@ -366,12 +397,18 @@ function renderOwner() {
   $('showSold').onchange = (e) => { state.showSold = e.target.checked; store.set('stp.showSold', state.showSold ? '1' : '0'); renderOwner(); render(); };
   // 负责人下拉：名字后面带所选日期的各灯数量（跟随「显示售罄」）
   const cnt = {};
-  CARDS.filter((x) => state.showSold || !isSold(x)).forEach((x) => {
-    const o = (cnt[x.owner] = cnt[x.owner] || { n: 0, red: 0, yellow: 0, green: 0, none: 0, ended: 0 });
-    o.n++; o[x.light]++;
+  LIST().filter((x) => state.showSold || !isSold(x)).forEach((x) => {
+    const o = (cnt[x.owner] = cnt[x.owner] || { n: 0, red: 0, yellow: 0, green: 0, none: 0, ended: 0, unfilled: 0 });
+    o.n++; o[x.light]++; if (!isFilled(x)) o.unfilled++;
   });
   const names = Object.keys(cnt).sort((a, b) => cnt[b].n - cnt[a].n);
-  const lab = (n) => { const o = cnt[n]; return `${n}　🔴${o.red} 🟡${o.yellow} 🟢${o.green}${o.none ? ` 未判${o.none}` : ''}${o.ended ? ` ⚪${o.ended}` : ''}`; };
+  const lab = (n) => { const o = cnt[n]; return state.mode === 'target' ? `${n}　未填写 ${o.unfilled} / 共 ${o.n}`
+    : `${n}　🔴${o.red} 🟡${o.yellow} 🟢${o.green}${o.none ? ` 未判${o.none}` : ''}${o.ended ? ` ⚪${o.ended}` : ''}`; };
+  $('date').style.display = state.mode === 'target' ? 'none' : '';
+  $('mode').querySelectorAll('[data-mode]').forEach((b) => {
+    b.classList.toggle('on', b.dataset.mode === state.mode);
+    b.onclick = () => { if (state.mode === b.dataset.mode) return; state.mode = b.dataset.mode; store.set('stp.mode', state.mode); state.light = 'all'; state.fill = 'all'; renderOwner(); render(); window.scrollTo(0, 0); };
+  });
   $('owner').innerHTML = `<option value="">— 选择负责人 —</option>` + names.map((n) => `<option value="${esc(n)}"${n === state.owner ? ' selected' : ''}>${esc(lab(n))}</option>`).join('')
     + (state.owner && !cnt[state.owner] ? `<option value="${esc(state.owner)}" selected>${esc(state.owner)}（该日无产品）</option>` : '');
   $('owner').onchange = (e) => { state.owner = e.target.value; state.light = 'all'; state.season = 'all'; state.stage = 'all'; store.set('stp.owner', state.owner); render(); };
@@ -433,7 +470,7 @@ function cardHtml(x) {
 }
 
 // 按 SPU 分行：每个 SPU 一行（行内卡片自动换行），红灯多的 SPU 排前
-function spuRows(list) {
+function spuRows(list, cardFn = cardHtml) {
   const g = {};
   list.forEach((x) => (g[x.spu] = g[x.spu] || []).push(x));
   const lorder = { red: 0, yellow: 1, green: 2, none: 3, ended: 4 };
@@ -445,12 +482,12 @@ function spuRows(list) {
     const meta = [...new Set(xs.map((x) => x.stage))].join(' / ');
     const seg = LIGHTS.filter((l) => cnt(xs, l.key)).map((l) => `<i style="flex:${cnt(xs, l.key)};background:${l.key === 'none' ? '#e3ddd6' : l.color}" title="${l.label} ${cnt(xs, l.key)}"></i>`).join('');
     return `<section class="spu"><div class="spu-h"><b>${esc(k)}</b><span class="meta">${xs.length} 个 · ${esc(meta)}</span>${sum}<span class="lbar">${seg}</span></div>
-      <div class="grid">${xs.map(cardHtml).join('')}</div></section>`;
+      <div class="grid">${xs.map(cardFn).join('')}</div></section>`;
   }).join('');
 }
 
 // 五个期预估销量（折叠）：每期预估 = X期日均 × X期天数，与表里「预估销量-整季」公式同口径
-function stagePlan(x) {
+function stagePlan(x, opt = {}) {
   const c = x.c;
   const rows = STAGES.map((s) => ({ s, range: c[s] || '', days: num(c[s + '天数']), avg: num(c[s + '日均']) }))
     .map((r) => ({ ...r, est: r.days != null && r.avg != null ? Math.round(r.days * r.avg) : null }));
@@ -461,10 +498,64 @@ function stagePlan(x) {
     <td><input class="pin" data-k="avg" inputmode="decimal" value="${r.avg != null ? +r.avg.toFixed(2) : ''}" placeholder="未填" data-orig="${r.avg ?? ''}"></td>
     <td><input class="pin est" data-k="est" inputmode="numeric" value="${r.est ?? ''}" placeholder="—"${r.days ? '' : ' disabled title="该阶段天数为 0，不能按预估反推日均"'}></td>
     <td data-pct>${r.est != null && total ? pct(r.est / total) : '—'}</td></tr>`).join('');
-  return `<details class="plan"><summary>阶段预估销量 <span class="meta">整季预估 ${fmtN(total)} · 已售 ${fmtN(sold)} · 进度 ${pct(prog)}</span></summary>
-    <table class="ptbl"><thead><tr><th>阶段</th><th>日期</th><th>天数</th><th>日均 ✎</th><th>预估 ✎</th><th>占比</th></tr></thead>
+  return `<details class="plan"${opt.open ? ' open' : ''}><summary>${opt.title || '阶段预估销量'} <span class="meta">整季预估 ${fmtN(total)} · 已售 ${fmtN(sold)} · 进度 ${pct(prog)}</span></summary>
+    <table class="ptbl"><thead><tr><th>阶段</th><th>日期</th><th>天数</th><th>${opt.avgLab || '日均'} ✎</th><th>${opt.estLab || '预估'} ✎</th><th>占比</th></tr></thead>
     <tbody>${tr}</tbody><tfoot><tr><td colspan="4">整季预估</td><td><b data-total>${fmtN(total)}</b></td><td></td></tr></tfoot></table>
     <div class="pfoot"><span data-pmsg>点日均或预估的数字即可修改</span><button class="btn primary" data-psave style="display:none">保存阶段预估</button></div></details>`;
+}
+
+// ===== 目标填写页卡片：头部 + 当前状态 + 近 7 天概览 + 阶段目标（可编辑） =====
+function week7(x) {
+  const ds = x.ds.slice(0, 7).reverse();
+  if (!ds.length) return `<div class="w7"><div class="meta">近 7 天没有日行数据</div></div>`;
+  const vals = ds.map((d) => num(d['今日销量']) || 0);
+  const tgt = x.target;
+  const max = Math.max(1, ...vals, tgt || 0);
+  const col = { red: '#e5483f', yellow: '#f2b705', green: '#34c759', none: '#d9d1c8', ended: '#c9c1b8' };
+  const bars = ds.map((d, i) => `<div class="w7-b" title="${fmtD(dn(d['日期']))} 销量 ${vals[i]} · ${esc(d['当日红绿灯'] || '未判灯')}">
+      <span class="n">${vals[i]}</span><i style="height:${Math.max(2, vals[i] / max * 62)}px;background:${col[lightOf(d['当日红绿灯'])]}"></i></div>`).join('');
+  const tline = tgt ? `<div class="w7-t" style="bottom:${tgt / max * 62}px"><span>目标 ${fmtN(tgt, 1)}</span></div>` : '';
+  const sum = vals.reduce((a, b) => a + b, 0);
+  const sales = ds.reduce((a, d) => a + (num(d['今日销售额']) || 0), 0), ad = ds.reduce((a, d) => a + (num(d['今日广告花费']) || 0), 0);
+  const reds = ds.filter((d) => lightOf(d['当日红绿灯']) === 'red').length;
+  return `<div class="w7"><div class="w7-bars">${tline}${bars}</div>
+    <div class="w7-x">${ds.map((d) => `<span>${fmtD(dn(d['日期']))}</span>`).join('')}</div>
+    <div class="w7-s">${kpi(`${ds.length}天销量`, fmtN(sum))}${kpi('日均', fmtN(sum / ds.length, 1))}${kpi('TACoS', sales ? pct(ad / sales, 1) : '—', sales && ad / sales > 0.25 ? 'bad' : '')}${kpi('红灯天数', `${reds}<small> / ${ds.length}</small>`, reds ? 'bad' : '')}</div></div>`;
+}
+
+function targetCardHtml(x) {
+  const c = x.c, t = x.today || {};
+  const miss = missingStages(x), filled = isFilled(x);
+  const fillTag = filled ? '<span class="tag ok">已填写</span>'
+    : needStages(x).length ? `<span class="tag todo" title="未填：${miss.join('、')}">未填 ${miss.length} 个阶段</span>` : '<span class="tag todo" title="季节节奏日历里没有这个季节/年份/国家的阶段日期">无节奏日历</span>';
+  const ach = num(c['阶段达成率']);
+  return `<div class="pc ${x.light}" data-id="${esc(c._id)}">
+    <div class="pc-head">
+      <div class="pc-img" data-img="${esc(c._id)}">${x.pm && x.pm._imgData ? `<img src="${x.pm._imgData}" alt="">` : '无图'}</div>
+      <div class="pc-title"><b title="${esc(c['品名'])}">${esc(c['品名'] || c['领星SKU'])}</b>
+        <div class="mono">${esc(c['ASIN'] || '—')} · ${esc(c['国家文本'] || '—')} · ${esc(c['店铺'] || '—')}</div>
+        <div class="tags"><span class="tag">${esc(x.stage || '—')}</span><span class="tag g">${esc(x.season)}</span>${fillTag}</div></div>
+      <span class="light ${x.light}">${esc(x.lightTxt || '未判灯')}</span>
+    </div>
+    <div>
+      <div class="sec-t">当前状态 <span class="meta">${x.today ? fmtD(dn(x.today['日期'])) : '无日行'} · ${esc(c['销售状态'] || '')}</span></div>
+      <div class="stat-row">
+        ${kpi('当前阶段', esc(x.stage || '—'))}
+        ${kpi('阶段达成率', pct(ach), ach != null && ach < 0.8 && x.hasStage ? 'bad' : '')}
+        ${kpi('应达 / 累计', `${fmtN(num(c['应达销量']))}<small> / ${fmtN(num(c['累计销量']))}</small>`)}
+        ${kpi('可售天数', fmtN(num(c['剩余可售天数'])))}
+        ${kpi('FBA可售', fmtN(num(c['FBA可售'])))}
+        ${kpi('在途', fmtN(num(c['FBA在途入库'])))}
+      </div>
+      <div class="reason ${x.light}" style="margin-top:8px">${esc(t['红绿灯原因'] || '（表里无红绿灯原因）')}</div>
+    </div>
+    <div>
+      <div class="sec-t">近 7 天 <span class="meta">柱色 = 当天红绿灯 · 虚线 = 当前阶段日均目标</span></div>
+      ${week7(x)}
+    </div>
+    ${stagePlan(x, { open: true, title: '阶段目标', avgLab: '日均目标', estLab: '销量目标' })}
+    <div class="pending">阶段文字目标（如“起量期：冲进类目前 50”）：<span class="tbd">待定</span> 追踪表里没有对应字段，要不要加由你定。</div>
+  </div>`;
 }
 
 // 阶段预估：输入联动 + 写回战役行的 X期日均
@@ -511,7 +602,8 @@ function bindPlan(el, x) {
       for (const [st, v] of changed) x.c[st + '日均'] = v;
       x.c['预估销量-整季'] = STAGES.reduce((t, st) => t + (num(x.c[st + '天数']) || 0) * (num(x.c[st + '日均']) || 0), 0);
       if (x.hasStage) x.target = num(x.c[x.stage + '日均']);
-      for (const k of [...ALL, ...CARDS]) if (k.c === x.c) k.target = x.target;   // ALL/CARDS 共用同一个战役行对象 c
+      for (const k of [...ALL, ...CARDS, ...TCARDS]) if (k.c === x.c) k.target = x.target;
+      renderOwner();   // ALL/CARDS 共用同一个战役行对象 c
       render();
       const card = document.querySelector(`.pc[data-id="${x.c._id}"]`);
       if (card) { const d = card.querySelector('details.plan'); d.open = true; d.querySelector('[data-pmsg]').textContent = `已保存 ${changed.length} 个阶段日均 ✔`; }
@@ -531,7 +623,7 @@ function render() {
     $('main').querySelectorAll('[data-pick]').forEach((b) => b.onclick = () => { $('owner').value = b.dataset.pick; $('owner').dispatchEvent(new Event('change')); });
     return;
   }
-  const all = CARDS.filter((x) => x.owner === state.owner);
+  const all = LIST().filter((x) => x.owner === state.owner);
   const soldN = all.filter(isSold).length;
   $('soldCnt').textContent = `(${soldN})`;
   const mine = state.showSold ? all : all.filter((x) => !isSold(x));
@@ -550,6 +642,23 @@ function render() {
   const stc = (k) => inSeason.filter((x) => stageKey(x) === k).length;
   const stChips = [`<button class="schip${state.stage === 'all' ? ' on' : ''}" data-stage="all">全部 ${inSeason.length}</button>`]
     .concat(STAGES.concat(stc('其他') ? ['其他'] : []).map((s) => `<button class="schip${state.stage === s ? ' on' : ''}${stc(s) ? '' : ' zero'}" data-stage="${s}" title="${s === '其他' ? '已结束 / 无节奏日历' : ''}">${s} ${stc(s)}</button>`)).join('');
+  if (state.mode === 'target') {
+    const fn = (k) => k === 'yes' ? bySeason.filter(isFilled) : k === 'no' ? bySeason.filter((x) => !isFilled(x)) : bySeason;
+    const tShown = fn(state.fill);
+    const fchips = [['all', '全部'], ['no', '未填写'], ['yes', '已填写']].map(([k, l]) =>
+      `<div class="lchip fill-${k}${state.fill === k ? ' on' : ''}${fn(k).length ? '' : ' zero'}" data-fill="${k}">${l}<b>${fn(k).length}</b></div>`).join('')
+      + `<span class="meta" style="margin-left:auto" title="有天数的每个阶段都填了日均 = 已填写">已填写 ${fn('yes').length} / ${bySeason.length}</span>`;
+    $('filters').innerHTML = `<div class="bar1">${fchips}</div>
+      ${sChips ? `<div class="schips">${sChips}</div>` : ''}
+      <div class="schips"><span class="flab">阶段</span>${stChips}</div>`;
+    $('main').innerHTML = tShown.length ? spuRows(tShown, targetCardHtml) : `<div class="empty">没有符合条件的产品</div>`;
+    $('filters').querySelectorAll('[data-fill]').forEach((b) => b.onclick = () => { state.fill = b.dataset.fill; render(); });
+    $('filters').querySelectorAll('[data-season]').forEach((b) => b.onclick = () => { state.season = b.dataset.season; state.stage = 'all'; render(); });
+    $('filters').querySelectorAll('[data-stage]').forEach((b) => b.onclick = () => { state.stage = b.dataset.stage; render(); });
+    $('main').querySelectorAll('.pc').forEach(bindCard);
+    loadImages(tShown);
+    return;
+  }
   const hist = state.date !== LATEST ? `<div class="histnote">正在看 ${fmtD(state.date)} 的记录：红绿灯、原因、当日指标、今日分析是那一天的；阶段、库存、在途、目标和五个期预估是当前值。</div>` : '';
   $('filters').innerHTML = `
     <div class="bar1">${chips}</div>
@@ -566,9 +675,9 @@ function render() {
 
 // ===== ⑤ 今日分析写回日行 =====
 function bindCard(el) {
-  const x = CARDS.find((k) => k.c._id === el.dataset.id);
+  const x = LIST().find((k) => k.c._id === el.dataset.id);
   if (x) bindPlan(el, x);
-  if (!x || !x.today) return;
+  if (!x || !x.today || state.mode === 'target') return;
   const tas = [...el.querySelectorAll('textarea')];
   const editBtn = el.querySelector('[data-edit]'), saveBtn = el.querySelector('[data-save]'), msg = el.querySelector('[data-msg]');
   tas.forEach((ta) => ta.oninput = () => ta.classList.toggle('dirty', ta.value !== (x.today[ta.dataset.f] || '')));
