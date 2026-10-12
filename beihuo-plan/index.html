@@ -58,6 +58,29 @@
   .opt img { width: 30px; height: 30px; object-fit: cover; border-radius: 6px; flex: none; background: #f3ece6; }
   .opt .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .opt .m { color: var(--sub); font-size: 12px; flex: none; }
+  .grp { padding: 8px 10px 4px; font-size: 12px; font-weight: 600; color: var(--brand-deep); border-top: 1px solid var(--line); }
+  .grp:first-child { border-top: 0; }
+  .owner-sel { height: 40px; padding: 0 12px; border: 1.5px solid var(--brand-line); border-radius: 10px; font-size: 14px; background: #fff; color: var(--ink); outline: none; cursor: pointer; }
+  .owner-sel:focus { border-color: var(--brand); box-shadow: 0 0 0 3px rgba(247, 107, 21, .15); }
+  .mask { position: fixed; inset: 0; z-index: 100; background: rgba(42, 33, 27, .38); display: flex; align-items: center; justify-content: center; padding: 16px; animation: fade .12s ease-out; }
+  @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+  .dlg { width: min(560px, 100%); max-height: 86vh; display: flex; flex-direction: column; background: var(--card); border-radius: 14px; box-shadow: 0 18px 50px rgba(60, 30, 0, .25); overflow: hidden; }
+  .dlg-h { padding: 16px 20px 12px; border-bottom: 1px solid var(--line); }
+  .dlg-h b { font-size: 16px; }
+  .dlg-h .sub { color: var(--sub); font-size: 13px; margin-top: 4px; line-height: 1.5; }
+  .dlg-b { padding: 12px 20px; overflow: auto; }
+  .dlg-row { border: 1px solid var(--line); border-radius: 10px; margin-bottom: 10px; overflow: hidden; }
+  .dlg-row .hd { display: flex; align-items: center; gap: 8px; padding: 7px 12px; background: var(--brand-soft); font-weight: 600; font-size: 13px; }
+  .dlg-row .hd .tag2 { font-weight: 400; font-size: 12px; color: var(--sub); }
+  .dlg-row table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .dlg-row td { padding: 6px 12px; border-top: 1px solid var(--line); }
+  .dlg-row td.n { text-align: right; font-variant-numeric: tabular-nums; width: 90px; }
+  .dlg-row td.old { color: var(--sub); text-decoration: line-through; }
+  .dlg-row td.new { color: var(--brand-deep); font-weight: 600; }
+  .dlg-row td.ar { width: 24px; text-align: center; color: var(--sub); }
+  .dlg-f { display: flex; justify-content: flex-end; gap: 10px; padding: 12px 20px 16px; border-top: 1px solid var(--line); }
+  .dlg-f button { height: 36px; padding: 0 18px; border-radius: 9px; font-size: 14px; cursor: pointer; border: 1px solid var(--line2); background: #fff; color: var(--ink); }
+  .dlg-f button.ok { border: 0; background: linear-gradient(120deg, #ff8a3d, #f76b15); color: #fff; font-weight: 600; }
 
   .tag { display: inline-block; padding: 0 7px; border-radius: 999px; font-size: 12px; line-height: 20px; font-weight: 500; }
   .tag.us { background: #e8f1ff; color: #2659c9; } .tag.ca { background: #fdecec; color: #c0262d; }
@@ -198,6 +221,7 @@
       <input id="q" placeholder="输入 ASIN / 品名 / SKU 搜索，选一个 ASIN×国家（仅四季品）" autocomplete="off">
       <div class="menu" id="menu"></div>
     </div>
+    <select class="owner-sel" id="owner" title="按负责人筛选"><option value="">全部负责人</option></select>
     <div class="meta" id="meta"></div>
   </div>
   <div id="main"><div class="card empty">正在读取多维表数据…</div></div>
@@ -396,21 +420,63 @@ function model(o, opt = {}) {
            lastShip, lastPo, nextShip, nextPo, redDays, box, plans, sugs, chans, regular, finalArr, split, periods, perOf, monthOf };
 }
 
+// ===== 确认弹窗（同步到多维表前列出每行改动）：rows = [{title, tag, items:[{name, from, to}]}] → Promise<boolean> =====
+function askConfirm({ title, sub = '', rows = [], ok = '确认同步' }) {
+  return new Promise((resolve) => {
+    const m = document.createElement('div');
+    m.className = 'mask';
+    m.innerHTML = `<div class="dlg" role="dialog" aria-modal="true">
+      <div class="dlg-h"><b>${esc(title)}</b>${sub ? `<div class="sub">${esc(sub)}</div>` : ''}</div>
+      <div class="dlg-b">${rows.map((r) => `<div class="dlg-row"><div class="hd">${esc(r.title)}${r.tag ? `<span class="tag2">${esc(r.tag)}</span>` : ''}</div>
+        <table><tbody>${r.items.map((x) => `<tr><td>${esc(x.name)}</td><td class="n old">${esc(x.from)}</td><td class="ar">→</td><td class="n new">${esc(x.to)}</td></tr>`).join('')}</tbody></table></div>`).join('')}</div>
+      <div class="dlg-f"><button data-r="0">取消</button><button class="ok" data-r="1">${esc(ok)}</button></div></div>`;
+    const key = (e) => { if (e.key === 'Escape') done(false); };
+    const done = (v) => { m.remove(); document.removeEventListener('keydown', key); resolve(v); };
+    m.addEventListener('click', (e) => { const b = e.target.closest('[data-r]'); if (b) done(b.dataset.r === '1'); else if (e.target === m) done(false); });
+    document.addEventListener('keydown', key);
+    document.body.append(m);
+    m.querySelector('.ok').focus();
+  });
+}
+
 // ===== 选择器 =====
+const spuKey = (o) => String(o.spu || '').trim();
+const ownerOf = (o) => o.owner || '未指定';
+const bySpu = (a, b) => (!spuKey(a) - !spuKey(b)) || spuKey(a).localeCompare(spuKey(b), 'zh') || String(a.country).localeCompare(String(b.country), 'zh') || b.d30 - a.d30;
 function renderMenu(filter) {
   const f = filter.trim().toLowerCase();
-  const list = DATA.filter((o) => !f || [o.asin, o.name, o.skus.join(' '), o.country, o.spu].some((v) => String(v || '').toLowerCase().includes(f)));
-  $('menu').innerHTML = list.length ? list.map((o) => `
+  const own = $('owner').value;
+  const list = DATA.filter((o) => (!own || ownerOf(o) === own)
+      && (!f || [o.asin, o.name, o.skus.join(' '), o.country, o.spu, o.owner].some((v) => String(v || '').toLowerCase().includes(f))))
+    .sort(bySpu);
+  let html = '', g = null;
+  for (const o of list) {
+    const s = spuKey(o) || '未填 SPU';
+    if (s !== g) { g = s; html += `<div class="grp">${esc(s)}</div>`; }
+    html += `
     <div class="opt" data-k="${esc(o.key)}">
       <img src="${esc(o.img || '')}" onerror="this.style.visibility='hidden'">
       <span class="t">${esc(o.asin)} · ${esc(o.name)}</span>
       <span class="tag ${o.country === '加拿大' ? 'ca' : 'us'}">${esc(o.country)}</span>
-      <span class="m">30天日均 ${fmtN(o.d30, 1)}</span>
-    </div>`).join('') : '<div class="opt">没有匹配的四季品</div>';
+      <span class="m">${esc(ownerOf(o))} · 30天日均 ${fmtN(o.d30, 1)}</span>
+    </div>`;
+  }
+  $('menu').innerHTML = html || '<div class="opt">没有匹配的四季品</div>';
   $('menu').classList.add('open');
 }
 function bindPicker() {
-  const q = $('q');
+  const q = $('q'), ow = $('owner');
+  const owners = [...new Set(DATA.map(ownerOf))].sort((a, b) => (a === '未指定') - (b === '未指定') || a.localeCompare(b, 'zh'));
+  ow.innerHTML = '<option value="">全部负责人</option>' + owners.map((x) => `<option>${esc(x)}</option>`).join('');
+  try { const v = localStorage.getItem('beihuo-plan-owner'); if (v && owners.includes(v)) ow.value = v; } catch (e) { /* 忽略 */ }
+  ow.addEventListener('change', () => {
+    try { localStorage.setItem('beihuo-plan-owner', ow.value); } catch (e) { /* 忽略 */ }
+    // 当前选中的不属于该负责人 → 切到该负责人按 SPU 排序的第一个
+    if (ow.value && SEL && ownerOf(SEL) !== ow.value) {
+      const first = DATA.filter((o) => ownerOf(o) === ow.value).sort(bySpu)[0];
+      if (first) select(first.key);
+    }
+  });
   q.addEventListener('focus', () => renderMenu(q.value.includes(' · ') ? '' : q.value));
   q.addEventListener('input', () => renderMenu(q.value));
   document.addEventListener('click', (e) => { if (!e.target.closest('.picker')) $('menu').classList.remove('open'); });
@@ -937,17 +1003,18 @@ async function syncMonthsToBase(o, months) {
   if (miss.length) throw new Error(`备货表找不到字段：${miss.join('、')}`);
   const plan = [];
   o.rows.forEach((r, ri) => {
-    const fields = {}, diffs = [];
+    const fields = {}, items = [];
     winMonths.forEach((w, i) => {
       const name = `${w.m + 1}月日均`;
       const nv = ri === 0 ? Math.round(n0(months[i]) * 100) / 100 : 0;
-      if (Math.abs(nv - r.months[w.m]) > 1e-6) { fields[ids[name]] = nv; diffs.push(`  ${name}：${fmtN(r.months[w.m], 2)} → ${fmtN(nv, 2)}`); }
+      if (Math.abs(nv - r.months[w.m]) > 1e-6) { fields[ids[name]] = nv; items.push({ name, from: fmtN(r.months[w.m], 2), to: fmtN(nv, 2) }); }
     });
-    if (diffs.length) plan.push({ r, fields, diffs });
+    if (items.length) plan.push({ r, fields, items });
   });
   if (!plan.length) return '✔ 多维表里已经是这些值，无需同步';
-  const text = plan.map((x) => `${x.r.sku}${x.r === o.rows[0] ? '（主SKU）' : '（副款，写 0）'}\n${x.diffs.join('\n')}`).join('\n');
-  if (!confirm(`确认把 ${o.asin}（${o.country}）的预估日均写回「销量预估-备货表」？\n\n${text}`)) return null;
+  if (!await askConfirm({ title: '同步预估日均到「销量预估-备货表」',
+    sub: `${o.asin} · ${o.country} · 共 ${plan.length} 行、${plan.reduce((s, x) => s + x.items.length, 0)} 个月份。写入后全组可见，备货表公式会随之重算。`,
+    rows: plan.map((x) => ({ title: x.r.sku, tag: x.r === o.rows[0] ? '主SKU' : '副款，写 0', items: x.items })) })) return null;
   const table = await SDK.bitable.base.getTableById(TABLES.bh.id);
   await table.setRecords(plan.map((x) => ({ recordId: x.r.id, fields: x.fields })));
   // 回读校验，并更新页面内存（「备货表月日均」那一行随之变成新值）
@@ -973,16 +1040,17 @@ async function syncParamsToBase(o, p) {
   if (miss.length) throw new Error(`备货表找不到字段：${miss.join('、')}`);
   const plan = [];
   for (const r of o.rows) {
-    const fields = {}, diffs = [];
+    const fields = {}, items = [];
     for (const [k, name] of Object.entries(PARAM_FIELDS)) {
       const nv = Math.round(n0(p[k]));
-      if (nv !== n0(r.p[k])) { fields[ids[name]] = nv; diffs.push(`  ${name}：${fmtN(r.p[k])} → ${nv}`); }
+      if (nv !== n0(r.p[k])) { fields[ids[name]] = nv; items.push({ name, from: `${fmtN(r.p[k])} 天`, to: `${nv} 天` }); }
     }
-    if (diffs.length) plan.push({ r, fields, diffs });
+    if (items.length) plan.push({ r, fields, items });
   }
   if (!plan.length) return '✔ 多维表里已经是这些参数，无需同步';
-  const text = plan.map((x) => `${x.r.sku}\n${x.diffs.join('\n')}`).join('\n');
-  if (!confirm(`确认把 ${o.asin}（${o.country}）的时效参数写回「销量预估-备货表」？\n\n${text}`)) return null;
+  if (!await askConfirm({ title: '同步时效参数到「销量预估-备货表」',
+    sub: `${o.asin} · ${o.country} · 本 ASIN 的 ${plan.length} 个 SKU 行写同一套参数。写入后全组可见，备货表公式会随之重算。`,
+    rows: plan.map((x) => ({ title: x.r.sku, items: x.items })) })) return null;
   const table = await SDK.bitable.base.getTableById(TABLES.bh.id);
   await table.setRecords(plan.map((x) => ({ recordId: x.r.id, fields: x.fields })));
   const keyById = Object.fromEntries(Object.entries(PARAM_FIELDS).map(([k, n]) => [ids[n], k]));
