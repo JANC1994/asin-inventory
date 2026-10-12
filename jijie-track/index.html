@@ -1,0 +1,573 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>季节品每日追踪</title>
+<!--
+  飞书应用「灯具组-全流程」自定义插件页：季节品每日追踪（2026-10-12，由 feishu-page-kit/template.html 复制）
+  读两张表：
+    · 季节品追踪表 tblKdwDOmVZxf6DN
+        战役行（日期为空）= 一个 SKU×国家×年份 = 一张卡片；库存（可售天数/FBA可售/在途）、五阶段日均只在战役行有值
+        日行（日期有值，上级记录→战役行）；红绿灯/原因/销售进度/今日指标/今日分析 取最新一天的日行
+    · 产品主表-灯类+精铺 tblqksywqgYvywOT：图片（按 领星SKU+国家文本 匹配，同追踪表公式口径）
+  口径：日销量目标 = 战役行「当前阶段」对应的 X期日均（用户 10-12 定）；本周至今 表里无来源 → 待定。
+  今日分析 6 个文字字段可在卡片上改，「保存」写回该日行（应用数据权限要对追踪表开「可编辑」）。
+  四条硬规矩见 wiki/页面设计/概念/飞书应用自定义插件页.md。
+-->
+<style>
+  :root {
+    --bg: #faf6f1; --card: #ffffff; --ink: #2b2118; --sub: #7a6d61; --line: #f0e4d7; --line2: #e8d9c8;
+    --or: #f07a12; --or-d: #c95f05; --or-soft: #fff1e2; --or-soft2: #ffe3c4;
+    --red: #d9363e; --red-soft: #fdebec; --yellow: #b7860b; --yellow-soft: #fff7d9;
+    --green: #2a9d4b; --green-soft: #e6f6eb; --grey: #9a9089; --grey-soft: #f3efea;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 13px/1.5 -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; }
+  .wrap { padding: 14px 16px 28px; max-width: 1600px; margin: 0 auto; }
+  .meta { color: var(--sub); font-size: 12px; }
+  .err { color: var(--red); white-space: pre-wrap; }
+  .loading, .empty { padding: 48px 16px; text-align: center; color: var(--sub); background: #fff; border-radius: 12px; border: 1px dashed var(--line2); }
+  .card0 { background: var(--card); border-radius: 10px; padding: 14px 16px; border: 1px solid var(--line); margin-bottom: 12px; }
+  table { border-collapse: collapse; width: 100%; }
+  .tbl td { padding: 6px 8px; border-bottom: 1px solid var(--line); }
+
+  /* 顶栏 */
+  .hero-t { width: 100%; }
+  .hero .desc { margin: 4px 0 0; font-size: 12.5px; line-height: 1.6; color: rgba(255,255,255,.95); max-width: 1100px; }
+  .hero-f { width: 100%; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding-top: 10px; border-top: 1px solid rgba(255,255,255,.3); }
+  .hero select.date { min-width: 150px; }
+  .histnote { background: var(--or-soft); border: 1px solid var(--or-soft2); color: var(--or-d); border-radius: 8px; padding: 7px 12px; font-size: 12.5px; margin-bottom: 10px; }
+  .hero { background: linear-gradient(120deg, #f07a12 0%, #f59a3c 60%, #f8b35f 100%); color: #fff; border-radius: 12px;
+          padding: 14px 18px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 14px;
+          box-shadow: 0 4px 14px rgba(240,122,18,.18); }
+  .hero h2 { margin: 0; font-size: 18px; letter-spacing: .5px; }
+  .hero select { height: 34px; min-width: 260px; padding: 0 10px; border: 0; border-radius: 8px; font-size: 14px; color: var(--ink); background: #fff; cursor: pointer; }
+  .hero .ck { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; user-select: none;
+              background: rgba(255,255,255,.18); padding: 5px 10px; border-radius: 8px; }
+  .hero .ck input { width: 15px; height: 15px; accent-color: #fff; margin: 0; cursor: pointer; }
+  .hero .meta { color: rgba(255,255,255,.92); margin-left: auto; }
+
+  /* 模块 1：红黄绿灯 */
+  .bar1 { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 10px; }
+  .lchip { display: flex; align-items: center; gap: 8px; min-width: 104px; padding: 8px 14px; background: #fff; border: 1.5px solid var(--line);
+           border-radius: 10px; cursor: pointer; font-size: 13px; color: var(--ink); transition: all .12s; }
+  .lchip:hover { border-color: var(--or-soft2); }
+  .lchip b { font-size: 18px; margin-left: auto; font-variant-numeric: tabular-nums; }
+  .lchip .dot { width: 12px; height: 12px; border-radius: 50%; }
+  .lchip.on { border-color: var(--or); background: var(--or-soft); box-shadow: 0 0 0 3px rgba(240,122,18,.12); }
+  .schips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
+  .schip { height: 26px; padding: 0 12px; border-radius: 13px; border: 1px solid var(--line2); background: #fff; color: var(--sub); font-size: 12px; cursor: pointer; }
+  .schip.on { background: var(--or); border-color: var(--or); color: #fff; }
+  .schip.zero, .lchip.zero { opacity: .45; }
+  .lchip.todo { border-style: dashed; border-color: var(--or); color: var(--or-d); }
+  .lchip.todo.on { border-style: solid; }
+  .tag.todo { background: var(--or); color: #fff; }
+  .spu { margin-bottom: 18px; }
+  .spu-h { display: flex; align-items: center; gap: 10px; padding: 6px 2px 8px; margin-bottom: 8px; }
+  .spu-h b { font-size: 15px; color: var(--ink); padding-left: 8px; border-left: 4px solid var(--or); }
+  .plan { border: 1px solid var(--line); border-radius: 8px; background: #fcfaf7; }
+  .plan summary { cursor: pointer; padding: 7px 10px; font-size: 12.5px; font-weight: 600; color: var(--or-d); list-style: none; display: flex; gap: 8px; align-items: baseline; }
+  .plan summary::-webkit-details-marker { display: none; }
+  .plan summary::before { content: '▸'; color: var(--or); }
+  .plan[open] summary::before { content: '▾'; }
+  .plan summary .meta { font-weight: normal; margin-left: auto; }
+  .ptbl { width: 100%; font-size: 12px; font-variant-numeric: tabular-nums; margin: 0 0 6px; }
+  .ptbl th, .ptbl td { padding: 4px 6px; text-align: right; border-top: 1px solid var(--line); white-space: nowrap; }
+  .ptbl th:first-child, .ptbl td:first-child { padding-left: 10px; } .ptbl th:last-child, .ptbl td:last-child { padding-right: 10px; }
+  .ptbl th:first-child, .ptbl td:first-child, .ptbl th:nth-child(2), .ptbl td:nth-child(2) { text-align: left; }
+  .ptbl th { color: var(--sub); font-weight: normal; }
+  .ptbl tr.cur td { background: var(--or-soft); color: var(--or-d); font-weight: 600; }
+  .ptbl tfoot td { color: var(--sub); }
+  .lbar { flex: 1; min-width: 60px; height: 8px; border-radius: 4px; overflow: hidden; display: flex; gap: 2px; }
+  .lbar i { display: block; height: 100%; }
+  .sd { display: inline-flex; align-items: center; gap: 3px; font-size: 12px; color: var(--sub); }
+  .sd i { width: 9px; height: 9px; border-radius: 50%; border: 1px solid #c9c1b8; }
+  .flab { font-size: 12px; color: var(--sub); line-height: 26px; margin-right: 2px; }
+
+  /* 模块 2：卡片 */
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 14px; }
+  .pc { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 10px;
+        position: relative; overflow: hidden; box-shadow: 0 1px 3px rgba(80,50,20,.05); }
+  .pc::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--grey); }
+  .pc.red::before { background: var(--red); } .pc.yellow::before { background: #f2b705; } .pc.green::before { background: var(--green); }
+  .pc-head { display: flex; gap: 12px; align-items: flex-start; }
+  .pc-img { width: 64px; height: 64px; border-radius: 10px; background: var(--grey-soft); flex: none; overflow: hidden;
+            display: flex; align-items: center; justify-content: center; color: var(--grey); font-size: 11px; border: 1px solid var(--line); }
+  .pc-img img { width: 100%; height: 100%; object-fit: cover; }
+  .pc-title { flex: 1; min-width: 0; }
+  .pc-title b { font-size: 14.5px; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-bottom: 2px; }
+  .pc-title .mono { font-family: ui-monospace, Consolas, monospace; font-size: 11.5px; color: var(--sub); }
+  .tags { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
+  .tag { font-size: 11px; padding: 0 7px; border-radius: 4px; background: var(--or-soft); color: var(--or-d); line-height: 19px; white-space: nowrap; }
+  .tag.g { background: var(--grey-soft); color: var(--sub); }
+  .light { flex: none; padding: 3px 10px; border-radius: 12px; font-size: 12px; font-weight: 600; background: var(--grey-soft); color: var(--sub); white-space: nowrap; }
+  .light.red { background: var(--red-soft); color: var(--red); } .light.yellow { background: var(--yellow-soft); color: var(--yellow); } .light.green { background: var(--green-soft); color: var(--green); }
+  .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px 6px; background: #fcfaf7; border: 1px solid var(--line); border-radius: 10px; padding: 10px; }
+  .kpi .k { color: var(--sub); font-size: 11px; white-space: nowrap; }
+  .kpi .v { font-weight: 700; font-size: 15px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .kpi .v small { font-weight: 500; font-size: 12px; color: var(--sub); }
+  .kpi .v.bad { color: var(--red); }
+  .tbd { display: inline-block; font-weight: normal; font-size: 11px; color: var(--grey); border: 1px dashed #d5cbc0; border-radius: 4px; padding: 0 5px; line-height: 18px; }
+  .pbar { height: 5px; border-radius: 3px; background: #efe6dc; margin-top: 4px; overflow: hidden; }
+  .pbar i { display: block; height: 100%; background: var(--or); border-radius: 3px; }
+  .reason { border-radius: 8px; padding: 8px 10px; font-size: 12.5px; line-height: 1.55; background: var(--grey-soft); color: var(--sub); }
+  .reason.red { background: var(--red-soft); color: #a8262d; } .reason.yellow { background: var(--yellow-soft); color: #7d5a00; } .reason.green { background: var(--green-soft); color: #1d6e35; }
+  .ana { border-top: 1px dashed var(--line2); padding-top: 10px; }
+  .ana-h { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; gap: 8px; }
+  .ana-h b { font-size: 12.5px; color: var(--or-d); }
+  .ana-list { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; }
+  .ana-item { min-width: 0; }
+  .ana-item .k { color: var(--sub); font-size: 11px; }
+  .ana-item .t { font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ana-item .t.none { color: #c3b8ad; }
+  .ana-edit { display: none; grid-template-columns: 1fr 1fr; gap: 6px 10px; }
+  .pc.editing .ana-edit { display: grid; } .pc.editing .ana-list { display: none; }
+  .ana-edit label { display: block; color: var(--sub); font-size: 11px; }
+  .ana-edit textarea { width: 100%; min-height: 44px; resize: vertical; border: 1px solid var(--line2); border-radius: 6px; padding: 5px 7px;
+                       font: 12.5px/1.45 inherit; font-family: inherit; color: var(--ink); background: #fffdfa; }
+  .ana-edit textarea:focus { outline: none; border-color: var(--or); background: #fff; box-shadow: 0 0 0 2px rgba(240,122,18,.12); }
+  .ana-edit textarea.dirty { border-color: #f2b705; background: #fffbea; }
+  .btn { height: 28px; padding: 0 14px; border: 1px solid var(--or); border-radius: 7px; background: #fff; color: var(--or-d); cursor: pointer; font-size: 12.5px; white-space: nowrap; }
+  .btn.primary { background: var(--or); color: #fff; }
+  .btn:disabled { opacity: .5; cursor: default; }
+  .foot { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; color: var(--sub); font-size: 12px; margin-top: auto; }
+  .foot .yest { flex: 1; min-width: 0; white-space: pre-wrap; word-break: break-all; line-height: 1.55; padding-top: 4px; }
+  .foot .yest b { color: var(--ink); font-weight: 500; }
+  .acts { display: flex; gap: 6px; flex: none; }
+  [data-msg] { font-size: 11.5px; color: var(--sub); }
+
+  .savebar { display: none; align-items: center; gap: 12px; background: #fff7e8; border: 1px solid #ffd591; border-radius: 8px; padding: 10px 14px; margin-bottom: 10px; }
+  .savebar.show { display: flex; }
+  .savebar button { height: 32px; padding: 0 16px; border: 0; border-radius: 6px; background: var(--or); color: #fff; font-size: 14px; cursor: pointer; }
+  @media (max-width: 520px) { .grid { grid-template-columns: 1fr; } .kpis { grid-template-columns: repeat(2, 1fr); } .ana-list, .ana-edit { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="savebar" id="savebar">
+    <span>这是插件的配置预览。确认没问题后点右边按钮，插件才会保存到应用页面上。</span>
+    <button id="saveBtn">保存到页面</button>
+    <span class="meta" id="saveMsg"></span>
+  </div>
+  <div class="hero">
+    <div class="hero-t">
+      <h2>季节品每日追踪</h2>
+      <p class="desc">每张卡 = 一个季节品链接（SKU×国家），同一 SPU 排在一行，红灯多的 SPU 排前。红黄绿灯和原因由系统每天按追踪表判定；
+        「今日分析」点「编辑」可直接写回多维表；「红/黄未分析」= 当天亮红/黄灯、但竞品动态/问题归因/计划/建议操作都还没填的产品。数据来源：季节品追踪表，每天更新。</p>
+    </div>
+    <div class="hero-f">
+      <select id="owner"><option value="">— 选择负责人 —</option></select>
+      <select id="date" class="date"></select>
+      <label class="ck"><input type="checkbox" id="showSold"> 显示售罄 <span id="soldCnt"></span></label>
+      <span class="meta" id="meta">数据加载中…</span>
+    </div>
+  </div>
+  <div id="main"><div class="loading">正在读取多维表数据…</div></div>
+</div>
+
+<script type="module">
+// ===== ① 页面配置 =====
+const SDK_URL = 'https://cdn.jsdelivr.net/npm/@lark-base-open/js-sdk@1.0.2/dist/index.mjs';
+const BASE_TOKEN = 'JGvebyaAYapWtOslxc9cuKYXnwd';   // 灯具组-全流程
+const ANA_FIELDS = ['产品目标', '关键指标', '竞品动态', '当前问题+归因', '计划操作', '建议操作'];   // 今日分析：可编辑、写回日行
+const STAGES = ['起量期', '爆发期', '高峰期', '消退期', '清仓期'];
+// 「已分析」= 当天日行这 4 项任一有字（产品目标/关键指标 每天沿用，不算）
+const ANA_DONE_FIELDS = ['竞品动态', '当前问题+归因', '计划操作', '建议操作'];
+const TABLES = {
+  track: { id: 'tblKdwDOmVZxf6DN', name: '季节品追踪表', fields: [
+    '行类型', '日期', '上级记录', '启用追踪', '负责人', '品名', 'ASIN', '国家文本', '店铺', '领星SKU', 'SPU',
+    '销售季分类', '当前阶段', '销售状态', '当日红绿灯', '红绿灯原因', '_当日销售进度值',
+    '今日销量', '今日TACOS', '今日利润率', '剩余可售天数', 'FBA可售', 'FBA在途入库',
+    ...STAGES.map((s) => s + '日均'), ...STAGES, ...STAGES.map((s) => s + '天数'), '预估销量-整季', '累计销量', '销售进度',
+    ...ANA_FIELDS] },
+  pm: { id: 'tblqksywqgYvywOT', name: '产品主表-灯类+精铺', fields: ['领星SKU', '国家文本', '图片'] },
+};
+const SAVE_TABLE = 'track';
+
+// ===== ② 通用工具 =====
+const $ = (id) => document.getElementById(id);
+const DAY = 86400000, BJ = 8 * 3600000;
+const dn = (ms) => Math.floor((Number(ms) + BJ) / DAY);
+const ud = (n) => new Date(n * DAY);
+const fmtD = (n) => { const d = ud(n); return `${d.getUTCMonth() + 1}-${String(d.getUTCDate()).padStart(2, '0')}`; };
+const num = (v) => (v == null || v === '' || isNaN(v)) ? null : Number(v);
+const fmtN = (v, p = 0) => v == null ? '—' : Number(v).toLocaleString('zh-CN', { maximumFractionDigits: p, minimumFractionDigits: 0 });
+const pct = (v, p = 0) => v == null ? '—' : (v * 100).toFixed(p) + '%';
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const TBD = '<span class="tbd">待定</span>';
+const store = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
+
+function cell(v) {
+  if (v == null) return null;
+  if (typeof v === 'number' || typeof v === 'string' || typeof v === 'boolean') return v;
+  if (Array.isArray(v)) {
+    if (!v.length) return null;
+    if (v.every((x) => x && typeof x === 'object' && 'text' in x && !('id' in x && 'name' in x && !('type' in x)))) return v.map((x) => x.text ?? '').join('');
+    if (v.length === 1) return cell(v[0]);
+    return v.map(cell).join('、');
+  }
+  if (typeof v === 'object') {
+    if ('text' in v) return v.text;
+    if ('name' in v) return v.name;
+    if ('value' in v) return cell(v.value);
+  }
+  return String(v);
+}
+// 个别字段要保留原始结构
+function norm(name, v) {
+  if (name === '上级记录') {
+    if (!v) return [];
+    if (Array.isArray(v.recordIds)) return v.recordIds;
+    if (Array.isArray(v)) return v.map((x) => x && (x.recordId || x.id || x)).filter(Boolean);
+    return [];
+  }
+  if (name === '图片') return Array.isArray(v) ? v.filter((x) => x && typeof x === 'object' && x.token) : [];
+  if (name === '日期') return typeof v === 'number' ? v : (v ? Date.parse(v) : null);
+  return cell(v);
+}
+
+let SDK = null;
+const TBLS = {}, FIDS = {};
+async function readTable(key) {
+  const cfg = TABLES[key];
+  const table = await SDK.bitable.base.getTableById(cfg.id);
+  const fields = await table.getFieldMetaList();
+  const idByName = Object.fromEntries(fields.map((f) => [f.name, f.id]));
+  const missing = cfg.fields.filter((w) => !idByName[w]);
+  if (missing.length) console.warn(`表 ${cfg.name} 缺字段：`, missing);
+  TBLS[key] = table; FIDS[key] = idByName;
+  const rows = [];
+  let pageToken;
+  for (let guard = 0; guard < 500; guard++) {
+    const res = await table.getRecordsByPage({ pageSize: 200, pageToken });
+    for (const r of res.records) {
+      const o = { _id: r.recordId };
+      for (const w of cfg.fields) if (idByName[w]) o[w] = norm(w, r.fields[idByName[w]]);
+      rows.push(o);
+    }
+    if (!res.hasMore) break;
+    pageToken = res.pageToken;
+  }
+  return rows;
+}
+
+// ===== ③ 数据整理 =====
+const LIGHTS = [
+  { key: 'red', label: '红灯', color: '#e5483f', match: (s) => s.includes('红') },
+  { key: 'yellow', label: '黄灯', color: '#f5c518', match: (s) => s.includes('黄') },
+  { key: 'green', label: '绿灯', color: '#34c759', match: (s) => s.includes('绿') },
+  { key: 'ended', label: '已结束', color: '#c9c1b8', match: (s) => s.includes('结束') || s.includes('卖完') },   // ⚪已结束 / 实际已卖完
+  { key: 'none', label: '未判灯', color: '#ffffff', match: () => true },   // 当日红绿灯为空（脚本还没判）
+];
+const lightOf = (s) => LIGHTS.find((l) => l.match(String(s || ''))).key;
+const analyzed = (x) => !!x.today && ANA_DONE_FIELDS.some((f) => String(x.today[f] || '').trim());
+const isTodo = (x) => (x.light === 'red' || x.light === 'yellow') && !analyzed(x);   // 红/黄未分析
+
+let ALL = [], CARDS = [], LATEST = null, DATES = [];
+let state = { owner: store.get('stp.owner') || '', date: null, light: 'all', season: 'all', stage: 'all', showSold: store.get('stp.showSold') === '1' };
+const WK = '日一二三四五六';
+const isSold = (x) => String(x.c['销售状态'] || '').includes('售罄');   // 销售状态 = ⛔售罄
+
+function build(track, pm) {
+  const pmBy = {};
+  for (const p of pm) pmBy[`${p['领星SKU']}|${p['国家文本']}`] = p;
+  const camps = track.filter((r) => r['行类型'] === '战役' && String(r['启用追踪']) === '1');
+  const daysBy = {};
+  for (const r of track) {
+    if (r['行类型'] === '战役' || !r['日期']) continue;
+    for (const p of r['上级记录'] || []) (daysBy[p] = daysBy[p] || []).push(r);
+  }
+  const dset = new Set();
+  ALL = camps.map((c) => {
+    const ds = (daysBy[c._id] || []).slice().sort((a, b) => b['日期'] - a['日期']);
+    ds.forEach((d) => dset.add(dn(d['日期'])));
+    const stage = c['当前阶段'] || '';
+    const target = STAGES.includes(stage) ? num(c[stage + '日均']) : null;
+    return { c, ds, stage, target, hasStage: STAGES.includes(stage),
+             pm: pmBy[`${c['领星SKU']}|${c['国家文本']}`] || null,
+             owner: c['负责人'] || '（未填负责人）', season: c['销售季分类'] || '（无分类）', spu: c['SPU'] || '（无SPU）' };
+  });
+  DATES = [...dset].sort((a, b) => b - a);
+  LATEST = DATES.length ? DATES[0] : null;
+  if (state.date == null) state.date = LATEST;
+  applyDate();
+}
+
+// 按所选日期取每个产品当天的日行（today）和它之前最近一天的日行（prev）；当天没有日行的产品不显示
+function applyDate() {
+  CARDS = [];
+  for (const a of ALL) {
+    const i = a.ds.findIndex((d) => dn(d['日期']) === state.date);
+    if (i < 0) continue;
+    const today = a.ds[i], prev = a.ds[i + 1] || null;
+    const lightTxt = today['当日红绿灯'] || '';
+    CARDS.push({ ...a, today, prev, lightTxt, light: lightOf(lightTxt) });
+  }
+}
+
+// ===== ④ 渲染 =====
+function renderOwner() {
+  $('showSold').checked = state.showSold;
+  $('showSold').onchange = (e) => { state.showSold = e.target.checked; store.set('stp.showSold', state.showSold ? '1' : '0'); renderOwner(); render(); };
+  // 负责人下拉：名字后面带所选日期的各灯数量（跟随「显示售罄」）
+  const cnt = {};
+  CARDS.filter((x) => state.showSold || !isSold(x)).forEach((x) => {
+    const o = (cnt[x.owner] = cnt[x.owner] || { n: 0, red: 0, yellow: 0, green: 0, none: 0, ended: 0 });
+    o.n++; o[x.light]++;
+  });
+  const names = Object.keys(cnt).sort((a, b) => cnt[b].n - cnt[a].n);
+  const lab = (n) => { const o = cnt[n]; return `${n}　🔴${o.red} 🟡${o.yellow} 🟢${o.green}${o.none ? ` 未判${o.none}` : ''}${o.ended ? ` ⚪${o.ended}` : ''}`; };
+  $('owner').innerHTML = `<option value="">— 选择负责人 —</option>` + names.map((n) => `<option value="${esc(n)}"${n === state.owner ? ' selected' : ''}>${esc(lab(n))}</option>`).join('')
+    + (state.owner && !cnt[state.owner] ? `<option value="${esc(state.owner)}" selected>${esc(state.owner)}（该日无产品）</option>` : '');
+  $('owner').onchange = (e) => { state.owner = e.target.value; state.light = 'all'; state.season = 'all'; state.stage = 'all'; store.set('stp.owner', state.owner); render(); };
+  // 日期下拉：默认最新一天
+  $('date').innerHTML = DATES.slice(0, 90).map((d) => `<option value="${d}"${d === state.date ? ' selected' : ''}>${fmtD(d)} 周${WK[ud(d).getUTCDay()]}${d === LATEST ? '（最新）' : ''}</option>`).join('');
+  $('date').onchange = (e) => { state.date = Number(e.target.value); applyDate(); renderOwner(); render(); };
+}
+
+const kpi = (k, v, cls = '') => `<div class="kpi"><div class="k">${k}</div><div class="v ${cls}">${v}</div></div>`;
+
+function cardHtml(x) {
+  const c = x.c, t = x.today || {};
+  const sale = num(t['今日销量']), tacos = num(t['今日TACOS']), margin = num(t['今日利润率']), prog = num(t['_当日销售进度值']);
+  const days = num(c['剩余可售天数']), fba = num(c['FBA可售']), inb = num(c['FBA在途入库']);
+  const dateTxt = x.today ? fmtD(dn(x.today['日期'])) : '无日行';
+  const stale = '';
+  const tgt = x.hasStage ? (x.target != null ? fmtN(x.target, 1) : '<span class="tbd" title="战役行该阶段日均未填">未填</span>') : '—';
+  const view = ANA_FIELDS.map((f) => {
+    const v = t[f] ? String(t[f]).replace(/\s+/g, ' ') : '';
+    return `<div class="ana-item"><div class="k">${esc(f)}</div><div class="t${v ? '' : ' none'}" title="${esc(v)}">${v ? esc(v) : '未填'}</div></div>`;
+  }).join('');
+  const edit = ANA_FIELDS.map((f) => {
+    const prevV = x.prev && x.prev[f] ? `昨日：${x.prev[f]}` : '';
+    return `<div><label>${esc(f)}</label><textarea data-f="${esc(f)}" placeholder="${esc(prevV)}">${esc(t[f] || '')}</textarea></div>`;
+  }).join('');
+  const yest = x.prev && x.prev['计划操作'] ? esc(String(x.prev['计划操作']).trim()) : '—';
+  return `<div class="pc ${x.light}" data-id="${esc(c._id)}">
+    <div class="pc-head">
+      <div class="pc-img" data-img="${esc(c._id)}">${x.pm && x.pm._imgData ? `<img src="${x.pm._imgData}" alt="">` : '无图'}</div>
+      <div class="pc-title"><b title="${esc(c['品名'])}">${esc(c['品名'] || c['领星SKU'])}</b>
+        <div class="mono">${esc(c['ASIN'] || '—')} · ${esc(c['国家文本'] || '—')} · ${esc(c['店铺'] || '—')}</div>
+        <div class="tags"><span class="tag">${esc(x.stage || '—')}</span><span class="tag g">${esc(x.season)}</span>${c['销售状态'] ? `<span class="tag g">${esc(c['销售状态'])}</span>` : ''}${stale}${isTodo(x) ? '<span class="tag todo">未分析</span>' : ''}</div></div>
+      <span class="light ${x.light}">${esc(x.lightTxt || '未判灯')}</span>
+    </div>
+    <div class="kpis">
+      ${kpi(`日销量 / 目标`, `${fmtN(sale)} <small>/ ${tgt}</small>`)}
+      ${kpi('当日销售进度', `${pct(prog)}<div class="pbar"><i style="width:${Math.min(100, Math.max(0, (prog || 0) * 100))}%"></i></div>`)}
+      ${kpi('本周至今', TBD)}
+      ${kpi('日TACoS', pct(tacos, 1), tacos != null && tacos > 0.25 ? 'bad' : '')}
+      ${kpi('利润率', pct(margin, 1), margin != null && margin < 0 ? 'bad' : '')}
+      ${kpi('可售天数', days != null ? fmtN(days) : '—')}
+      ${kpi('FBA可售', fmtN(fba))}
+      ${kpi('在途', fmtN(inb))}
+    </div>
+    <div class="reason ${x.light}">${esc((x.today && x.today['红绿灯原因']) || c['红绿灯原因'] || '（表里无红绿灯原因）')}</div>
+    <div class="ana">
+      <div class="ana-h"><b>今日分析 · ${dateTxt}</b><span data-msg></span></div>
+      <div class="ana-list">${view}</div>
+      <div class="ana-edit">${edit}</div>
+    </div>
+    ${stagePlan(x)}
+    <div class="foot"><span class="yest">昨日计划：<b>${yest}</b></span>
+      <span class="acts">${x.today ? `<button class="btn" data-edit>编辑</button><button class="btn primary" data-save style="display:none">保存</button>` : ''}</span></div>
+  </div>`;
+}
+
+// 按 SPU 分行：每个 SPU 一行（行内卡片自动换行），红灯多的 SPU 排前
+function spuRows(list) {
+  const g = {};
+  list.forEach((x) => (g[x.spu] = g[x.spu] || []).push(x));
+  const lorder = { red: 0, yellow: 1, green: 2, none: 3, ended: 4 };
+  const cnt = (xs, k) => xs.filter((x) => x.light === k).length;
+  const keys = Object.keys(g).sort((a, b) => cnt(g[b], 'red') - cnt(g[a], 'red') || cnt(g[b], 'yellow') - cnt(g[a], 'yellow') || g[b].length - g[a].length || a.localeCompare(b));
+  return keys.map((k) => {
+    const xs = g[k].sort((a, b) => lorder[a.light] - lorder[b.light] || (num(a.today && a.today['_当日销售进度值']) ?? 9) - (num(b.today && b.today['_当日销售进度值']) ?? 9));
+    const sum = LIGHTS.filter((l) => cnt(xs, l.key)).map((l) => `<span class="sd"><i style="background:${l.color}"></i>${cnt(xs, l.key)}</span>`).join('');
+    const meta = [...new Set(xs.map((x) => x.stage))].join(' / ');
+    const seg = LIGHTS.filter((l) => cnt(xs, l.key)).map((l) => `<i style="flex:${cnt(xs, l.key)};background:${l.key === 'none' ? '#e3ddd6' : l.color}" title="${l.label} ${cnt(xs, l.key)}"></i>`).join('');
+    return `<section class="spu"><div class="spu-h"><b>${esc(k)}</b><span class="meta">${xs.length} 个 · ${esc(meta)}</span>${sum}<span class="lbar">${seg}</span></div>
+      <div class="grid">${xs.map(cardHtml).join('')}</div></section>`;
+  }).join('');
+}
+
+// 五个期预估销量（折叠）：每期预估 = X期日均 × X期天数，与表里「预估销量-整季」公式同口径
+function stagePlan(x) {
+  const c = x.c;
+  const rows = STAGES.map((s) => ({ s, range: c[s] || '', days: num(c[s + '天数']), avg: num(c[s + '日均']) }))
+    .map((r) => ({ ...r, est: r.days != null && r.avg != null ? Math.round(r.days * r.avg) : null }));
+  const total = num(c['预估销量-整季']), sold = num(c['累计销量']), prog = num(c['销售进度']);
+  const tr = rows.map((r) => `<tr class="${r.s === x.stage ? 'cur' : ''}"><td>${r.s}</td><td>${esc(r.range || '—')}</td>
+    <td>${r.days != null ? fmtN(r.days) : '—'}</td><td>${r.avg != null ? fmtN(r.avg, 1) : '<span class="tbd">未填</span>'}</td>
+    <td><b>${r.est != null ? fmtN(r.est) : '—'}</b></td><td>${r.est != null && total ? pct(r.est / total) : '—'}</td></tr>`).join('');
+  return `<details class="plan"><summary>五个期预估销量 <span class="meta">整季预估 ${fmtN(total)} · 已售 ${fmtN(sold)} · 进度 ${pct(prog)}</span></summary>
+    <table class="ptbl"><thead><tr><th>阶段</th><th>日期</th><th>天数</th><th>日均</th><th>预估</th><th>占比</th></tr></thead>
+    <tbody>${tr}</tbody><tfoot><tr><td colspan="4">整季预估（表字段）</td><td><b>${fmtN(total)}</b></td><td></td></tr></tfoot></table></details>`;
+}
+
+function render() {
+  if (!state.owner) {
+    $('main').innerHTML = `<div class="empty">请先在上方选择负责人，进入该负责人的季节品视图。</div>`;
+    return;
+  }
+  const all = CARDS.filter((x) => x.owner === state.owner);
+  const soldN = all.filter(isSold).length;
+  $('soldCnt').textContent = `(${soldN})`;
+  const mine = state.showSold ? all : all.filter((x) => !isSold(x));
+  const seasons = [...new Set(mine.map((x) => x.season))];
+  const stageKey = (x) => x.hasStage ? x.stage : '其他';
+  const inSeason = state.season === 'all' ? mine : mine.filter((x) => x.season === state.season);
+  const bySeason = state.stage === 'all' ? inSeason : inSeason.filter((x) => stageKey(x) === state.stage);
+  const shown = state.light === 'all' ? bySeason : state.light === 'todo' ? bySeason.filter(isTodo) : bySeason.filter((x) => x.light === state.light);
+  const lc = (k) => bySeason.filter((x) => x.light === k).length;
+  const chips = [`<div class="lchip${state.light === 'all' ? ' on' : ''}" data-light="all">全部<b>${bySeason.length}</b></div>`]
+    .concat(LIGHTS.map((l) => `<div class="lchip${state.light === l.key ? ' on' : ''}${lc(l.key) ? '' : ' zero'}" data-light="${l.key}"><span class="dot" style="background:${l.color};border:1px solid #c9c1b8"></span>${l.label}<b>${lc(l.key)}</b></div>`)).join('')
+    + `<div class="lchip todo${state.light === 'todo' ? ' on' : ''}${bySeason.filter(isTodo).length ? '' : ' zero'}" data-light="todo" title="红灯或黄灯，且今天的 竞品动态/当前问题+归因/计划操作/建议操作 都没填">红/黄未分析<b>${bySeason.filter(isTodo).length}</b></div>`
+    + `<span class="meta" style="margin-left:auto">今日已分析 ${bySeason.filter(analyzed).length} / ${bySeason.length}</span>`;
+  const sChips = seasons.length > 1 ? [`<span class="flab">季节</span>`, `<button class="schip${state.season === 'all' ? ' on' : ''}" data-season="all">全部季节</button>`]
+    .concat(seasons.map((s) => `<button class="schip${state.season === s ? ' on' : ''}" data-season="${esc(s)}">${esc(s)}</button>`)).join('') : '';
+  const stc = (k) => inSeason.filter((x) => stageKey(x) === k).length;
+  const stChips = [`<button class="schip${state.stage === 'all' ? ' on' : ''}" data-stage="all">全部 ${inSeason.length}</button>`]
+    .concat(STAGES.concat(stc('其他') ? ['其他'] : []).map((s) => `<button class="schip${state.stage === s ? ' on' : ''}${stc(s) ? '' : ' zero'}" data-stage="${s}" title="${s === '其他' ? '已结束 / 无节奏日历' : ''}">${s} ${stc(s)}</button>`)).join('');
+  const hist = state.date !== LATEST ? `<div class="histnote">正在看 ${fmtD(state.date)} 的记录：红绿灯、原因、当日指标、今日分析是那一天的；阶段、库存、在途、目标和五个期预估是当前值。</div>` : '';
+  $('main').innerHTML = `${hist}
+    <div class="bar1">${chips}</div>
+    ${sChips ? `<div class="schips">${sChips}</div>` : ''}
+    <div class="schips"><span class="flab">阶段</span>${stChips}</div>
+    ${shown.length ? spuRows(shown) : `<div class="empty">没有符合条件的产品</div>`}`;
+  $('main').querySelectorAll('[data-light]').forEach((b) => b.onclick = () => { state.light = b.dataset.light; render(); });
+  $('main').querySelectorAll('[data-season]').forEach((b) => b.onclick = () => { state.season = b.dataset.season; state.stage = 'all'; state.light = 'all'; render(); });
+  $('main').querySelectorAll('[data-stage]').forEach((b) => b.onclick = () => { state.stage = b.dataset.stage; state.light = 'all'; render(); });
+  $('main').querySelectorAll('.pc').forEach(bindCard);
+  loadImages(shown);
+}
+
+// ===== ⑤ 今日分析写回日行 =====
+function bindCard(el) {
+  const x = CARDS.find((k) => k.c._id === el.dataset.id);
+  if (!x || !x.today) return;
+  const tas = [...el.querySelectorAll('textarea')];
+  const editBtn = el.querySelector('[data-edit]'), saveBtn = el.querySelector('[data-save]'), msg = el.querySelector('[data-msg]');
+  tas.forEach((ta) => ta.oninput = () => ta.classList.toggle('dirty', ta.value !== (x.today[ta.dataset.f] || '')));
+  editBtn.onclick = () => {
+    const on = !el.classList.contains('editing');
+    el.classList.toggle('editing', on);
+    editBtn.textContent = on ? '收起' : '编辑';
+    saveBtn.style.display = on ? '' : 'none';
+    if (on) tas[0].focus();
+  };
+  saveBtn.onclick = async () => {
+    const changed = tas.filter((ta) => ta.value !== (x.today[ta.dataset.f] || ''));
+    if (!changed.length) { msg.textContent = '没有改动'; return; }
+    if (!TBLS.track) { msg.textContent = '预览模式不能写回'; return; }
+    const fields = {};
+    for (const ta of changed) {
+      const fid = FIDS.track[ta.dataset.f];
+      if (!fid) { msg.textContent = `表里找不到字段「${ta.dataset.f}」`; return; }
+      fields[fid] = ta.value.trim() ? [{ type: 'text', text: ta.value }] : null;
+    }
+    saveBtn.disabled = true; msg.textContent = '保存中…';
+    try {
+      await TBLS.track.setRecord(x.today._id, { fields });
+      changed.forEach((ta) => { x.today[ta.dataset.f] = ta.value; });
+      render();
+      const m = document.querySelector(`.pc[data-id="${x.c._id}"] [data-msg]`);
+      if (m) m.textContent = `已保存 ${changed.length} 项 ✔`;
+    } catch (e) {
+      msg.textContent = '保存失败：' + (e && e.message ? e.message : e) + '（应用数据权限要对追踪表开「可编辑」）';
+      saveBtn.disabled = false;
+    }
+  };
+}
+
+// 图片取产品主表附件的临时地址；取不到保持「无图」
+async function loadImages(list) {
+  if (!TBLS.pm || !FIDS.pm['图片']) return;
+  for (const x of list) {
+    const att = x.pm && x.pm['图片'];
+    const box = document.querySelector(`[data-img="${x.c._id}"]`);
+    if (!box || !att || !att.length) continue;
+    try {
+      if (!x.imgUrl) {
+        const urls = await TBLS.pm.getCellAttachmentUrls([att[0].token], FIDS.pm['图片'], x.pm._id);
+        x.imgUrl = urls && urls[0];
+      }
+      if (x.imgUrl) box.innerHTML = `<img src="${esc(x.imgUrl)}" alt="">`;
+    } catch (e) { box.textContent = '图未取到'; box.title = String(e && e.message || e); }
+  }
+}
+
+// ===== ⑥ 保存插件配置 =====
+function setupSave() {
+  const dash = SDK && SDK.dashboard;
+  let st = '';
+  try { st = dash && dash.state; } catch (e) { st = '读取失败'; }
+  $('saveMsg').textContent = `（插件状态：${st || '未知'}）`;
+  if (dash && typeof dash.saveConfig === 'function' && st !== 'View' && st !== 'FullScreen') {
+    $('savebar').classList.add('show');
+    $('saveBtn').onclick = async () => {
+      $('saveBtn').disabled = true; $('saveMsg').textContent = '保存中…';
+      try {
+        const ok = await dash.saveConfig({
+          dataConditions: Object.values(TABLES).map((t) => ({ tableId: t.id, baseToken: BASE_TOKEN, dataRange: { type: 'ALL' }, series: 'COUNTA' })),
+          customConfig: { page: document.title, version: 1 },
+        });
+        $('saveMsg').textContent = ok === false ? '保存失败，请重试' : '已保存 ✔';
+      } catch (e) {
+        $('saveMsg').textContent = '保存失败：' + (e && e.message ? e.message : e);
+      } finally { $('saveBtn').disabled = false; }
+    };
+  } else if (dash && dash.setRendered) {
+    dash.setRendered().catch(() => {});
+  }
+}
+
+// ===== ⑦ 诊断 =====
+async function diagnose() {
+  const res = [];
+  const t = async (name, fn) => {
+    try {
+      const v = await Promise.race([fn(), new Promise((_, rej) => setTimeout(() => rej(new Error('超时 8s')), 8000))]);
+      let shown; try { shown = typeof v === 'string' ? v : JSON.stringify(v); } catch (x) { shown = String(v); }
+      res.push(['✔', name, String(shown).slice(0, 300)]); return v;
+    } catch (e) { res.push(['✘', name, e && e.message ? e.message : String(e)]); return undefined; }
+  };
+  const { bitable, dashboard } = SDK;
+  await t('dashboard.state', async () => dashboard.state);
+  await t('dashboard.getConfig', () => dashboard.getConfig());
+  for (const [k, cfg] of Object.entries(TABLES)) {
+    const tb = await t(`getTableById ${cfg.name}`, () => bitable.base.getTableById(cfg.id));
+    if (tb) await t(`getRecordsByPage ${cfg.name}`, () => tb.getRecordsByPage({ pageSize: 2 }));
+  }
+  return `<div class="card0"><b>接口诊断</b> <span class="meta">请把这块整体截图发回</span><table class="tbl"><tbody>${res.map((r) =>
+    `<tr><td style="width:24px">${r[0]}</td><td>${esc(r[1])}</td><td style="color:var(--sub)">${esc(r[2])}</td></tr>`).join('')}</tbody></table></div>`;
+}
+
+// ===== 启动 =====
+function finish(track, pm, src) {
+  build(track, pm);
+  $('meta').textContent = `启用追踪 ${ALL.length} 个 · ${src}`;
+  renderOwner();
+  render();
+}
+try {
+  if (window.__SNAPSHOT__) {
+    finish(window.__SNAPSHOT__.track, window.__SNAPSHOT__.pm, `本地快照 ${window.__SNAPSHOT__.at}（只读预览）`);
+  } else {
+    SDK = await import(SDK_URL);
+    setupSave();
+    const track = await readTable('track');
+    let pm = [];
+    try { pm = await readTable('pm'); } catch (e) { console.warn('产品主表读不到，卡片不显示图片', e); }   // 非核心表：读不到降级
+    finish(track, pm, '取数：季节品追踪表 + 产品主表');
+  }
+} catch (e) {
+  const msg = esc(e && e.message ? e.message : e);
+  $('meta').textContent = '';
+  $('main').innerHTML = `<div class="card0 err">加载失败：${msg}</div><div class="card0">正在诊断…</div>`;
+  if (SDK) { try { $('main').innerHTML = `<div class="card0 err">加载失败：${msg}</div>` + await diagnose(); } catch (e2) { /* 保留报错 */ } }
+}
+</script>
+</body>
+</html>
