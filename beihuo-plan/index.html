@@ -418,6 +418,7 @@ function bindPicker() {
 }
 let SEL = null;
 const SYNC_MSG = {};   // 每个 ASIN 最近一次同步结果
+const SYNC_P_MSG = {};   // ⑤ 参数最近一次同步结果
 function select(key) {
   const o = DATA.find((x) => x.key === key); if (!o) return;
   SEL = o;
@@ -584,7 +585,9 @@ function render() {
       <div class="hint">${h} · 表里 ${fmtN(dflt[k])}</div></div>`).join('')}</div>
     <div class="flow">下单 ──<b>生产 ${n0(p.prod)}</b>──▶ 国内仓 ──<b>头程 ${n0(p.freight)}</b>──▶ 到仓即计入库存
       &nbsp;｜&nbsp; 发货提前期 <b>${m.shipLead}</b> 天 · 采购提前期 <b>${m.poLead}</b> 天 · 节奏：周二下单、周四发货</div>
-    <div class="btns"><button class="btn" data-act="resetP">恢复备货表参数</button></div>
+    <div class="btns"><button class="btn" data-act="resetP">恢复备货表参数</button>
+      <button class="btn primary" data-act="syncP">⇪ 同步到多维表</button>
+      <span class="meta" id="syncPMsg">${esc(SYNC_P_MSG[o.key] || '把上面 5 个参数写回销量预估-备货表（本 ASIN 的所有 SKU 行写同一值），写回后全组看到的都是这套参数')}</span></div>
     <h3 style="margin-top:16px">备货建议 <small>按备货表算法：补到「提前期 + 备货天数 + 安全天数」的需求，减去现有库存和届时到货，按整箱向上取整</small></h3>
     <div class="kpis">
       ${dateKpi('补货断货日', m.stockout, false, m.stockout == null ? '窗口内不断货' : '最后一次断货，之后没有已知到货补上（不含建议货件）')}
@@ -754,6 +757,14 @@ document.addEventListener('click', (e) => {
       .catch((err) => { SYNC_MSG[o.key] = '✘ 同步失败：' + (err && err.message ? err.message : err); if (SEL === o) render(); });
     return;
   }
+  if (a === 'syncP') {
+    if (typeof syncParamsToBase !== 'function') { alert('这是本地快照预览版，不能同步。在飞书应用的「四季品备货计划」页面里点这个按钮，才会写回多维表。'); return; }
+    const o = SEL; b.disabled = true; $('syncPMsg').textContent = '同步中…';
+    syncParamsToBase(o, cur(o))
+      .then((r) => { if (r) SYNC_P_MSG[o.key] = r; if (SEL === o) render(); })
+      .catch((err) => { SYNC_P_MSG[o.key] = '✘ 同步失败：' + (err && err.message ? err.message : err); if (SEL === o) render(); });
+    return;
+  }
   if (a === 'sibGo') { select(b.dataset.k); window.scrollTo(0, 0); return; }
   if (a === 'sibApply') {   // 把「当前 ASIN 预估 × 倍数」写成该 ASIN 自己的月日均和时段（本浏览器），切过去后可再同步到多维表
     const x = DATA.find((y) => y.key === b.dataset.k); if (!x) return;
@@ -804,6 +815,8 @@ const TABLES = {
     '建单日', '发货日', '预计到仓日', '到仓日来源', '物流渠道'] },
   ch: { id: 'tblxl08WV9pLwxdi', name: '头程渠道时效', fields: ['物流渠道', '国家', '运输方式', '标准时效天数', '历史样本数', '启用'] },
 };
+// ⑤ 时效参数 ↔ 备货表字段（都是数字字段，可写）
+const PARAM_FIELDS = { prod: '生产天数', freight: '头程天数', safety: '安全天数', shipCover: '发货备货天数', poCover: '采购备货天数' };
 let DATA = [];
 let CHANNELS = [];
 let SDK = null;
@@ -881,7 +894,8 @@ function buildData(T) {
     const sum = (f) => rows.reduce((t, r) => t + n0(r[f]), 0);
     out.push({ key: k, asin, country, name: o['品名'] || main['品名'], img: o['图片URL'], store: o['店铺'] || main['店铺'], spu: main.SPU, owner: first(main['负责人']),
       skus: rows.map((r) => r['领星SKU']),
-      rows: rows.map((r) => ({ id: r._id, sku: r['领星SKU'], months: Array.from({ length: 12 }, (_, i) => n0(r[`${i + 1}月日均`])) })),   // 第 1 行＝主SKU
+      rows: rows.map((r) => ({ id: r._id, sku: r['领星SKU'], months: Array.from({ length: 12 }, (_, i) => n0(r[`${i + 1}月日均`])),
+        p: Object.fromEntries(Object.entries(PARAM_FIELDS).map(([k, f]) => [k, n0(r[f])])) })),   // 第 1 行＝主SKU
       d7: n0(o['近7天日均']), d14: n0(o['近14天日均']), d30: n0(o['近30天日均']),
       fba: n0(o['FBA可售']), res: n0(o['FBA预留']), recv: n0(o['FBA入库中']), fbaTransit: n0(o['FBA在途']), plan: n0(o['FBA计划入库']),
       local: sum('本地仓可用'), po: sum('采购在途'),
@@ -950,6 +964,40 @@ async function syncMonthsToBase(o, months) {
   const now = new Date(); const hm = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
   return bad ? `⚠ ${hm} 已写入 ${plan.length} 行，但有 ${bad} 个值回读不一致，请到备货表核对`
              : `✔ ${hm} 已同步到多维表（${plan.length} 行 · ${plan.reduce((s, x) => s + x.diffs.length, 0)} 个月份）；备货表的建议量/断货日等公式会随之重算`;
+}
+
+// ===== ⑤「同步到多维表」：把 5 个时效参数写回 销量预估-备货表（本 ASIN×国家 的所有 SKU 行写同一值） =====
+async function syncParamsToBase(o, p) {
+  const ids = META.bh || {};
+  const miss = Object.values(PARAM_FIELDS).filter((n) => !ids[n]);
+  if (miss.length) throw new Error(`备货表找不到字段：${miss.join('、')}`);
+  const plan = [];
+  for (const r of o.rows) {
+    const fields = {}, diffs = [];
+    for (const [k, name] of Object.entries(PARAM_FIELDS)) {
+      const nv = Math.round(n0(p[k]));
+      if (nv !== n0(r.p[k])) { fields[ids[name]] = nv; diffs.push(`  ${name}：${fmtN(r.p[k])} → ${nv}`); }
+    }
+    if (diffs.length) plan.push({ r, fields, diffs });
+  }
+  if (!plan.length) return '✔ 多维表里已经是这些参数，无需同步';
+  const text = plan.map((x) => `${x.r.sku}\n${x.diffs.join('\n')}`).join('\n');
+  if (!confirm(`确认把 ${o.asin}（${o.country}）的时效参数写回「销量预估-备货表」？\n\n${text}`)) return null;
+  const table = await SDK.bitable.base.getTableById(TABLES.bh.id);
+  await table.setRecords(plan.map((x) => ({ recordId: x.r.id, fields: x.fields })));
+  const keyById = Object.fromEntries(Object.entries(PARAM_FIELDS).map(([k, n]) => [ids[n], k]));
+  let bad = 0;
+  for (const x of plan) {
+    for (const [fid, v] of Object.entries(x.fields)) {
+      const got = n0(cell(await table.getCellValue(fid, x.r.id)));
+      if (got !== v) bad++;
+      x.r.p[keyById[fid]] = got;
+    }
+  }
+  for (const k of Object.keys(PARAM_FIELDS)) o[k] = o.rows[0].p[k];   // 页面「表里 xx」的默认值随之更新
+  const now = new Date(); const hm = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+  return bad ? `⚠ ${hm} 已写入 ${plan.length} 行，但有 ${bad} 个值回读不一致，请到备货表核对`
+             : `✔ ${hm} 已同步到多维表（${plan.length} 行）；备货表的建议量/断货日等公式会随之重算`;
 }
 
 // ===== 保存（宿主不提供保存按钮：创建/配置态由插件自己调 saveConfig，并登记本页读的每张表以获得授权） =====
