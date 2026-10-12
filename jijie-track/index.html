@@ -217,16 +217,24 @@ function cell(v) {
 }
 // 个别字段要保留原始结构
 function norm(name, v) {
-  if (name === '上级记录') {
-    if (!v) return [];
-    if (Array.isArray(v.recordIds)) return v.recordIds;
-    if (Array.isArray(v)) return v.map((x) => x && (x.recordId || x.id || x)).filter(Boolean);
-    return [];
-  }
+  if (name === '上级记录') return linkIds(v);
   if (name === '图片') return Array.isArray(v) ? v.filter((x) => x && typeof x === 'object' && x.token) : [];
   if (name === '日期') return typeof v === 'number' ? v : (v ? Date.parse(v) : null);
   return cell(v);
 }
+
+// 关联字段的值在不同 SDK 版本/接口里形状不同：{recordIds}、{record_ids}、[{recordId}]、[{id}]、['rec..']、[{recordIds}] 都兼容
+function linkIds(v) {
+  if (!v) return [];
+  if (typeof v === 'string') return v.startsWith('rec') ? [v] : [];
+  if (Array.isArray(v)) return v.flatMap(linkIds);
+  if (typeof v === 'object') {
+    for (const k of ['recordIds', 'record_ids', 'linkRecordIds', 'link_record_ids']) if (Array.isArray(v[k])) return v[k].flatMap(linkIds);
+    for (const k of ['recordId', 'record_id', 'id']) if (typeof v[k] === 'string' && v[k].startsWith('rec')) return [v[k]];
+  }
+  return [];
+}
+const DIAG = { missing: {}, raw: [], read: {} };   // 页面空白时显示的自查信息
 
 let SDK = null;
 const TBLS = {}, FIDS = {};
@@ -237,6 +245,7 @@ async function readTable(key) {
   const idByName = Object.fromEntries(fields.map((f) => [f.name, f.id]));
   const missing = cfg.fields.filter((w) => !idByName[w]);
   if (missing.length) console.warn(`表 ${cfg.name} 缺字段：`, missing);
+  DIAG.missing[cfg.name] = missing;
   TBLS[key] = table; FIDS[key] = idByName;
   const rows = [];
   let pageToken;
@@ -245,8 +254,15 @@ async function readTable(key) {
     for (const r of res.records) {
       const o = { _id: r.recordId };
       for (const w of cfg.fields) if (idByName[w]) o[w] = norm(w, r.fields[idByName[w]]);
+      if (key === 'track' && DIAG.raw.length < 4 && (DIAG.raw.length < 2 || r.fields[idByName['日期']])) {
+        const raw = {};
+        for (const w of ['行类型', '日期', '上级记录', '启用追踪', '负责人', '当日红绿灯']) raw[w] = idByName[w] ? r.fields[idByName[w]] : '（缺字段）';
+        DIAG.raw.push(raw);
+      }
       rows.push(o);
     }
+    DIAG.read[cfg.name] = rows.length;
+    $('meta').textContent = `正在读取 ${cfg.name}… 已读 ${rows.length} 行`;
     if (!res.hasMore) break;
     pageToken = res.pageToken;
   }
@@ -408,7 +424,10 @@ function stagePlan(x) {
 
 function render() {
   if (!state.owner) {
-    $('main').innerHTML = `<div class="empty">请先在上方选择负责人，进入该负责人的季节品视图。</div>`;
+    const opts = [...$('owner').options].filter((o) => o.value);
+    $('main').innerHTML = `<div class="empty">请选择负责人，进入该负责人的季节品视图（${fmtD(state.date)}）<div class="bar1" style="justify-content:center;margin:14px 0 0">${
+      opts.map((o) => `<div class="lchip" data-pick="${esc(o.value)}">${esc(o.text)}</div>`).join('') || '（这一天没有任何产品）'}</div></div>`;
+    $('main').querySelectorAll('[data-pick]').forEach((b) => b.onclick = () => { $('owner').value = b.dataset.pick; $('owner').dispatchEvent(new Event('change')); });
     return;
   }
   const all = CARDS.filter((x) => x.owner === state.owner);
@@ -550,6 +569,25 @@ function finish(track, pm, src) {
   $('meta').textContent = `启用追踪 ${ALL.length} 个 · ${src}`;
   renderOwner();
   render();
+  if (!CARDS.length) showDiag(track);
+}
+
+// 没有任何卡片时，直接在页面上列出卡在哪一步（截图即可定位）
+function showDiag(track) {
+  const camp = track.filter((r) => r['行类型'] === '战役');
+  const day = track.filter((r) => r['行类型'] !== '战役' && r['日期']);
+  const show = (v) => { try { return JSON.stringify(v); } catch (e) { return String(v); } };
+  const lines = [
+    ['读取行数', show(DIAG.read)],
+    ['缺失字段', show(DIAG.missing)],
+    ['战役行 / 其中启用追踪=1', `${camp.length} / ${camp.filter((r) => String(r['启用追踪']) === '1').length}`],
+    ['日行（有日期）/ 其中关联到战役', `${day.length} / ${day.filter((r) => (r['上级记录'] || []).length).length}`],
+    ['可选日期数 / 最新日期', `${DATES.length} / ${LATEST != null ? fmtD(LATEST) : '—'}`],
+    ['行类型取值', show([...new Set(track.slice(0, 300).map((r) => r['行类型']))])],
+  ];
+  $('main').insertAdjacentHTML('afterbegin', `<div class="card0"><b>没有读到可显示的产品 —— 自查信息</b> <span class="meta">请把这块整体截图发回</span>
+    <table class="tbl"><tbody>${lines.map((l) => `<tr><td style="width:220px">${esc(l[0])}</td><td>${esc(l[1])}</td></tr>`).join('')}</tbody></table>
+    <div class="meta" style="margin-top:8px">原始值样本：</div><pre style="white-space:pre-wrap;font-size:11px;margin:4px 0 0">${esc(DIAG.raw.map(show).join('\n'))}</pre></div>`);
 }
 try {
   if (window.__SNAPSHOT__) {
