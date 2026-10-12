@@ -176,7 +176,8 @@ const STAGES = ['起量期', '爆发期', '高峰期', '消退期', '清仓期']
 // 「已分析」= 当天日行这 4 项任一有字（产品目标/关键指标 每天沿用，不算）
 const ANA_DONE_FIELDS = ['竞品动态', '当前问题+归因', '计划操作', '建议操作'];
 const TABLES = {
-  track: { id: 'tblKdwDOmVZxf6DN', name: '季节品追踪表', fields: [
+  // view：表里的视图「插件-近7天（季节品页面用，勿删）」= 战役行 + 近7天的日行（约 730 行，全表 5000+ 行太慢）
+  track: { id: 'tblKdwDOmVZxf6DN', name: '季节品追踪表', view: 'vew0aHeZlE', fields: [
     '行类型', '日期', '上级记录', '启用追踪', '负责人', '品名', 'ASIN', '国家文本', '店铺', '领星SKU', 'SPU',
     '销售季分类', '当前阶段', '销售状态', '当日红绿灯', '红绿灯原因', '_当日销售进度值',
     '今日销量', '今日TACOS', '今日利润率', '剩余可售天数', 'FBA可售', 'FBA在途入库',
@@ -238,7 +239,7 @@ const DIAG = { missing: {}, raw: [], read: {} };   // 页面空白时显示的�
 
 let SDK = null;
 const TBLS = {}, FIDS = {};
-async function readTable(key) {
+async function readTable(key, full = false) {
   const cfg = TABLES[key];
   const table = await SDK.bitable.base.getTableById(cfg.id);
   const fields = await table.getFieldMetaList();
@@ -250,7 +251,13 @@ async function readTable(key) {
   const rows = [];
   let pageToken;
   for (let guard = 0; guard < 500; guard++) {
-    const res = await table.getRecordsByPage({ pageSize: 200, pageToken });
+    const q = { pageSize: 200, pageToken };
+    if (cfg.view && !full) q.viewId = cfg.view;
+    let res;
+    try { res = await table.getRecordsByPage(q); } catch (e) {
+      if (!q.viewId) throw e;
+      console.warn('按视图读取失败，改读全表', e); full = true; delete q.viewId; rows.length = 0; res = await table.getRecordsByPage(q);
+    }
     for (const r of res.records) {
       const o = { _id: r.recordId };
       for (const w of cfg.fields) if (idByName[w]) o[w] = norm(w, r.fields[idByName[w]]);
@@ -311,6 +318,20 @@ function build(track, pm) {
   applyDate();
 }
 
+// 默认只读近 7 天；选「加载更早日期」时读全表（读完日期仍停在原来那天）
+let LOADED_FULL = false, PM_ROWS = [];
+async function loadFull() {
+  $('date').disabled = true;
+  try {
+    const track = await readTable('track', true);
+    LOADED_FULL = true;
+    finish(track, PM_ROWS, '取数：季节品追踪表（全部日期）+ 产品主表');
+  } catch (e) {
+    $('meta').textContent = '加载更早日期失败：' + (e && e.message ? e.message : e);
+    renderOwner();
+  } finally { $('date').disabled = false; }
+}
+
 // 按所选日期取每个产品当天的日行（today）和它之前最近一天的日行（prev）；当天没有日行的产品不显示
 function applyDate() {
   CARDS = [];
@@ -339,8 +360,12 @@ function renderOwner() {
     + (state.owner && !cnt[state.owner] ? `<option value="${esc(state.owner)}" selected>${esc(state.owner)}（该日无产品）</option>` : '');
   $('owner').onchange = (e) => { state.owner = e.target.value; state.light = 'all'; state.season = 'all'; state.stage = 'all'; store.set('stp.owner', state.owner); render(); };
   // 日期下拉：默认最新一天
-  $('date').innerHTML = DATES.slice(0, 90).map((d) => `<option value="${d}"${d === state.date ? ' selected' : ''}>${fmtD(d)} 周${WK[ud(d).getUTCDay()]}${d === LATEST ? '（最新）' : ''}</option>`).join('');
-  $('date').onchange = (e) => { state.date = Number(e.target.value); applyDate(); renderOwner(); render(); };
+  $('date').innerHTML = DATES.slice(0, 120).map((d) => `<option value="${d}"${d === state.date ? ' selected' : ''}>${fmtD(d)} 周${WK[ud(d).getUTCDay()]}${d === LATEST ? '（最新）' : ''}</option>`).join('')
+    + (LOADED_FULL || !TBLS.track ? '' : `<option value="more">加载更早日期…（较慢）</option>`);
+  $('date').onchange = async (e) => {
+    if (e.target.value === 'more') { await loadFull(); return; }
+    state.date = Number(e.target.value); applyDate(); renderOwner(); render();
+  };
 }
 
 const kpi = (k, v, cls = '') => `<div class="kpi"><div class="k">${k}</div><div class="v ${cls}">${v}</div></div>`;
@@ -598,7 +623,8 @@ try {
     const track = await readTable('track');
     let pm = [];
     try { pm = await readTable('pm'); } catch (e) { console.warn('产品主表读不到，卡片不显示图片', e); }   // 非核心表：读不到降级
-    finish(track, pm, '取数：季节品追踪表 + 产品主表');
+    PM_ROWS = pm;
+    finish(track, pm, '取数：季节品追踪表（近7天）+ 产品主表');
   }
 } catch (e) {
   const msg = esc(e && e.message ? e.message : e);
