@@ -1,6 +1,6 @@
 # asin-inventory
 
-飞书多维表格应用「灯具组-全流程」里的自定义插件页面：ASIN 库存管理（销量 / FBA 库存 / 在途货件 / 120 天库存日历）。
+飞书多维表格应用「灯具组-全流程」里的自定义插件页面。根目录原「ASIN 库存管理」页已于 2026-10-13 下线（现为下线提示）；在用页面在子目录：beihuo-plan / jijie-track / jijie-review / sijipin-week。
 
 - 网页地址：https://janc1994.github.io/asin-inventory/
 - 只能在飞书应用里以「自定义插件」打开才能读到数据；直接打开显示加载失败属正常。
