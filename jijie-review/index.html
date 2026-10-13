@@ -1,0 +1,795 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>季节品复盘</title>
+<!--
+  飞书应用「灯具组-全流程」自定义插件页：季节品复盘（2026-10-13，按 seasonal-track-page 的架构写）
+  读两张表：
+    · 季节品复盘表-灯 tblItjbd7BUZgoCH
+        ASIN 行（父行，阶段=整季）= 子ASIN×国家×赛季 = 一张卡片：整季数据、竞品/策略/建议、明年计划
+        阶段行（上级记录→父行）= 起量/爆发/高峰/消退/清仓 五格：阶段数据、阶段情况总结、明年备货量
+    · 产品主表-灯类+精铺 tblqksywqgYvywOT：图片（按 ASIN+国家文本 匹配，同复盘表 lookup 口径）
+  页面不做任何自动判断（用户 10-08 定：复盘表是运营填的），只展示 + 卡片「编辑」后写回复盘表。
+  可编辑只限：阶段情况总结 / 明年备货量 / 竞品状况 / 明年策略 / 优化建议 / 明年起售日期 / 生产时间 / 首批海运时间（数据列是领星抓的，只读）。
+  发货日 = 明年起售日期 − 首批海运时间（页面推算，表里没这列）。
+  公式列（品名/负责人/阶段日期/明年备货量合计/采购时间(倒推)）只读；明年备货量合计 页面上按子行实时相加。
+  四条硬规矩见 wiki/页面设计/概念/飞书应用自定义插件页.md。
+-->
+<style>
+  :root {
+    --bg: #faf6f1; --card: #ffffff; --ink: #2b2118; --sub: #7a6d61; --line: #f0e4d7; --line2: #e8d9c8;
+    --or: #f07a12; --or-d: #c95f05; --or-soft: #fff1e2; --or-soft2: #ffe3c4;
+    --red: #d9363e; --green: #2a9d4b; --green-soft: #e6f6eb; --grey: #9a9089; --grey-soft: #f3efea;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 13px/1.5 -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; }
+  .wrap { padding: 14px 16px 28px; max-width: 1600px; margin: 0 auto; }
+  .meta { color: var(--sub); font-size: 12px; }
+  .err { color: var(--red); white-space: pre-wrap; }
+  .loading, .empty { padding: 48px 16px; text-align: center; color: var(--sub); background: #fff; border-radius: 12px; border: 1px dashed var(--line2); }
+  .card0 { background: var(--card); border-radius: 10px; padding: 14px 16px; border: 1px solid var(--line); margin-bottom: 12px; }
+  .tbl { border-collapse: collapse; width: 100%; }
+  .tbl td { padding: 6px 8px; border-bottom: 1px solid var(--line); }
+  .num { font-variant-numeric: tabular-nums; }
+
+  /* 顶栏 */
+  .sticky { position: sticky; top: 0; z-index: 20; background: var(--bg); margin: 0 -16px; padding: 0 16px 2px; }
+  .sticky.stuck { box-shadow: 0 6px 12px -8px rgba(80,50,20,.35); }
+  .hero { background: linear-gradient(120deg, #f07a12 0%, #f59a3c 60%, #f8b35f 100%); color: #fff; border-radius: 12px 12px 0 0;
+          padding: 14px 18px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .hero h2 { margin: 0; font-size: 18px; letter-spacing: .5px; }
+  .hero .meta { color: rgba(255,255,255,.92); margin-left: auto; }
+  .hero select { height: 32px; padding: 0 10px; border: 0; border-radius: 8px; font-size: 13.5px; color: var(--ink); background: #fff; cursor: pointer; }
+  .seg { display: inline-flex; background: rgba(255,255,255,.22); border-radius: 9px; padding: 3px; gap: 2px; }
+  .seg button { height: 28px; padding: 0 14px; border: 0; border-radius: 7px; background: transparent; color: #fff; font-size: 13.5px; cursor: pointer; }
+  .seg button.on { background: #fff; color: var(--or-d); font-weight: 700; box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+  .hero-f { background: linear-gradient(120deg, #f38a2a 0%, #f7a650 100%); border-radius: 0 0 12px 12px; padding: 8px 18px 10px; margin-bottom: 12px;
+            border-top: 1px solid rgba(255,255,255,.3); display: flex; flex-direction: column; gap: 6px; }
+  .frow { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .frow > .lb { color: rgba(255,255,255,.9); font-size: 12px; width: 52px; flex: none; }
+  .chip { height: 26px; padding: 0 11px; border-radius: 13px; border: 1px solid rgba(255,255,255,.55); background: rgba(255,255,255,.12); color: #fff; font-size: 12px; cursor: pointer; }
+  .chip.on { background: #fff; border-color: #fff; color: var(--or-d); font-weight: 700; }
+  .chip.zero { opacity: .45; }
+  .chip i { font-style: normal; opacity: .75; margin-left: 3px; }
+  .asel { margin-left: auto; height: 28px; border: 0; border-radius: 14px; padding: 0 10px; font-size: 12.5px; width: 320px; max-width: 100%; color: var(--ink); background: #fff; cursor: pointer; }
+  .asel.on { box-shadow: 0 0 0 2px #fff, 0 0 0 4px rgba(201,95,5,.45); color: var(--or-d); font-weight: 700; }
+
+  /* 填写进度 */
+  .kpis { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-bottom: 12px; }
+  .kpi { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; }
+  .kpi .k { color: var(--sub); font-size: 12px; }
+  .kpi .v { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .kpi .v small { font-size: 13px; color: var(--sub); font-weight: normal; }
+  .kpi .bar { height: 5px; border-radius: 3px; background: var(--grey-soft); margin-top: 6px; overflow: hidden; }
+  .kpi .bar i { display: block; height: 100%; background: var(--or); }
+  .owners { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+  .own { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; min-width: 200px; flex: 1; }
+  .own b { font-size: 13px; }
+  .own .rw { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--sub); margin-top: 3px; }
+  .own .rw span:first-child { width: 52px; }
+  .own .rw .bar { flex: 1; height: 5px; border-radius: 3px; background: var(--grey-soft); overflow: hidden; }
+  .own .rw .bar i { display: block; height: 100%; background: var(--or); }
+  .own .rw .n { width: 40px; text-align: right; font-variant-numeric: tabular-nums; }
+
+  /* SPU 分组 */
+  .spu { margin-bottom: 20px; }
+  .spu-h { display: flex; align-items: baseline; gap: 10px; padding: 4px 2px 8px; flex-wrap: wrap; }
+  .spu-h b { font-size: 15px; padding-left: 8px; border-left: 4px solid var(--or); }
+  .spu-h .meta b { font-size: 12px; border: 0; padding: 0; color: var(--ink); }
+
+  /* 复盘卡 */
+  .rc { background: #fff; border: 1px solid var(--line); border-radius: 12px; margin-bottom: 10px; overflow: hidden; }
+  .rc.editing { border-color: var(--or); box-shadow: 0 0 0 3px rgba(240,122,18,.12); }
+  .rc-top { display: grid; grid-template-columns: 84px minmax(220px, 1.1fr) 2fr auto; gap: 14px; align-items: center; padding: 12px 14px; }
+  .img { width: 84px; height: 84px; border-radius: 8px; background: var(--grey-soft); display: flex; align-items: center; justify-content: center;
+         color: var(--grey); font-size: 11px; overflow: hidden; border: 1px solid var(--line); }
+  .img img { width: 100%; height: 100%; object-fit: cover; }
+  .nm { font-size: 14.5px; font-weight: 700; line-height: 1.35; }
+  .ids { margin-top: 4px; display: flex; gap: 5px; flex-wrap: wrap; align-items: center; }
+  .tag { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 9px; background: var(--grey-soft); color: var(--sub); white-space: nowrap; }
+  .tag.or { background: var(--or-soft); color: var(--or-d); }
+  .tag.ok { background: var(--green-soft); color: var(--green); }
+  .tag.todo { background: #fff; border: 1px dashed var(--or); color: var(--or-d); }
+  .asin { font-family: Consolas, monospace; font-size: 12px; color: var(--sub); }
+  .season { display: grid; grid-template-columns: repeat(9, minmax(0, 1fr)); gap: 4px; background: #fcfaf7; border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
+  .st .k { font-size: 11px; color: var(--sub); white-space: nowrap; }
+  .st .v { font-size: 16px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .st .v.nil { color: #c9bfb5; font-weight: 400; }
+  .st .v.neg { color: var(--red); }
+  .acts { display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }
+  .btn { height: 28px; padding: 0 12px; border-radius: 7px; border: 1px solid var(--line2); background: #fff; color: var(--ink); font-size: 12.5px; cursor: pointer; white-space: nowrap; }
+  .btn:hover { border-color: var(--or); color: var(--or-d); }
+  .btn.pri { background: var(--or); border-color: var(--or); color: #fff; }
+  .btn.pri:hover { background: var(--or-d); color: #fff; }
+  .btn:disabled { opacity: .5; cursor: default; }
+
+  /* 五阶段 */
+  .stages { display: grid; grid-template-columns: repeat(5, 1fr); border-top: 1px solid var(--line); }
+  .sg { padding: 10px 12px 12px; border-right: 1px solid var(--line); min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+  .sg:last-child { border-right: 0; }
+  .sg.empty { background: repeating-linear-gradient(135deg, #fcfaf7 0 8px, #f8f3ee 8px 16px); }
+  .sg-h { display: flex; align-items: baseline; gap: 6px; }
+  .sg-h b { font-size: 13px; }
+  .sg-h b::before { content: attr(data-i); display: inline-block; width: 16px; height: 16px; line-height: 16px; text-align: center; border-radius: 50%;
+                    background: var(--or); color: #fff; font-size: 10.5px; margin-right: 5px; vertical-align: 1px; }
+  .sg.empty .sg-h b::before { background: #cfc5bb; }
+  .sg-h .dt { font-size: 12.5px; font-weight: 700; color: var(--ink); margin-left: auto; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .sg-h .meta { font-size: 11px; margin-left: auto; white-space: nowrap; }
+  .vol { display: flex; align-items: center; gap: 6px; }
+  .vol .bar { flex: 1; height: 8px; border-radius: 4px; background: var(--grey-soft); overflow: hidden; }
+  .vol .bar i { display: block; height: 100%; border-radius: 4px; background: linear-gradient(90deg, #f8b35f, #f07a12); }
+  .vol b { font-size: 15px; font-variant-numeric: tabular-nums; min-width: 44px; text-align: right; }
+  .vol .share { font-size: 11px; color: var(--sub); width: 30px; text-align: right; font-variant-numeric: tabular-nums; }
+  .mx { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px 2px; }
+  .mx .k { font-size: 10.5px; color: var(--sub); }
+  .mx .v { font-size: 12.5px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .mx .v.nil { color: #c9bfb5; font-weight: 400; }
+  .mx .v.neg { color: var(--red); }
+  .sum { font-size: 12px; line-height: 1.55; color: var(--ink); background: #fcfaf7; border-radius: 6px; padding: 5px 8px; white-space: pre-wrap; word-break: break-word;
+         display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+  .rc.open .sum { -webkit-line-clamp: unset; display: block; }
+  .sum.nil { color: #b5aaa0; background: transparent; border: 1px dashed var(--line2); }
+  .stk { font-size: 11.5px; color: var(--sub); }
+  .stk b { color: var(--or-d); font-variant-numeric: tabular-nums; }
+
+  /* 复盘结论 + 明年计划 */
+  .concl { border-top: 1px solid var(--line); display: grid; grid-template-columns: 1fr 1fr; }
+  .cc { padding: 10px 12px; border-right: 1px solid var(--line); min-width: 0; }
+  .cc:last-child { border-right: 0; }
+  /* 明年计划（大模块）：策略 | 时间线 | 备货 */
+  .np { border-top: 1px solid var(--or-soft2); background: var(--or-soft); padding: 12px 14px 14px; }
+  .np-t { font-size: 13.5px; font-weight: 700; color: var(--or-d); margin-bottom: 8px; display: flex; align-items: baseline; gap: 8px; }
+  .np-t::before { content: ''; width: 4px; height: 14px; border-radius: 2px; background: var(--or); align-self: center; }
+  .np-g { display: grid; grid-template-columns: 1fr 1.9fr; gap: 12px; }
+  .stk-line { display: grid; grid-template-columns: auto repeat(5, minmax(0, 1fr)); gap: 10px; align-items: end; margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--or-soft2); }
+  .stk-line .tot .k { margin-bottom: 0; }
+  .stk-c { min-width: 0; }
+  .stk-c .k { font-size: 11px; margin-bottom: 2px; display: flex; justify-content: space-between; }
+  .stk-c .k b { color: var(--ink); font-variant-numeric: tabular-nums; }
+  .stk-c .k b.nil { color: #c9bfb5; font-weight: 400; }
+  .stk-c .bar { height: 6px; border-radius: 3px; background: var(--grey-soft); overflow: hidden; }
+  .stk-c .bar i { display: block; height: 100%; background: var(--or); }
+  .np-b { background: #fff; border: 1px solid var(--or-soft2); border-radius: 10px; padding: 10px 12px; min-width: 0; }
+  .np-b .k { font-size: 12px; color: var(--sub); margin-bottom: 4px; }
+  .np-b .tx { font-size: 13px; white-space: pre-wrap; word-break: break-word; display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; overflow: hidden; }
+  .rc.open .np-b .tx { -webkit-line-clamp: unset; display: block; }
+  .np-b .tx.nil { color: #b5aaa0; }
+  .tl { display: flex; align-items: stretch; gap: 0; }
+  .tl-n { flex: none; text-align: center; min-width: 96px; }
+  .tl-n .k { margin-bottom: 2px; }
+  .tl-n .d { font-size: 17px; font-weight: 800; font-variant-numeric: tabular-nums; color: var(--ink); white-space: nowrap; }
+  .tl-n .d.buy { color: var(--or-d); }
+  .tl-n .d.nil { color: #c9bfb5; font-weight: 400; }
+  .tl-a { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; min-width: 50px; font-size: 11.5px; color: var(--sub); white-space: nowrap; }
+  .tl-a i { display: block; width: 100%; height: 0; border-top: 2px dashed var(--or); position: relative; margin: 3px 0; }
+  .tl-a i::after { content: ''; position: absolute; right: -1px; top: -6px; border: 5px solid transparent; border-left: 7px solid var(--or); }
+  .tl-in { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--or-soft2); }
+  .stk-big { font-size: 24px; font-weight: 800; color: var(--or-d); font-variant-numeric: tabular-nums; }
+  .stk-big small { font-size: 12px; font-weight: 400; color: var(--sub); }
+  .stk-r { display: flex; align-items: center; gap: 6px; font-size: 11.5px; margin-top: 3px; }
+  .stk-r span:first-child { width: 40px; color: var(--sub); }
+  .stk-r .bar { flex: 1; height: 6px; border-radius: 3px; background: var(--grey-soft); overflow: hidden; }
+  .stk-r .bar i { display: block; height: 100%; background: var(--or); }
+  .stk-r b { width: 44px; text-align: right; font-variant-numeric: tabular-nums; }
+  .cc .t { font-size: 12px; font-weight: 700; color: var(--or-d); margin-bottom: 4px; }
+  .cc .tx { font-size: 12.5px; white-space: pre-wrap; word-break: break-word; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+  .rc.open .cc .tx { -webkit-line-clamp: unset; display: block; }
+  .cc .tx.nil { color: #b5aaa0; }
+  .more { display: block; width: 100%; border: 0; border-top: 1px solid var(--line); background: #fff; color: var(--sub); font-size: 12px; padding: 5px; cursor: pointer; }
+  .more:hover { color: var(--or-d); background: #fcfaf7; }
+
+  /* 编辑态 */
+  .in { width: 100%; font: inherit; font-size: 12.5px; border: 1px solid var(--line2); border-radius: 6px; padding: 3px 6px; background: #fff; color: var(--ink); }
+  .in:focus { outline: none; border-color: var(--or); box-shadow: 0 0 0 2px rgba(240,122,18,.15); }
+  .in.dirty { border-color: #f2b705; background: #fffbea; }
+  textarea.in { resize: vertical; min-height: 64px; line-height: 1.5; }
+  .mx .in { padding: 1px 4px; font-size: 12px; }
+  .unit { font-size: 10px; color: var(--sub); }
+  .savebar2 { display: flex; gap: 8px; align-items: center; justify-content: flex-end; padding: 8px 12px; border-top: 1px solid var(--line); background: #fffaf3; }
+
+  /* 明年行动清单 */
+  .atbl { width: 100%; border-collapse: separate; border-spacing: 0; background: #fff; font-size: 12.5px; table-layout: fixed;
+          border: 1px solid var(--line); border-radius: 10px; }
+  .atbl th { background: var(--or-soft); color: var(--or-d); font-weight: 600; text-align: left; padding: 9px 10px; white-space: nowrap;
+             position: sticky; top: var(--stickyH, 0px); z-index: 5; border-bottom: 1px solid var(--or-soft2); }
+  .atbl th:first-child { border-top-left-radius: 10px; } .atbl th:last-child { border-top-right-radius: 10px; }
+  .atbl td { padding: 8px 10px; border-top: 1px solid var(--line); vertical-align: top; }
+  .atbl .c, .atbl th.c { text-align: center; }
+  .atbl .r, .atbl th.r { text-align: right; font-variant-numeric: tabular-nums; }
+  .atbl td.img0 { padding: 6px 4px 6px 10px; }
+  .atbl .mini { width: 40px; height: 40px; border-radius: 6px; overflow: hidden; background: var(--grey-soft); display: inline-flex; align-items: center; justify-content: center; }
+  .atbl .mini img { width: 100%; height: 100%; object-fit: cover; }
+  .atbl td.pn b { display: block; line-height: 1.4; }
+  .atbl td.d { font-weight: 700; white-space: nowrap; font-variant-numeric: tabular-nums; text-align: center; }
+  .atbl td.d.buy { color: var(--or-d); }
+  .atbl td.d.nil { color: #c9bfb5; font-weight: 400; }
+  .atbl td.long { white-space: pre-wrap; word-break: break-word; font-size: 12px; line-height: 1.55; }
+  .atbl td.long.nil { color: #c9bfb5; }
+  .atbl .sub { font-size: 11px; color: var(--sub); font-weight: 400; line-height: 1.5; margin-top: 2px; }
+  .atbl tr.nodate td.pn b { color: var(--sub); }
+  .atbl tr.g td { background: #fcf6ef; border-top: 1px solid var(--or-soft2); cursor: pointer; user-select: none; padding: 8px 10px; vertical-align: middle; }
+  .atbl tr.g:hover td { background: var(--or-soft); }
+  .atbl tr.g .gn { font-size: 13.5px; font-weight: 700; }
+  .atbl tr.g .gn::before { content: '▾'; display: inline-block; width: 16px; color: var(--or); transition: transform .12s; }
+  .atbl tr.g.fold .gn::before { transform: rotate(-90deg); }
+  .atbl tr.g .gm { font-size: 12px; color: var(--sub); margin-left: 10px; font-weight: 400; }
+  .atbl tr.tot td { background: var(--or-soft); font-weight: 700; border-top: 1px solid var(--or-soft2); vertical-align: middle; }
+  .atbl tr.tot td:first-child { border-bottom-left-radius: 10px; } .atbl tr.tot td:last-child { border-bottom-right-radius: 10px; }
+  .atbl .stk { border-left: 2px solid var(--or-soft2); background-clip: padding-box; }
+  .atbl td.stk { background: #fffaf4; }
+  .atbl tr.g td.stk, .atbl tr.tot td.stk { background: inherit; }
+  .pbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .pbar .meta { flex: 1; min-width: 260px; }
+  .savebar { display: none; align-items: center; gap: 10px; background: #fff; border: 1px solid var(--or-soft2); border-radius: 10px; padding: 8px 12px; margin-bottom: 12px; }
+  .savebar.show { display: flex; }
+  .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: #2b2118; color: #fff; padding: 8px 16px; border-radius: 8px; font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 50; }
+  .toast.show { opacity: 1; }
+
+  @media (max-width: 1100px) {
+    .rc-top { grid-template-columns: 72px 1fr auto; }
+    .rc-top .season { grid-column: 1 / -1; }
+    .img { width: 72px; height: 72px; }
+    .stages { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
+    .sg { border-bottom: 1px solid var(--line); }
+    .concl { grid-template-columns: 1fr; }
+    .cc { border-right: 0; border-bottom: 1px solid var(--line); }
+    .np-g { grid-template-columns: 1fr; }
+    .kpis { grid-template-columns: repeat(2, 1fr); }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="savebar" id="savebar"><button class="btn pri" id="saveBtn">保存到页面</button><span class="meta" id="saveMsg"></span></div>
+  <div class="sticky" id="sticky">
+    <div class="hero">
+      <h2>季节品复盘</h2>
+      <select id="year"></select>
+      <div class="seg" id="mode"><button data-m="cards">复盘卡</button><button data-m="plan">明年行动清单</button></div>
+      <span class="meta" id="meta">数据加载中…</span>
+    </div>
+    <div class="hero-f" id="filters"></div>
+  </div>
+  <div id="main"><div class="loading">正在读取多维表数据…</div></div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script type="module">
+// ===== ① 页面配置 =====
+const SDK_URL = 'https://cdn.jsdelivr.net/npm/@lark-base-open/js-sdk@1.0.2/dist/index.mjs';
+const BASE_TOKEN = 'JGvebyaAYapWtOslxc9cuKYXnwd';   // 灯具组-全流程
+const STAGES = ['起量期', '爆发期', '高峰期', '消退期', '清仓期'];
+const PCT = ['转化率', 'TACOS', 'ACOS', '广告单占比', '利润率', '退货率'];               // 表里存小数，页面显示 %
+const NUMS = ['销量', '销售均价', '每件利润额', ...PCT, '明年备货量', '生产时间(天)', '首批海运时间(天)'];
+const TEXT_P = ['竞品状况', '明年策略', '优化建议'];                         // 父行文字（可编辑）
+// 可编辑 = 文字 + 明年备货量 + 明年计划（起售日/生产/海运）；销量和各比率是领星数据，只读（用户 10-13 定）
+const TABLES = {
+  review: { id: 'tblItjbd7BUZgoCH', name: '季节品复盘表-灯', fields: [
+    '行类型', 'ASIN', '国家文本', 'SPU', '品名', '负责人', '销售季分类', '销售年份', '阶段', '阶段日期', '上级记录', '复盘键',
+    '销量', '销售均价', '每件利润额', '转化率', 'TACOS', 'ACOS', '广告单占比', '利润率', '退货率', '阶段情况总结', ...TEXT_P,
+    '明年备货量', '明年备货量合计', '明年起售日期', '生产时间(天)', '首批海运时间(天)', '采购时间(倒推)'] },
+  pm: { id: 'tblqksywqgYvywOT', name: '产品主表-灯类+精铺', fields: ['ASIN', '国家文本', '图片'] },
+};
+
+// ===== ② 通用工具 =====
+const $ = (id) => document.getElementById(id);
+const DAY = 86400000, BJ = 8 * 3600000;
+const dn = (ms) => Math.floor((Number(ms) + BJ) / DAY);                       // 北京时间天序号
+const ymd = (n) => new Date(n * DAY).toISOString().slice(0, 10);
+const md = (n) => { const d = new Date(n * DAY); return `${d.getUTCMonth() + 1}月${d.getUTCDate()}日`; };
+const num = (v) => (v == null || v === '' || isNaN(v)) ? null : Number(v);
+const fmtN = (v) => num(v) == null ? '—' : Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 0 });
+const money = (v, c) => num(v) == null ? '—' : (c === '加拿大' ? 'C$' : '$') + Number(v).toFixed(2);   // 美国 USD / 加拿大 CAD
+const pct = (v) => num(v) == null ? '—' : (v * 100).toFixed(1).replace(/\.0$/, '') + '%';
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const txt = (v) => String(v ?? '').trim();
+const store = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
+const toast = (m) => { const t = $('toast'); t.textContent = m; t.classList.add('show'); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('show'), 2200); };
+
+function cell(v) {
+  if (v == null) return null;
+  if (typeof v === 'number' || typeof v === 'string' || typeof v === 'boolean') return v;
+  if (Array.isArray(v)) {
+    if (!v.length) return null;
+    if (v.every((x) => x && typeof x === 'object' && 'text' in x && !('id' in x && 'name' in x && !('type' in x)))) return v.map((x) => x.text ?? '').join('');
+    if (v.length === 1) return cell(v[0]);
+    return v.map(cell).join('、');
+  }
+  if (typeof v === 'object') {
+    if ('text' in v) return v.text;
+    if ('name' in v) return v.name;
+    if ('value' in v) return cell(v.value);
+  }
+  return String(v);
+}
+function linkIds(v) {
+  if (!v) return [];
+  if (typeof v === 'string') return v.startsWith('rec') ? [v] : [];
+  if (Array.isArray(v)) return v.flatMap(linkIds);
+  if (typeof v === 'object') {
+    for (const k of ['recordIds', 'record_ids', 'linkRecordIds', 'link_record_ids']) if (Array.isArray(v[k])) return v[k].flatMap(linkIds);
+    for (const k of ['recordId', 'record_id', 'id']) if (typeof v[k] === 'string' && v[k].startsWith('rec')) return [v[k]];
+  }
+  return [];
+}
+function norm(name, v) {
+  if (name === '上级记录') return linkIds(v);
+  if (name === '图片') return Array.isArray(v) ? v.filter((x) => x && typeof x === 'object' && x.token) : [];
+  if (name === '明年起售日期') return typeof v === 'number' ? v : (v ? Date.parse(v) : null);
+  const c = cell(v);
+  if (NUMS.includes(name)) return num(c);
+  return c;
+}
+
+let SDK = null;
+const TBLS = {}, FIDS = {}, DIAG = { missing: {}, read: {} };
+async function readTable(key) {
+  const cfg = TABLES[key];
+  const table = await SDK.bitable.base.getTableById(cfg.id);
+  const fields = await table.getFieldMetaList();
+  const idByName = Object.fromEntries(fields.map((f) => [f.name, f.id]));
+  DIAG.missing[cfg.name] = cfg.fields.filter((w) => !idByName[w]);
+  TBLS[key] = table; FIDS[key] = idByName;
+  const rows = [];
+  let pageToken;
+  for (let guard = 0; guard < 500; guard++) {
+    const res = await table.getRecordsByPage({ pageSize: 200, pageToken });
+    for (const r of res.records) {
+      const o = { _id: r.recordId };
+      for (const w of cfg.fields) if (idByName[w]) o[w] = norm(w, r.fields[idByName[w]]);
+      rows.push(o);
+    }
+    DIAG.read[cfg.name] = rows.length;
+    $('meta').textContent = `正在读取 ${cfg.name}… 已读 ${rows.length} 行`;
+    if (!res.hasMore) break;
+    pageToken = res.pageToken;
+  }
+  return rows;
+}
+
+// ===== ③ 数据整理 =====
+let ITEMS = [], SNAP = false;
+const state = { year: store.get('rvp.year') || '', mode: store.get('rvp.mode') === 'plan' ? 'plan' : 'cards',
+                season: 'all', country: 'all', owner: store.get('rvp.owner') || 'all', fill: 'all', asin: '' };
+const open = new Set(), editing = new Set();
+
+function build(rows, pm) {
+  const pmBy = {};
+  for (const p of pm) if (p['ASIN']) pmBy[`${p['ASIN']}|${p['国家文本']}`] = p;
+  const kids = {};
+  for (const r of rows) if (r['行类型'] === '阶段') for (const p of r['上级记录'] || []) (kids[p] = kids[p] || []).push(r);
+  ITEMS = rows.filter((r) => r['行类型'] === 'ASIN').map((p) => {
+    const st = {};
+    for (const k of kids[p._id] || []) if (STAGES.includes(k['阶段'])) st[k['阶段']] = k;
+    return { p, st, pm: pmBy[`${p['ASIN']}|${p['国家文本']}`] || null,
+             spu: p['SPU'] || '（无SPU）', owner: p['负责人'] || '（未填负责人）', season: p['销售季分类'] || '（无分类）',
+             country: p['国家文本'] || '—', year: p['销售年份'] || '' };
+  });
+  const years = [...new Set(ITEMS.map((x) => x.year))].sort();
+  if (!years.includes(state.year)) state.year = years[years.length - 1] || '';
+  $('year').innerHTML = years.map((y) => `<option value="${esc(y)}"${y === state.year ? ' selected' : ''}>${esc(y)} 赛季</option>`).join('');
+}
+
+// 填写进度（只看运营手填的文字，不做判断）
+const hasData = (x) => x.p['销量'] != null || STAGES.some((s) => x.st[s] && x.st[s]['销量'] != null);
+const sumCnt = (x) => STAGES.filter((s) => x.st[s] && txt(x.st[s]['阶段情况总结'])).length;
+const stockSum = (x) => { let t = 0, any = false; for (const s of STAGES) { const v = x.st[s] && num(x.st[s]['明年备货量']); if (v != null) { t += v; any = true; } } return any ? t : null; };
+const hasStrategy = (x) => !!txt(x.p['明年策略']);
+const isDone = (x) => sumCnt(x) > 0 && hasStrategy(x) && stockSum(x) != null;
+const FILLS = [
+  { key: 'all', label: '全部', f: () => true },
+  { key: 'done', label: '已复盘', f: isDone },
+  { key: 'part', label: '填了一部分', f: (x) => !isDone(x) && (sumCnt(x) > 0 || hasStrategy(x) || txt(x.p['竞品状况']) || stockSum(x) != null) },
+  { key: 'none', label: '未动笔', f: (x) => !sumCnt(x) && !hasStrategy(x) && !txt(x.p['竞品状况']) && stockSum(x) == null },
+];
+
+function scope() { return ITEMS.filter((x) => x.year === state.year); }
+function pass(x, skip) {
+  if (skip !== 'season' && state.season !== 'all' && x.season !== state.season) return false;
+  if (skip !== 'country' && state.country !== 'all' && x.country !== state.country) return false;
+  if (skip !== 'owner' && state.owner !== 'all' && x.owner !== state.owner) return false;
+  if (skip !== 'fill' && !FILLS.find((f) => f.key === state.fill).f(x)) return false;
+  if (skip !== 'asin' && state.asin && x.p['ASIN'] !== state.asin) return false;
+  return true;
+}
+
+// ===== ④ 渲染：筛选 =====
+// ASIN 下拉：选项随其他筛选变化，按 SPU → 品名 排；同一 ASIN 美国/加拿大合成一项
+function asinSelect(base) {
+  const m = new Map();
+  for (const x of base.filter((x) => pass(x, 'asin'))) if (!m.has(x.p['ASIN'])) m.set(x.p['ASIN'], x);
+  if (state.asin && !m.has(state.asin)) { const x = base.find((i) => i.p['ASIN'] === state.asin); if (x) m.set(state.asin, x); }
+  const opts = [...m.values()].sort((a, b) => a.spu.localeCompare(b.spu, 'zh') || String(a.p['品名']).localeCompare(String(b.p['品名']), 'zh'));
+  let last = null, html = '';
+  for (const x of opts) {
+    if (x.spu !== last) { if (last !== null) html += '</optgroup>'; html += `<optgroup label="${esc(x.spu)}">`; last = x.spu; }
+    html += `<option value="${esc(x.p['ASIN'])}"${x.p['ASIN'] === state.asin ? ' selected' : ''}>${esc(x.p['ASIN'])}　${esc(x.p['品名'] || '')}</option>`;
+  }
+  if (last !== null) html += '</optgroup>';
+  return `<select class="asel${state.asin ? ' on' : ''}" id="asinSel"><option value="">全部 ASIN（${m.size}）</option>${html}</select>`;
+}
+function renderFilters() {
+  const base = scope();
+  const chips = (key, list, label) => {
+    const cnt = (v) => base.filter((x) => pass(x, key) && (v === 'all' || (key === 'fill' ? FILLS.find((f) => f.key === v).f(x) : x[key] === v))).length;
+    return `<div class="frow"><span class="lb">${label}</span>${list.map(([v, t]) => {
+      const n = cnt(v);
+      return `<button class="chip${state[key] === v ? ' on' : ''}${n ? '' : ' zero'}" data-k="${key}" data-v="${esc(v)}">${esc(t)}<i>${n}</i></button>`;
+    }).join('')}${key === 'owner' ? asinSelect(base) : ''}</div>`;
+  };
+  const uniq = (k) => [...new Set(base.map((x) => x[k]))].sort((a, b) => a.localeCompare(b, 'zh'));
+  const short = (s) => s.replace(/^(季节品|节日品)-/, '');
+  $('filters').innerHTML =
+    chips('season', [['all', '全部'], ...uniq('season').map((s) => [s, short(s)])], '季节') +
+    chips('country', [['all', '全部'], ...uniq('country').map((s) => [s, s])], '国家') +
+    chips('owner', [['all', '全部'], ...uniq('owner').map((s) => [s, s])], '负责人') +
+    chips('fill', FILLS.map((f) => [f.key, f.label]), '复盘状态');
+  $('filters').querySelectorAll('.chip').forEach((b) => b.onclick = () => {
+    state[b.dataset.k] = b.dataset.v;
+    if (b.dataset.k === 'owner') store.set('rvp.owner', b.dataset.v);
+    render();
+  });
+  $('asinSel').onchange = () => { state.asin = $('asinSel').value; render(); };
+}
+
+// ===== ⑤ 渲染：复盘卡 =====
+function progress(list) {
+  const n = list.length || 1;
+  const kpi = (k, a, b, sub) => `<div class="kpi"><div class="k">${k}</div><div class="v">${a}<small> / ${b}</small></div>${sub != null ? `<div class="bar"><i style="width:${Math.round(sub * 100)}%"></i></div>` : ''}</div>`;
+  const dataN = list.filter(hasData).length, sumN = list.filter((x) => sumCnt(x) > 0).length, stN = list.filter(hasStrategy).length, doneN = list.filter(isDone).length;
+  const stock = list.reduce((t, x) => t + (stockSum(x) || 0), 0);
+  const byOwner = {};
+  for (const x of list) (byOwner[x.owner] = byOwner[x.owner] || []).push(x);
+  const row = (lb, a, b) => `<div class="rw"><span>${lb}</span><span class="bar"><i style="width:${b ? Math.round(a / b * 100) : 0}%"></i></span><span class="n">${a}/${b}</span></div>`;
+  return `<div class="kpis">
+      ${kpi('已有阶段数据', dataN, list.length, dataN / n)}
+      ${kpi('写了阶段总结', sumN, list.length, sumN / n)}
+      ${kpi('写了明年策略', stN, list.length, stN / n)}
+      ${kpi('复盘完成', doneN, list.length, doneN / n)}
+      <div class="kpi"><div class="k">明年备货量合计</div><div class="v">${fmtN(stock)}<small> 件</small></div><div class="meta" style="margin-top:4px">当前筛选内，运营按阶段填的</div></div>
+    </div>
+    <div class="owners">${Object.entries(byOwner).sort((a, b) => b[1].length - a[1].length).map(([o, l]) =>
+      `<div class="own"><b>${esc(o)}</b> <span class="meta">${l.length} 个</span>${row('阶段总结', l.filter((x) => sumCnt(x) > 0).length, l.length)}${row('明年策略', l.filter(hasStrategy).length, l.length)}${row('复盘完成', l.filter(isDone).length, l.length)}</div>`).join('')}</div>
+    <div class="meta" style="margin:-6px 0 12px">「复盘完成」= 至少写了 1 段阶段总结 + 明年策略 + 至少 1 个阶段的明年备货量。只统计有没有填，不评价填得好不好。</div>`;
+}
+
+const sv = (k, v, cls = '') => `<div class="st"><div class="k">${k}</div><div class="v ${v === '—' ? 'nil' : cls}">${v}</div></div>`;
+const negc = (v) => v != null && v < 0 ? 'neg' : '';
+
+function renderCards(list) {
+  if (!list.length) return '<div class="empty">当前筛选下没有产品</div>';
+  const groups = {};
+  for (const x of list) (groups[x.spu] = groups[x.spu] || []).push(x);
+  const tot = (l) => l.reduce((t, x) => t + (num(x.p['销量']) || 0), 0);
+  const keys = Object.keys(groups).sort((a, b) => tot(groups[b]) - tot(groups[a]) || a.localeCompare(b, 'zh'));
+  return keys.map((k) => {
+    const l = groups[k].sort((a, b) => (num(b.p['销量']) || 0) - (num(a.p['销量']) || 0));
+    const stock = l.reduce((t, x) => t + (stockSum(x) || 0), 0);
+    return `<div class="spu"><div class="spu-h"><b>${esc(k)}</b><span class="meta">${l.length} 个子ASIN · 整季销量 <b>${fmtN(tot(l))}</b> · 明年备货 <b>${stock ? fmtN(stock) : '—'}</b></span></div>
+      ${l.map(card).join('')}</div>`;
+  }).join('');
+}
+
+// 明年时间线：采购日 = 表里公式「采购时间(倒推)」（空时按 起售−海运−生产 现算）；发货日 = 起售 − 首批海运（页面推算，表里没这列）
+function timeline(p) {
+  const sale = num(p['明年起售日期']), ship = num(p['首批海运时间(天)']), prod = num(p['生产时间(天)']);
+  const s = sale != null ? dn(sale) : null;
+  const send = s != null && ship != null ? s - ship : null;
+  let buy = txt(p['采购时间(倒推)']) || null;
+  if (!buy && send != null && prod != null) buy = ymd(send - prod);
+  return { sale: s != null ? ymd(s) : null, send: send != null ? ymd(send) : null, buy, ship, prod };
+}
+
+function card(x) {
+  const p = x.p, id = p._id, ed = editing.has(id), op = open.has(id) || ed;
+  const done = isDone(x), sc = sumCnt(x);
+  const status = done ? '<span class="tag ok">已复盘</span>' : (sc || hasStrategy(x) ? `<span class="tag or">阶段总结 ${sc}/5</span>` : '<span class="tag todo">未动笔</span>');
+  const img = x.pm && (x.pm._imgData || x.imgUrl);
+  const maxV = Math.max(1, ...STAGES.map((s) => num(x.st[s] && x.st[s]['销量']) || 0));
+  const totV = STAGES.reduce((t, s) => t + (num(x.st[s] && x.st[s]['销量']) || 0), 0);
+  // 只开放文字、备货量、明年计划；销量/比率是领星真实数据，页面只读
+  const inp = (rid, f, v, ph = '') => `<input class="in" data-rid="${rid}" data-f="${esc(f)}" data-kind="num" inputmode="decimal" placeholder="${esc(ph)}" value="${esc(v ?? '')}">`;
+  const ta = (rid, f, v, ph) => `<textarea class="in" data-rid="${rid}" data-f="${esc(f)}" data-kind="text" placeholder="${esc(ph)}">${esc(v || '')}</textarea>`;
+
+  const season = `<div class="season">${sv('整季销量', fmtN(p['销量']))}${sv('销售均价', money(p['销售均价'], x.country))}${sv('每件利润', money(p['每件利润额'], x.country), negc(p['每件利润额']))}${sv('转化率', pct(p['转化率']))}${sv('TACOS', pct(p['TACOS']))}${sv('ACOS', pct(p['ACOS']))}${sv('广告单占比', pct(p['广告单占比']))}${sv('利润率', pct(p['利润率']), negc(p['利润率']))}${sv('退货率', pct(p['退货率']))}</div>`;
+
+  const stages = STAGES.map((s, i) => {
+    const r = x.st[s];
+    if (!r) return `<div class="sg empty"><div class="sg-h"><b data-i="${i + 1}">${s}</b><span class="meta">缺阶段行</span></div></div>`;
+    const v = num(r['销量']);
+    const blank = v == null && !txt(r['阶段情况总结']) && ['销售均价', '转化率', 'TACOS', 'ACOS', '广告单占比', '利润率'].every((f) => r[f] == null);
+    const m = (k, val, cls = '') => `<div><div class="k">${k}</div><div class="v ${val === '—' ? 'nil' : cls}">${val}</div></div>`;
+    const stk = num(r['明年备货量']);
+    return `<div class="sg${blank && !ed ? ' empty' : ''}"><div class="sg-h"><b data-i="${i + 1}">${s}</b><span class="dt">${esc(r['阶段日期'] || '')}</span></div>
+      <div class="vol"><span class="bar"><i style="width:${v ? Math.max(3, v / maxV * 100) : 0}%"></i></span><b>${fmtN(v)}</b><span class="share">${v && totV ? Math.round(v / totV * 100) + '%' : ''}</span></div>
+      <div class="mx">${m('销售均价', money(r['销售均价'], x.country))}${m('每件利润', money(r['每件利润额'], x.country), negc(r['每件利润额']))}${m('利润率', pct(r['利润率']), negc(r['利润率']))}${m('转化率', pct(r['转化率']))}${m('TACOS', pct(r['TACOS']))}${m('ACOS', pct(r['ACOS']))}${m('广告单%', pct(r['广告单占比']))}</div>
+      ${ed ? ta(r._id, '阶段情况总结', r['阶段情况总结'], '这个阶段发生了什么、为什么、学到什么')
+           : (txt(r['阶段情况总结']) ? `<div class="sum">${esc(r['阶段情况总结'])}</div>` : `<div class="sum nil">${blank ? '未填' : '未写阶段总结'}</div>`)}
+      ${ed ? `<div class="stk" style="display:flex;align-items:center;gap:6px;white-space:nowrap">明年备货 ${inp(r._id, '明年备货量', r['明年备货量'], '件')}</div>`
+           : `<div class="stk">明年备货 ${stk != null ? `<b>${fmtN(stk)}</b> 件` : '—'}</div>`}</div>`;
+  }).join('');
+
+  const concl = ['竞品状况', '优化建议'].map((f) => {
+    const ph = { '竞品状况': '对手做了什么：新进竞品、降价、断货、广告抢位…', '优化建议': 'Listing / 产品 / 包装 / 供应链要改什么' }[f];
+    return `<div class="cc"><div class="t">${f}</div>${ed ? ta(id, f, p[f], ph) : (txt(p[f]) ? `<div class="tx">${esc(p[f])}</div>` : '<div class="tx nil">未填</div>')}</div>`;
+  }).join('');
+
+  // 明年计划：策略 | 采购→发货→起售 时间线 | 备货量
+  const t = timeline(p), stock = stockSum(x);
+  const sale = num(p['明年起售日期']);
+  const node = (k, d, cls = '') => `<div class="tl-n"><div class="k">${k}</div><div class="d ${d ? cls : 'nil'}">${d || '—'}</div></div>`;
+  const arrow = (lb, n) => `<div class="tl-a"><span>${lb}</span><i></i><span>${n != null ? fmtN(n) + ' 天' : '— 天'}</span></div>`;
+  const maxS = Math.max(1, ...STAGES.map((s) => num(x.st[s] && x.st[s]['明年备货量']) || 0));
+  const np = `<div class="np"><div class="np-t">明年计划 <span class="meta" style="font-weight:normal">发货日 = 起售日 − 首批海运；采购日 = 发货日 − 生产（表里公式倒推）</span></div><div class="np-g">
+      <div class="np-b"><div class="k">明年策略</div>${ed ? ta(id, '明年策略', p['明年策略'], '明年这个 ASIN 怎么打：节奏、价格、广告、备货') : (txt(p['明年策略']) ? `<div class="tx">${esc(p['明年策略'])}</div>` : '<div class="tx nil">未填</div>')}</div>
+      <div class="np-b"><div class="k">备货与时间线</div>
+        <div class="tl">${node('最晚采购', t.buy, 'buy')}${arrow('生产', t.prod)}${node('发货', t.send)}${arrow('首批海运', t.ship)}${node('起售', t.sale)}</div>
+        ${ed ? `<div class="tl-in"><div><div class="k">明年起售日期</div><input class="in" type="date" data-rid="${id}" data-f="明年起售日期" data-kind="date" value="${sale != null ? ymd(dn(sale)) : ''}"></div>
+          <div><div class="k">生产时间(天)</div>${inp(id, '生产时间(天)', p['生产时间(天)'])}</div><div><div class="k">首批海运时间(天)</div>${inp(id, '首批海运时间(天)', p['首批海运时间(天)'])}</div></div>` : ''}
+        <div class="stk-line"><div class="tot"><div class="k">明年备货量${ed ? '（在各阶段里填）' : ''}</div><div class="stk-big">${stock != null ? fmtN(stock) : '—'}<small> 件</small></div></div>
+          ${STAGES.map((s) => { const v = num(x.st[s] && x.st[s]['明年备货量']); return `<div class="stk-c"><div class="k"><span>${s}</span><b class="${v != null ? '' : 'nil'}">${v != null ? fmtN(v) : '—'}</b></div><div class="bar"><i style="width:${v ? v / maxS * 100 : 0}%"></i></div></div>`; }).join('')}</div></div>
+    </div></div>`;
+
+  return `<div class="rc${op ? ' open' : ''}${ed ? ' editing' : ''}" id="c-${id}">
+    <div class="rc-top">
+      <div class="img" data-img="${id}">${img ? `<img src="${esc(img)}" alt="">` : '无图'}</div>
+      <div><div class="nm">${esc(p['品名'] || '（品名空）')}</div>
+        <div class="ids"><span class="asin">${esc(p['ASIN'])}</span><span class="tag">${esc(x.country)}</span><span class="tag">${esc(x.owner)}</span><span class="tag">${esc(x.season.replace(/^(季节品|节日品)-/, ''))}</span>${status}</div></div>
+      ${season}
+      <div class="acts">${ed ? '' : `<button class="btn" data-edit="${id}">✎ 编辑</button>`}</div>
+    </div>
+    <div class="stages">${stages}</div>
+    <div class="concl">${concl}</div>
+    ${np}
+    ${ed ? `<div class="savebar2"><span class="meta" id="em-${id}">${SNAP ? '本地预览：保存只改页面，不写回多维表' : '改过的格子标黄，保存后写回复盘表'}</span><button class="btn" data-cancel="${id}">取消</button><button class="btn pri" data-save="${id}">保存</button></div>`
+         : `<button class="more" data-more="${id}">${op ? '收起 ▴' : '展开全文 ▾'}</button>`}
+  </div>`;
+}
+
+// ===== ⑥ 渲染：明年行动清单（按 SPU 分组，可折叠；表头吸顶在筛选栏下方）=====
+const folded = new Set(JSON.parse(store.get('rvp.fold') || '[]'));
+const saveFold = () => store.set('rvp.fold', JSON.stringify([...folded]));
+function renderPlan(list) {
+  if (!list.length) return '<div class="empty">当前筛选下没有产品</div>';
+  const rows = list.map((x) => ({ x, t: timeline(x.p), stock: stockSum(x) }));
+  const byBuy = (a, b) => (a.t.buy ? 0 : 1) - (b.t.buy ? 0 : 1) || String(a.t.buy).localeCompare(String(b.t.buy)) || (b.stock || 0) - (a.stock || 0);
+  const groups = {};
+  for (const r of rows) (groups[r.x.spu] = groups[r.x.spu] || []).push(r);
+  const G = Object.entries(groups).map(([spu, l]) => {
+    l.sort(byBuy);
+    return { spu, l, buy: l.find((r) => r.t.buy)?.t.buy || null, stock: l.reduce((t, r) => t + (r.stock || 0), 0), any: l.some((r) => r.stock != null) };
+  }).sort((a, b) => (a.buy ? 0 : 1) - (b.buy ? 0 : 1) || String(a.buy).localeCompare(String(b.buy)) || b.stock - a.stock || a.spu.localeCompare(b.spu, 'zh'));
+  const withDate = rows.filter((r) => r.t.buy).length;
+  const long = (v) => txt(v) ? `<td class="long">${esc(v)}</td>` : '<td class="long nil">未填</td>';
+  const dcell = (v, cls = '') => `<td class="d ${v ? cls : 'nil'}">${esc(v || '—')}</td>`;
+  const tr = (r, spu) => {
+    const x = r.x, img = x.pm && (x.pm._imgData || x.imgUrl);
+    const parts = STAGES.map((s) => [s.replace('期', ''), num(x.st[s] && x.st[s]['明年备货量'])]).filter((a) => a[1] != null);
+    return `<tr class="${r.t.buy ? '' : 'nodate'}" data-spu="${esc(spu)}"${folded.has(spu) ? ' hidden' : ''}>
+      <td class="img0"><span class="mini" data-img="${x.p._id}">${img ? `<img src="${esc(img)}" alt="">` : ''}</span></td>
+      <td class="pn"><b>${esc(x.p['品名'] || '')}</b><div class="sub"><span class="asin">${esc(x.p['ASIN'])}</span> · ${esc(x.country)} · ${esc(x.owner)}</div></td>
+      ${long(x.p['明年策略'])}${long(x.p['优化建议'])}
+      <td class="r stk"><b>${r.stock != null ? fmtN(r.stock) : '—'}</b>${parts.length ? `<div class="sub">${parts.map((a) => `${a[0]} ${fmtN(a[1])}`).join('<br>')}</div>` : ''}</td>
+      ${dcell(r.t.buy, 'buy')}${dcell(r.t.send)}${dcell(r.t.sale)}</tr>`;
+  };
+  const allFold = G.every((g) => folded.has(g.spu));
+  return `<div class="card0 pbar" style="padding:10px 14px"><b>明年行动清单</b>
+      <span class="meta">按 SPU 分组（点 SPU 行折叠），组内按采购日从早到晚。采购日 = 表里公式「采购时间(倒推)」；发货日 = 起售日 − 首批海运（页面推算）。${withDate}/${rows.length} 个已有采购日。</span>
+      <button class="btn" id="foldAll">${allFold ? '全部展开' : '全部折叠'}</button></div>
+    <table class="atbl"><colgroup><col style="width:58px"><col style="width:22%"><col><col><col style="width:110px"><col style="width:108px"><col style="width:108px"><col style="width:108px"></colgroup>
+    <thead><tr><th></th><th>产品</th><th>明年策略</th><th>优化建议</th><th class="r stk">明年备货量</th><th class="c">采购日</th><th class="c">发货日</th><th class="c">起售日</th></tr></thead>
+    <tbody>${G.map((g) => `<tr class="g${folded.has(g.spu) ? ' fold' : ''}" data-g="${esc(g.spu)}"><td colspan="2"><span class="gn">${esc(g.spu)}</span><span class="gm">${g.l.length} 个子ASIN</span></td>
+        <td colspan="2" class="meta">${g.l.filter((r) => txt(r.x.p['明年策略'])).length}/${g.l.length} 写了策略</td><td class="r stk"><b>${g.any ? fmtN(g.stock) : '—'}</b></td>
+        <td class="d ${g.buy ? 'buy' : 'nil'}">${esc(g.buy || '—')}</td><td colspan="2" class="meta" style="text-align:center">${g.buy ? '组内最早采购' : ''}</td></tr>
+      ${g.l.map((r) => tr(r, g.spu)).join('')}`).join('')}
+      <tr class="tot"><td></td><td>合计 · ${G.length} 个 SPU</td><td></td><td></td><td class="r stk">${fmtN(rows.reduce((t, r) => t + (r.stock || 0), 0))}</td><td></td><td></td><td></td></tr></tbody></table>`;
+}
+function bindPlan() {
+  const m = $('main');
+  m.querySelectorAll('tr.g').forEach((g) => g.onclick = () => {
+    const spu = g.dataset.g, f = !folded.has(spu);
+    f ? folded.add(spu) : folded.delete(spu); saveFold();
+    g.classList.toggle('fold', f);
+    m.querySelectorAll('tr[data-spu]').forEach((r) => { if (r.dataset.spu === spu) r.hidden = f; });
+  });
+  const fa = $('foldAll');
+  if (fa) fa.onclick = () => {
+    const spus = [...m.querySelectorAll('tr.g')].map((g) => g.dataset.g);
+    const all = spus.every((s) => folded.has(s));
+    spus.forEach((s) => all ? folded.delete(s) : folded.add(s)); saveFold(); render();
+  };
+}
+// 表头吸顶高度 = 顶部筛选栏高度
+function setStickyH() { document.documentElement.style.setProperty('--stickyH', $('sticky').offsetHeight + 'px'); }
+window.addEventListener('resize', setStickyH);
+try { new ResizeObserver(setStickyH).observe($('sticky')); } catch (e) {}
+
+function render() {
+  renderFilters();
+  document.querySelectorAll('#mode button').forEach((b) => b.classList.toggle('on', b.dataset.m === state.mode));
+  const list = scope().filter((x) => pass(x));
+  $('main').innerHTML = state.mode === 'plan' ? renderPlan(list) : progress(list) + renderCards(list);
+  bindCards();
+  if (state.mode === 'plan') bindPlan();
+  setStickyH();
+  loadImages(list);
+}
+
+// ===== ⑦ 编辑 / 写回 =====
+function rowById(rid) {
+  for (const x of ITEMS) { if (x.p._id === rid) return x.p; for (const s of STAGES) if (x.st[s] && x.st[s]._id === rid) return x.st[s]; }
+  return null;
+}
+function parseIn(el) {
+  const f = el.dataset.f, k = el.dataset.kind, s = el.value.trim();
+  if (k === 'text') return s || null;
+  if (k === 'date') return s ? Date.parse(s + 'T00:00:00+08:00') : null;
+  if (s === '') return null;
+  const n = Number(s.replace(/[,%，]/g, ''));
+  if (isNaN(n)) throw new Error(`「${f}」不是数字：${s}`);
+  return PCT.includes(f) ? +(n / 100).toFixed(6) : n;
+}
+const same = (a, b) => (a == null && b == null) || (typeof a === 'number' && typeof b === 'number' ? Math.abs(a - b) < 1e-9 : a === b);
+
+function bindCards() {
+  const m = $('main');
+  m.querySelectorAll('[data-more]').forEach((b) => b.onclick = () => { const id = b.dataset.more; open.has(id) ? open.delete(id) : open.add(id); rerender(id); });
+  m.querySelectorAll('[data-edit]').forEach((b) => b.onclick = () => { editing.add(b.dataset.edit); rerender(b.dataset.edit); });
+  m.querySelectorAll('[data-cancel]').forEach((b) => b.onclick = () => { editing.delete(b.dataset.cancel); rerender(b.dataset.cancel); });
+  m.querySelectorAll('[data-save]').forEach((b) => b.onclick = () => saveCard(b.dataset.save, b));
+  m.querySelectorAll('.in').forEach((el) => el.oninput = () => {
+    let dirty = true;
+    try { dirty = !same(parseIn(el), rowById(el.dataset.rid)[el.dataset.f] ?? null); } catch (e) {}
+    el.classList.toggle('dirty', dirty);
+  });
+}
+function rerender(id) {
+  const x = ITEMS.find((i) => i.p._id === id), el = $('c-' + id);
+  if (!x || !el) return render();
+  el.outerHTML = card(x);
+  bindCards(); loadImages([x]);
+}
+
+async function saveCard(id, btn) {
+  const box = $('c-' + id), msg = $('em-' + id);
+  const changes = {};   // rid → {字段名: 值}
+  try {
+    box.querySelectorAll('.in').forEach((el) => {
+      const v = parseIn(el), r = rowById(el.dataset.rid);
+      if (!same(v, r[el.dataset.f] ?? null)) (changes[el.dataset.rid] = changes[el.dataset.rid] || {})[el.dataset.f] = v;
+    });
+  } catch (e) { msg.textContent = e.message; msg.style.color = 'var(--red)'; return; }
+  const n = Object.keys(changes).length;
+  if (!n) { editing.delete(id); rerender(id); toast('没有改动'); return; }
+  btn.disabled = true; msg.textContent = `保存中…（${n} 行）`;
+  try {
+    if (!SNAP) {
+      for (const [rid, fs] of Object.entries(changes)) {
+        const fields = {};
+        for (const [f, v] of Object.entries(fs)) {
+          const fid = FIDS.review[f];
+          if (!fid) throw new Error(`复盘表缺字段「${f}」`);
+          fields[fid] = v;
+        }
+        await TBLS.review.setRecord(rid, { fields });
+      }
+    }
+    for (const [rid, fs] of Object.entries(changes)) Object.assign(rowById(rid), fs);
+    editing.delete(id); rerender(id);
+    toast(SNAP ? `本地预览：已改 ${n} 行（未写回）` : `已写回复盘表 ${n} 行`);
+    if (!SNAP) refreshFormula(id);
+  } catch (e) {
+    btn.disabled = false; msg.style.color = 'var(--red)';
+    msg.textContent = '保存失败：' + (e && e.message ? e.message : e) + '（多维表应用的数据权限要对复盘表开「可编辑」）';
+  }
+}
+// 采购时间(倒推) 是公式，写回后隔几秒重读这一行
+async function refreshFormula(id) {
+  await new Promise((r) => setTimeout(r, 2500));
+  try {
+    const fid = FIDS.review['采购时间(倒推)'];
+    const v = await TBLS.review.getCellValue(fid, id);
+    const x = ITEMS.find((i) => i.p._id === id);
+    x.p['采购时间(倒推)'] = cell(v);
+    if (!editing.has(id)) rerender(id);
+  } catch (e) { console.warn('重读采购时间失败', e); }
+}
+
+// 图片：快照自带缩略图；插件里取产品主表附件临时地址
+async function loadImages(list) {
+  if (!TBLS.pm || !FIDS.pm['图片']) return;
+  for (const x of list) {
+    const att = x.pm && x.pm['图片'];
+    const boxes = document.querySelectorAll(`[data-img="${x.p._id}"]`);
+    if (!boxes.length || !att || !att.length) continue;
+    try {
+      if (!x.imgUrl) {
+        const urls = await TBLS.pm.getCellAttachmentUrls([att[0].token], FIDS.pm['图片'], x.pm._id);
+        x.imgUrl = urls && urls[0];
+      }
+      if (x.imgUrl) boxes.forEach((b) => b.innerHTML = `<img src="${esc(x.imgUrl)}" alt="">`);
+    } catch (e) { boxes.forEach((b) => { b.textContent = '图未取到'; b.title = String(e && e.message || e); }); }
+  }
+}
+
+// ===== ⑧ 保存插件配置（硬规矩①②）=====
+function setupSave() {
+  const dash = SDK && SDK.dashboard;
+  let st = '';
+  try { st = dash && dash.state; } catch (e) { st = '读取失败'; }
+  $('saveMsg').textContent = `（插件状态：${st || '未知'}）`;
+  if (dash && typeof dash.saveConfig === 'function' && st !== 'View' && st !== 'FullScreen') {
+    $('savebar').classList.add('show');
+    $('saveBtn').onclick = async () => {
+      $('saveBtn').disabled = true; $('saveMsg').textContent = '保存中…';
+      try {
+        const ok = await dash.saveConfig({
+          dataConditions: Object.values(TABLES).map((t) => ({ tableId: t.id, baseToken: BASE_TOKEN, dataRange: { type: 'ALL' }, series: 'COUNTA' })),
+          customConfig: { page: document.title, version: 1 },
+        });
+        $('saveMsg').textContent = ok === false ? '保存失败，请重试' : '已保存 ✔';
+      } catch (e) { $('saveMsg').textContent = '保存失败：' + (e && e.message ? e.message : e); }
+      finally { $('saveBtn').disabled = false; }
+    };
+  } else if (dash && dash.setRendered) {
+    dash.setRendered().catch(() => {});
+  }
+}
+
+// ===== ⑨ 诊断 =====
+async function diagnose() {
+  const res = [];
+  const t = async (name, fn) => {
+    try {
+      const v = await Promise.race([fn(), new Promise((_, rej) => setTimeout(() => rej(new Error('超时 8s')), 8000))]);
+      let shown; try { shown = typeof v === 'string' ? v : JSON.stringify(v); } catch (x) { shown = String(v); }
+      res.push(['✔', name, String(shown).slice(0, 300)]); return v;
+    } catch (e) { res.push(['✘', name, e && e.message ? e.message : String(e)]); return undefined; }
+  };
+  const { bitable, dashboard } = SDK;
+  await t('dashboard.state', async () => dashboard.state);
+  await t('dashboard.getConfig', () => dashboard.getConfig());
+  for (const cfg of Object.values(TABLES)) {
+    const tb = await t(`getTableById ${cfg.name}`, () => bitable.base.getTableById(cfg.id));
+    if (tb) await t(`getRecordsByPage ${cfg.name}`, () => tb.getRecordsByPage({ pageSize: 2 }));
+  }
+  return `<div class="card0"><b>接口诊断</b> <span class="meta">请把这块整体截图发回</span><table class="tbl"><tbody>${res.map((r) =>
+    `<tr><td style="width:24px">${r[0]}</td><td>${esc(r[1])}</td><td style="color:var(--sub)">${esc(r[2])}</td></tr>`).join('')}</tbody></table></div>`;
+}
+
+{ const st = $('sticky'); const onScroll = () => st.classList.toggle('stuck', st.getBoundingClientRect().top <= 0 && window.scrollY > 0);
+  window.addEventListener('scroll', onScroll, { passive: true }); }
+$('year').onchange = () => { state.year = $('year').value; store.set('rvp.year', state.year); render(); };
+document.querySelectorAll('#mode button').forEach((b) => b.onclick = () => { state.mode = b.dataset.m; store.set('rvp.mode', state.mode); render(); });
+
+// ===== 启动 =====
+function finish(rows, pm, src) {
+  build(rows, pm);
+  $('meta').textContent = `${scope().length} 个子ASIN×国家 · ${src}`;
+  render();
+  if (!ITEMS.length) $('main').insertAdjacentHTML('afterbegin', `<div class="card0"><b>没有读到 ASIN 行</b> <span class="meta">读取行数 ${esc(JSON.stringify(DIAG.read))}；缺失字段 ${esc(JSON.stringify(DIAG.missing))}</span></div>`);
+}
+try {
+  if (window.__SNAPSHOT__) {
+    SNAP = true;
+    finish(window.__SNAPSHOT__.review, window.__SNAPSHOT__.pm, `本地快照 ${window.__SNAPSHOT__.at}（预览，编辑不写回）`);
+  } else {
+    SDK = await import(SDK_URL);
+    setupSave();
+    const rows = await readTable('review');
+    let pm = [];
+    try { pm = await readTable('pm'); } catch (e) { console.warn('产品主表读不到，卡片不显示图片', e); }
+    finish(rows, pm, '取数：季节品复盘表 + 产品主表');
+  }
+} catch (e) {
+  const msg = esc(e && e.message ? e.message : e);
+  $('meta').textContent = '';
+  $('main').innerHTML = `<div class="card0 err">加载失败：${msg}</div><div class="card0">正在诊断…</div>`;
+  if (SDK) { try { $('main').innerHTML = `<div class="card0 err">加载失败：${msg}</div>` + await diagnose(); } catch (e2) { /* 保留报错 */ } }
+}
+</script>
+</body>
+</html>
