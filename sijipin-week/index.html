@@ -274,13 +274,15 @@ const TABLES = {
   // view：「插件-近66天（经营表页面用，勿删）」= 公式字段 _经营表页面=1（近66天 且 产品主表勾了「进四季品经营表」，约 5000 行；全表 1.8 万行太慢）
   day: { id: 'tblKAoK9pN3cWI9t', name: '每日数据表-灯', view: 'vew7B6MlLH', fields: ['日期', 'ASIN', '国家', '店铺', '维度', ...DAY_NUM] },
   pm: { id: 'tblqksywqgYvywOT', name: '产品主表-灯类+精铺', fields: ['ASIN', '国家文本', '国家', '领星SKU', '品名', '图片', '采购成本不含税', '头程费用', 'FBA配送费', 'FBA配送费（旺季）', '佣金比例', '汇率'] },
-  // 库存预测（口径同 ASIN库存管理页 tools/asin-inventory-plugin，用户 2026-10-09 定）
+  // 库存预测：口径与「四季品备货计划」页一致（model() 由 sync_bh_model.py 原样复制）
   ov: { id: 'tbl23j9fj1autV9a', name: 'ASIN库存概况-灯', fields: ['记录键', 'ASIN', '国家', 'FBA可售', 'FBA预留', '近30天日均', '数据更新日'] },
   ship: { id: 'tblDvoc2YSab7TMr', name: 'FBA在途货件明细-灯', fields: ['ASIN', '国家', '货件号', '发货量', '已收量', '预计到仓日'] },
-  batch: { id: 'tblZBxZ9itqto4Jk', name: '采购单-预发货批次表', fields: ['可售SKU', ...[1, 2, 3, 4].flatMap((n) => ['数量', '发货日', '状态', '店铺', '货件号'].map((f) => `批${n}${f}`))] },
-  fc: { id: 'tblBymnJvmClZQdy', name: '销量预估-备货表', fields: ['领星SKU', '国家', ...Array.from({ length: 12 }, (_, i) => `${i + 1}月日均`)] },
+  bh: { id: 'tblBymnJvmClZQdy', name: '销量预估-备货表', fields: ['领星SKU', '国家', 'ASIN', '本地仓可用', '采购在途', '生产天数', '头程天数', '安全天数', '发货备货天数', '采购备货天数',
+    '单箱数量', '头程渠道', ...Array.from({ length: 12 }, (_, i) => `${i + 1}月日均`)] },
+  sv: { id: 'tblXt1ki1ZvR2o8U', name: '备货计划-页面存档', fields: ['记录键', '方案数据', '更新时间'] },
+  ch: { id: 'tblxl08WV9pLwxdi', name: '头程渠道时效', fields: ['物流渠道', '国家', '运输方式', '标准时效天数', '历史样本数', '启用'] },
 };
-const FREIGHT_DAYS = 35, SHELF_DAYS = 7, CAL_DAYS = 120;   // 头程 / 上架 / 预测天数（同 ASIN库存管理页）
+const CAL_DAYS = 120;   // 库存趋势看未来 120 天
 const PERF_DAYS = 60;   // 最长 30 天 + 上一周期 30 天
 
 // ===== ② 通用工具 =====
@@ -373,51 +375,252 @@ const owners = (r) => String(r['负责人'] || '').split(/[、,，]/).map((s) =>
 let ENT = {}, WEEKS = [], DEFAULT_WEEK = null, DAYAGG = {}, DAYS = [], IMG = {}, PM = {}, COST = {};
 const entKey = (r) => r['层级'] === 'SPU' ? `SPU|${r['_SPU键']}|${r['国家文本']}` : `ASIN|${r['ASIN']}|${r['国家文本']}`;
 
+// ===== 备货计划模型 BEGIN（由 sync_bh_model.py 从 tools/beihuo-plan-page/preview_template.html 原样复制，勿手改）=====
+function makeBH(CHANNELS, EDIT) {
+// ===== 默认口径（与销量预估-备货表一致） =====
+const SHIP_WD = 4, PO_WD = 2;   // 周四发货、周二下单
+const MONTHS = 6;               // 预估 6 个月（含本月）
+const SPLIT_DAYS = [30, 30, 35, 45, 50];   // 美国分仓：5 份分别多少天到仓
+
+const $ = (id) => document.getElementById(id);
+const DAY = 86400000, BJ = 8 * 3600000;
+const dn = (ms) => Math.floor((Number(ms) + BJ) / DAY);           // 毫秒 → 北京日期天序号
+const ds = (s) => s ? dn(Date.parse(s + 'T00:00:00+08:00')) : null; // 'YYYY-MM-DD' → 天序号
+const today0 = dn(Date.now());
+const ud = (n) => new Date(n * DAY);
+const Y = (n) => ud(n).getUTCFullYear(), M = (n) => ud(n).getUTCMonth(), D = (n) => ud(n).getUTCDate(), W = (n) => ud(n).getUTCDay();
+const dayOf = (y, m, d) => Math.floor(Date.UTC(y, m, d) / DAY);
+const fmtD = (n) => `${M(n) + 1}-${String(D(n)).padStart(2, '0')}`;
+const fmtFull = (n) => `${Y(n)}-${String(M(n) + 1).padStart(2, '0')}-${String(D(n)).padStart(2, '0')}`;
+const WD = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
 const n0 = (v) => (v == null || v === '' || isNaN(v)) ? 0 : Number(v);
-let INV = { ov: {}, ships: {}, plans: {}, monthly: {} };
-function buildInv(pm, ov, ship, batch, fc) {
-  const skuToAsin = {};
-  for (const m of pm) if (m['领星SKU'] && m['ASIN']) skuToAsin[`${m['领星SKU']}|${cell(m['国家']) || m['国家文本']}`] = m['ASIN'];
-  INV = { ov: {}, ships: {}, plans: {}, monthly: {} };
-  for (const o of ov) INV.ov[o['记录键'] || `${o['ASIN']}|${cell(o['国家'])}`] = o;
-  for (const x of ship) { const k = `${x['ASIN']}|${cell(x['国家'])}`; (INV.ships[k] = INV.ships[k] || []).push(x); }
-  // 预发货计划：批次排了发货日、还没发（状态≠已发、无货件号）
-  for (const b of batch) for (const n of [1, 2, 3, 4]) {
-    const qty = n0(b[`批${n}数量`]), d = b[`批${n}发货日`];
-    if (!qty || !d || String(b[`批${n}状态`] || '').includes('已发') || b[`批${n}货件号`]) continue;
-    const country = String(cell(b[`批${n}店铺`]) || '').includes('-CA') ? '加拿大' : '美国';
-    const asin = skuToAsin[`${b['可售SKU']}|${country}`];
-    if (asin) (INV.plans[`${asin}|${country}`] = INV.plans[`${asin}|${country}`] || []).push({ qty, ship: typeof d === 'number' ? d : Date.parse(d), ref: `${b['可售SKU']} 批${n}` });
-  }
-  // 销量预估表月日均：按 ASIN×国家 汇总
-  for (const f of fc) {
-    const asin = skuToAsin[`${f['领星SKU']}|${cell(f['国家'])}`]; if (!asin) continue;
-    const k = `${asin}|${cell(f['国家'])}`; INV.monthly[k] = INV.monthly[k] || Array(12).fill(0);
-    for (let i = 0; i < 12; i++) INV.monthly[k][i] += n0(f[`${i + 1}月日均`]);
-  }
+const fmtN = (v, p = 0) => (v == null || v === '' || isNaN(v)) ? '—' : Number(v).toLocaleString('zh-CN', { maximumFractionDigits: p, minimumFractionDigits: p });
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const alignBack = (d, wd) => d - ((W(d) - wd + 7) % 7);           // 向前对齐到 ≤d 的最近星期 wd
+const nextOn = (d, wd) => d + ((wd - W(d) + 7) % 7);              // ≥d 的最近星期 wd
+
+// 预估窗口：本月起 6 个自然月
+const winMonths = Array.from({ length: MONTHS }, (_, k) => { const y = Y(today0), m = M(today0) + k; return { y: y + Math.floor(m / 12), m: m % 12 }; });
+const winEnd = dayOf(winMonths[MONTHS - 1].y, winMonths[MONTHS - 1].m + 1, 0);   // 第 6 个月月末
+const daysIn = (y, m) => D(dayOf(y, m + 1, 0));
+
+
+const CHART_DAYS = 120;
+const PARAMS = [
+  ['prod', '生产天数', '下单 → 国内仓'],
+  ['freight', '发货天数（头程）', '国内仓发出 → 到仓即计入库存'],
+  ['safety', '安全天数', '额外缓冲'],
+  ['shipCover', '发货备货天数', '每次发货补够多少天（2 周一发 = 14）'],
+  ['poCover', '采购备货天数', '每次采购补够多少天'],
+];
+function defaults(o) {
+  return { months: winMonths.map((w) => o.months[w.m]), prod: o.prod, freight: o.freight, safety: o.safety, shipCover: o.shipCover, poCover: o.poCover };
 }
-// 一个 ASIN×国家 未来 120 天：起点 = 可售+预留；货件 ETA+上架7天到（逾期未收 = 明天到）；预发货 = 发货日+头程35+上架7；日销 = 预估表当月日均，空则近30天日均
-function invCalendar(k, today) {
-  const o = INV.ov[k] || {};
-  const arr = [];
-  for (const x of INV.ships[k] || []) {
-    const qty = Math.max(0, n0(x['发货量']) - n0(x['已收量'])); if (!qty) continue;
-    const eta = x['预计到仓日'] ? dn(typeof x['预计到仓日'] === 'number' ? x['预计到仓日'] : Date.parse(x['预计到仓日'])) : null;
-    arr.push(eta == null || eta < today ? { day: today + 1, qty, kind: '逾期未收', ref: x['货件号'] } : { day: eta + SHELF_DAYS, qty, kind: '货件', ref: x['货件号'] });
+function cur(o) { return Object.assign(defaults(o), EDIT[o.key] || {}); }
+
+// ===== 计算 =====
+// 逐日结果里的缺货段：[{from, to, qty, final}]，final＝一直缺到窗口最后一天
+function outRuns(days) {
+  const runs = [];
+  for (const x of days) {
+    if (x.short <= 0) continue;
+    const r = runs[runs.length - 1];
+    if (r && r.to === x.d - 1) { r.to = x.d; r.qty += x.short; } else runs.push({ from: x.d, to: x.d, qty: x.short });
   }
-  for (const pl of INV.plans[k] || []) arr.push({ day: dn(pl.ship) + FREIGHT_DAYS + SHELF_DAYS, qty: pl.qty, kind: '预发货', ref: pl.ref });
-  const m = INV.monthly[k];
-  let stock = n0(o['FBA可售']) + n0(o['FBA预留']);
-  const start = stock, days = [];
-  for (let i = 0; i < CAL_DAYS; i++) {
-    const d = today + i, inn = arr.filter((a) => a.day === d);
-    const mv = m ? m[ud(d).getUTCMonth()] : 0, sales = mv > 0 ? mv : n0(o['近30天日均']);
-    const avail = stock + inn.reduce((s2, a) => s2 + a.qty, 0);
-    days.push({ d, sales, inn, short: Math.max(0, sales - avail), stock: Math.max(0, avail - sales) });
-    stock = Math.max(0, avail - sales);
+  const last = days[days.length - 1];
+  for (const r of runs) r.final = !!last && r.to === last.d;
+  return runs;
+}
+function model(o, opt = {}) {
+  const p = cur(o);
+  // 自定义时段日均（勾选的才生效）：落在时段内的天用时段日均，重叠时下面的行优先；其余天用月均
+  const periods = (p.periods || []).map((x, i) => ({ ...x, i, a: ds(x.from), b: ds(x.to) }))
+    .map((x) => ({ ...x, valid: x.a != null && x.b != null && x.b >= x.a && x.daily !== '' && x.daily != null }));
+  const activePer = periods.filter((x) => x.on !== false && x.valid);
+  const perOf = (d) => { for (let i = activePer.length - 1; i >= 0; i--) if (d >= activePer[i].a && d <= activePer[i].b) return activePer[i]; return null; };
+  const monthOf = (d) => {
+    if (d > winEnd) return n0(p.months[MONTHS - 1]);
+    const k = (Y(d) - winMonths[0].y) * 12 + M(d) - winMonths[0].m;
+    return n0(p.months[Math.max(0, k)]);
+  };
+  const fcOf = opt.fc || ((d) => { const x = perOf(d); return x ? n0(x.daily) : monthOf(d); });
+  // 到货即计入库存（不再加上架天数）
+  const shipLead = n0(p.freight), poLead = n0(p.prod) + shipLead;
+  const box = Math.max(1, o.box);
+  const ceilBox = (v) => Math.ceil(Math.max(0, v) / box) * box;
+  // 美国分仓：一批货按箱平均拆 5 份，分别 30/30/35/45/50 天到仓
+  const split = o.country === '美国' && !!p.split;
+  const splitParts = (qty) => {
+    const cartons = Math.floor(qty / box), rem = qty - cartons * box;
+    const parts = SPLIT_DAYS.map((_, i) => (Math.floor(cartons / SPLIT_DAYS.length) + (i < cartons % SPLIT_DAYS.length ? 1 : 0)) * box);
+    parts[0] += rem;
+    return parts;
+  };
+  const legsOf = (S, qty, days, doSplit) => doSplit
+    ? splitParts(qty).map((q, i) => ({ day: S + SPLIT_DAYS[i], qty: q, dd: SPLIT_DAYS[i] })).filter((l) => l.qty > 0)
+    : [{ day: S + n0(days), qty, dd: n0(days) }];
+  const arrivals = [];
+  for (const s of o.ships) {
+    const qty = Math.max(0, s['发货量'] - s['已收量']); if (!qty) continue;
+    const eta = ds(s['预计到仓日']);
+    if (eta == null || eta < today0) arrivals.push({ day: today0 + 1, qty, kind: 'overdue', ref: s['货件号'] });
+    else arrivals.push({ day: eta, qty, kind: 'ship', ref: s['货件号'] });
   }
+  // 预发货计划（手填，勾选的才算）：到仓＝发货日 + 到货天数；美国勾了分仓则按 5 份 30/30/35/45/50 天
+  const plans = (p.plans || []).map((x, i) => {
+    const shipDay = ds(x.date);
+    const legs = shipDay == null || !(n0(x.qty) > 0) ? [] : legsOf(shipDay, n0(x.qty), x.days, split);
+    return { ...x, i, shipDay, legs };
+  });
+  for (const x of plans) if (x.on !== false) for (const l of x.legs) arrivals.push({ day: Math.max(l.day, today0), qty: l.qty, kind: 'plan', ref: `预发货 ${x.date}`, shipDay: x.shipDay });
+  const stock0 = o.fba + o.res;
+  const sim = (list) => {   // list = 全部到货
+    let stock = stock0; const days = [];
+    for (let d = today0; d <= winEnd; d++) {
+      const inn = list.filter((a) => a.day === d);
+      const sales = fcOf(d);
+      const avail = stock + inn.reduce((s, a) => s + a.qty, 0);
+      const short = Math.max(0, sales - avail);
+      stock = Math.max(0, avail - sales);
+      days.push({ d, sales, stock, inn, short });
+    }
+    return days;
+  };
+  const base = sim(arrivals);   // 不发新货（只有在途 + 勾选的预发货）
+  const demand = (E) => { let s = 0; for (let d = today0; d <= E; d++) s += fcOf(d); return s; };
+  // 断货按逐日模拟算（看到货先后）：每段缺货 = 一次断货；最后一段一直断到窗口末（没有已知到货能补上）＝ 补货断货日，前面的＝临时断档
+  const runs = outRuns(base);
+  const finalRun = runs.find((r) => r.final);
+  const stockout = finalRun ? finalRun.from : null;
+  const gaps = runs.filter((r) => !r.final);
+  // 最晚下单用：国内仓 + 采购在途 也发过去之后，总量被累计需求吃完的那天（国内货随时可发，不看先后）
+  const runOut = (supply) => { let c = 0; for (let d = today0; d <= winEnd; d++) { c += fcOf(d); if (c > supply) return d; } return null; };
+  const totalArr = arrivals.reduce((s, a) => s + a.qty, 0);
+  const stockoutAll0 = runOut(stock0 + totalArr + o.local + o.po);
+  const stockoutAll = stockoutAll0 != null && stockout != null ? Math.max(stockoutAll0, stockout) : stockoutAll0;
+  const arrivedBy = (E, list = arrivals) => list.filter((a) => a.day <= E).reduce((s, a) => s + a.qty, 0);
+  const shipTarget = today0 + shipLead + n0(p.shipCover) + n0(p.safety);
+  const poTarget = today0 + poLead + n0(p.poCover) + n0(p.safety);
+  const shipNeed = demand(shipTarget), poNeed = demand(poTarget);
+  const sugShip = ceilBox(shipNeed - stock0 - arrivedBy(shipTarget));
+  const sugPo = ceilBox(poNeed - stock0 - arrivedBy(poTarget) - o.local - o.po);
+  const lastShip = stockout != null ? alignBack(stockout - shipLead, SHIP_WD) : null;
+  const lastPo = stockoutAll != null ? alignBack(stockoutAll - poLead, PO_WD) : null;
+  const nextShip = nextOn(today0, SHIP_WD), nextPo = nextOn(today0, PO_WD);
+  const redDays = shipLead + n0(p.safety);   // 可售天数低于「发货提前期+安全天数」= 现在发也来不及
+
+  // ===== 建议货件：从下个周四起每「发货备货天数」发一批，补到「到货 + 备货天数 + 安全天数」 =====
+  // 渠道：默认走本行常规渠道；常规渠道到货前会断货 → 拆出「加急」批（只补断档量），按 海卡→海派→空派→快递 取最便宜且赶得上的
+  const chans = CHANNELS.filter((c) => c.country === o.country && c.days > 0);
+  const TIER = { '海卡': 1, '海派': 2, '空派': 3, '快递': 4 };
+  const regular = { name: o.channel || '常规渠道（本行头程）', mode: '海卡', days: n0(p.freight) };
+  const pickFast = (S, needBy) => {
+    const ok = chans.filter((c) => S + c.days <= needBy && c.days < regular.days)
+      .sort((x, y) => (TIER[x.mode] || 9) - (TIER[y.mode] || 9) || (y.samples > 0) - (x.samples > 0) || y.days - x.days);
+    if (ok.length) return { ...ok[0], late: false };
+    const fastest = chans.slice().sort((x, y) => x.days - y.days || (y.samples > 0) - (x.samples > 0))[0];
+    return fastest ? { ...fastest, late: true } : null;
+  };
+  const SPLIT_AVG = Math.round(SPLIT_DAYS.reduce((a, b) => a + b, 0) / SPLIT_DAYS.length);
+  const sugs = []; const supply = arrivals.slice();
+  const cover = Math.max(7, n0(p.shipCover) || 14);
+  const on = p.sugOn || {};
+  for (let S = nextShip; S <= today0 + CHART_DAYS; S += cover) {
+    const firstArr = S + (split ? SPLIT_DAYS[0] : regular.days);          // 常规批最早到仓
+    if (firstArr > winEnd) break;
+    const E = S + (split ? SPLIT_AVG : regular.days) + cover + n0(p.safety);
+    let need = ceilBox(demand(E) - stock0 - arrivedBy(E, supply));
+    if (need <= 0) continue;
+    // 常规批最早到仓前的缺口 → 加急（加急批不分仓）
+    const pre = sim(supply).filter((x) => x.d >= S && x.d < firstArr);
+    const firstShort = pre.find((x) => x.short > 0);
+    if (firstShort) {
+      const f = pickFast(S, firstShort.d);
+      if (f) {
+        const fArr = S + f.days;
+        // 加急批只补「它到了之后」还缺的量；到了断档也已经结束（被在途接上）就不加急
+        const q = Math.min(need, ceilBox(pre.filter((x) => x.d >= fArr).reduce((s, x) => s + x.short, 0)));
+        if (q > 0) {
+          const id = `${S}-fast`;
+          const legs = [{ day: fArr, qty: q, dd: f.days }];
+          sugs.push({ id, S, qty: q, ch: f, legs, urgent: true, late: f.late, gapFrom: firstShort.d, on: on[id] !== undefined ? on[id] : false });
+          for (const l of legs) supply.push({ day: l.day, qty: l.qty, kind: 'sug', ref: id });
+          need = ceilBox(demand(E) - stock0 - arrivedBy(E, supply));
+        }
+      }
+    }
+    if (need > 0) {
+      const id = `${S}-reg`;
+      const legs = legsOf(S, need, regular.days, split);
+      sugs.push({ id, S, qty: need, ch: { ...regular, late: false }, legs, urgent: false, cover: E, on: on[id] !== undefined ? on[id] : false });
+      for (const l of legs) supply.push({ day: l.day, qty: l.qty, kind: 'sug', ref: id });
+    }
+  }
+  let left = o.local + o.po;   // 国内余量（本地仓 + 采购在途），按发货先后扣
+  for (const x of plans.filter((x) => x.on !== false)) left -= n0(x.qty);
+  for (const s of sugs) { left -= s.qty; s.left = left; }
+  const finalArr = arrivals.concat(sugs.filter((s) => s.on).flatMap((s) => s.legs.map((l) => ({ day: l.day, qty: l.qty, kind: 'sug', ref: s.id, shipDay: s.S }))));
+  const days = sim(finalArr);
+  return { p, fcOf, shipLead, poLead, arrivals, stock0, days, base, stockout, stockoutAll, gaps, sim, shipTarget, poTarget, shipNeed, poNeed, sugShip, sugPo,
+           lastShip, lastPo, nextShip, nextPo, redDays, box, plans, sugs, chans, regular, finalArr, split, periods, perOf, monthOf };
+}
+
+
+  return { model, cur, today0, winEnd, CHART_DAYS };
+}
+// ===== 备货计划模型 END =====
+const n0 = (v) => (v == null || v === '' || isNaN(v)) ? 0 : Number(v);
+let INV = { ov: {}, ships: {}, o: {} }, BH = null;
+const first = (v) => String(cell(v) ?? '').split('、')[0];
+const msDay = (v) => { if (v == null || v === '') return ''; const n = dn(typeof v === 'number' ? v : Date.parse(v)); const d = ud(n);
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`; };
+function buildInv(ov, ship, bh, sv, ch) {
+  INV = { ov: {}, ships: {}, o: {} };
+  for (const o of ov) INV.ov[o['记录键'] || `${o['ASIN']}|${cell(o['国家'])}`] = o;
+  for (const x of ship) { const k = `${first(x['ASIN'])}|${first(x['国家'])}`; (INV.ships[k] = INV.ships[k] || []).push(x); }
+  // 备货表(SKU×国家) 按 ASIN×国家 汇总；第 1 行 = 主SKU（-8.5 副款排后）
+  const groups = {};
+  for (const r of bh) { const asin = first(r['ASIN']); if (!asin) continue; (groups[`${asin}|${first(r['国家'])}`] = groups[`${asin}|${first(r['国家'])}`] || []).push(r); }
+  for (const [k, rows] of Object.entries(groups)) {
+    rows.sort((a, b) => (String(a['领星SKU']).includes('-8.5') - String(b['领星SKU']).includes('-8.5')) || String(a['领星SKU']).localeCompare(String(b['领星SKU'])));
+    const main = rows[0], o = INV.ov[k] || {}, [asin, country] = k.split('|');
+    const sum = (f) => rows.reduce((t, r) => t + n0(r[f]), 0);
+    INV.o[k] = { key: k, asin, country, fba: n0(o['FBA可售']), res: n0(o['FBA预留']), local: sum('本地仓可用'), po: sum('采购在途'),
+      months: Array.from({ length: 12 }, (_, i) => Math.round(sum(`${i + 1}月日均`) * 100) / 100),
+      prod: n0(main['生产天数']), freight: n0(main['头程天数']), safety: n0(main['安全天数']), shipCover: n0(main['发货备货天数']), poCover: n0(main['采购备货天数']),
+      box: n0(main['单箱数量']) || 1, channel: first(main['头程渠道']) || null,
+      ships: (INV.ships[k] || []).filter((x) => n0(x['发货量']) - n0(x['已收量']) > 0)
+        .map((x) => ({ '货件号': x['货件号'], '发货量': n0(x['发货量']), '已收量': n0(x['已收量']), '预计到仓日': msDay(x['预计到仓日']) })) };
+  }
+  const chans = [];
+  for (const r of ch) {
+    if (!r['启用'] || !(n0(r['标准时效天数']) > 0) || !r['运输方式']) continue;
+    for (const c of String(cell(r['国家']) || '').split('、').filter(Boolean)) chans.push({ name: r['物流渠道'], country: c, mode: first(r['运输方式']), days: n0(r['标准时效天数']), samples: n0(r['历史样本数']) });
+  }
+  // 方案：页面存档（全组共享）；本浏览器里备货计划页的草稿更新时用草稿（同一网站，和备货计划页看到的一样）
+  let EDIT = {}; try { EDIT = JSON.parse(localStorage.getItem('beihuo-plan-v1') || '{}') || {}; } catch (e) { EDIT = {}; }
+  for (const r of sv) {
+    const key = r['记录键']; if (!key) continue;
+    let data; try { data = JSON.parse(cell(r['方案数据']) || '{}'); } catch (e) { continue; }
+    const at = Number(r['更新时间']) || Date.parse(r['更新时间']) || 0;
+    if (!EDIT[key] || (EDIT[key]._ts || 0) <= at) EDIT[key] = { ...data, _ts: at };
+  }
+  BH = makeBH(chans, EDIT);
+}
+const KIND = { ship: '货件', overdue: '逾期未收', plan: '预发货', sug: '建议货件' };
+// 一个 ASIN×国家 未来 120 天：直接用备货计划页的 model()（在途 + 勾选的预发货 + 勾选的建议货件；日销 = 方案里的月日均/自定义时段，没存方案用备货表）
+function invCalendar(k) {
+  const o = INV.o[k], ov = INV.ov[k] || {};
   const transit = (INV.ships[k] || []).reduce((s2, x) => s2 + Math.max(0, n0(x['发货量']) - n0(x['已收量'])), 0);
-  return { start, days, transit, upd: o['数据更新日'], has: !!INV.ov[k] };
+  if (!o || !BH) {   // 备货表里没有这个 ASIN：只有库存起点，没有预估
+    const start = n0(ov['FBA可售']) + n0(ov['FBA预留']), t0 = dn(Date.now());
+    return { start, transit, upd: ov['数据更新日'], has: !!INV.ov[k], noFc: true,
+      days: Array.from({ length: CAL_DAYS }, (_, i) => ({ d: t0 + i, sales: 0, stock: start, short: 0, inn: [] })) };
+  }
+  const m = BH.model(o);
+  const days = m.days.slice(0, CAL_DAYS).map((x) => ({ d: x.d, sales: x.sales, stock: x.stock, short: x.short,
+    inn: x.inn.map((a) => ({ day: a.day, qty: a.qty, kind: KIND[a.kind] || a.kind, ref: a.ref })) }));
+  return { start: m.stock0, transit, days, upd: ov['数据更新日'], has: !!INV.ov[k], noFc: false };
 }
 
 function build(wk, day, pm) {
@@ -681,7 +884,7 @@ function cardHtml(x) {
 // 复盘卡片的库存条：口径同产品表现页的 120 天预测
 function invStripHtml(e) {
   const cal = invFor(e), ds = cal.days;
-  const avg = ds.slice(0, 30).reduce((a, d) => a + d.sales, 0) / 30;   // 未来30天预估日均（销量预估-备货表，空则近30天日均）
+  const avg = ds.slice(0, 30).reduce((a, d) => a + d.sales, 0) / 30;   // 未来30天预估日均（备货计划方案 / 备货表月日均）
   const days = avg > 0 ? cal.start / avg : null;
   const cls = days == null ? '' : days < 42 ? 'bad' : days < 72 ? 'warn' : '';   // <头程35+上架7 = 补不上；<72 = 低于安全线（同 ASIN库存页标红口径）
   const firstShort = ds.find((d) => d.short > 0.5);
@@ -936,10 +1139,11 @@ function renderPerf(main) {
     </div></div>
     ${moduleHtml('ch1', '产品表现', PERF, state.pmSel, state.pmR, 'pm', pts, c)}
     ${moduleHtml('ch2', '广告表现', ADM, state.adSel, state.adR, 'ad', pts, c)}
-    <div class="card0"><div class="mod-h"><b>库存趋势 · 未来 ${CAL_DAYS} 天</b><span class="meta">口径同「ASIN库存管理」页：起点 = FBA 可售+预留；货件按预计到仓 +${SHELF_DAYS} 天上架（逾期未收算明天到）；预发货按发货日 +${FREIGHT_DAYS}+${SHELF_DAYS} 天；日销 = 销量预估-备货表当月日均，没填用近30天日均</span></div>
+    <div class="card0"><div class="mod-h"><b>库存趋势 · 未来 ${CAL_DAYS} 天</b><span class="meta">口径与「四季品备货计划」页一致：起点 = FBA 可售+预留，每天减去预估销量；货件按预计到仓日入库（逾期未收算明天到）；预发货计划、勾选的建议货件、预估日均都取备货计划页保存的方案，没存方案用销量预估-备货表的月日均</span></div>
       ${invChips(cal)}
       <div id="ch3"></div>
-      ${cal.missing ? `<div class="note">⚠ ${esc(cal.missing)} 在 ASIN库存概况 里没有库存行，按 0 起算。</div>` : ''}</div>`;
+      ${cal.missing ? `<div class="note">⚠ ${esc(cal.missing)} 在 ASIN库存概况 里没有库存行，按 0 起算。</div>` : ''}
+      ${cal.noFc ? `<div class="note">⚠ ${esc(cal.noFc)} 不在销量预估-备货表里，没有预估销量，库存按不消耗画。</div>` : ''}</div>`;
   $('ent').onchange = (ev) => { state.ent = ev.target.value; store.set('swp.ent', state.ent); render(); };
   const toggle = (selKey, k) => {
     const sel = state[selKey].slice(), i = sel.indexOf(k);
@@ -963,9 +1167,9 @@ let rsT; window.addEventListener('resize', () => { clearTimeout(rsT); rsT = setT
 
 // SPU = 各 ASIN 的 120 天日历逐日相加
 function invFor(e) {
-  const today = dn(Date.now());
   const keys = e.layer === 'SPU' ? Object.values(ENT).filter((a) => a.layer === 'ASIN' && a.spu === e.spu && a.country === e.country).map((a) => `${a.asin}|${a.country}`) : [`${e.asin}|${e.country}`];
-  const cals = keys.map((k) => ({ k, ...invCalendar(k, today) }));
+  const cals = keys.map((k) => ({ k, ...invCalendar(k) }));
+  const today = cals.length ? cals[0].days[0].d : dn(Date.now());
   const days = Array.from({ length: CAL_DAYS }, (_, i) => {
     const t = { d: today + i, sales: 0, stock: 0, short: 0, inn: [], byAsin: [] };
     for (const cl of cals) { const x = cl.days[i]; t.sales += x.sales; t.stock += x.stock; t.short += x.short; if (x.short > 0.5) t.byAsin.push(cl.k.split('|')[0]);
@@ -974,7 +1178,8 @@ function invFor(e) {
   });
   const upd = cals.map((cl) => cl.upd).filter(Boolean).map((v) => typeof v === 'number' ? v : Date.parse(v));
   return { days, start: cals.reduce((s2, cl) => s2 + cl.start, 0), transit: cals.reduce((s2, cl) => s2 + cl.transit, 0), multi: keys.length > 1,
-    upd: upd.length ? dn(Math.max(...upd)) : null, missing: cals.filter((cl) => !cl.has).map((cl) => cl.k.split('|')[0]).join('、') };
+    upd: upd.length ? dn(Math.max(...upd)) : null, missing: cals.filter((cl) => !cl.has).map((cl) => cl.k.split('|')[0]).join('、'),
+    noFc: cals.filter((cl) => cl.noFc).map((cl) => cl.k.split('|')[0]).join('、') };
 }
 function invChips(cal) {
   const ds = cal.days, inQty = ds.reduce((s2, d) => s2 + d.inn.reduce((a, b) => a + b.qty, 0), 0);
@@ -994,7 +1199,7 @@ function drawInv(box, cal) {
   const ds = cal.days;
   box.innerHTML = `<div class="panel"><div class="panel-h"><b>预计库存（件）</b><span><i style="border-color:var(--or)"></i>当天卖完后剩余</span>
       <span><b style="color:var(--blue)">◆</b> 到货</span><span><b style="color:var(--red)">▮</b> 缺货日${cal.multi ? '（至少一个 ASIN 卖空）' : ''}</span></div><div class="chart" data-p="s"></div></div>
-    <div class="panel"><div class="panel-h"><b>预估日销量（件/天）</b><span><i style="border-color:var(--blue)"></i>销量预估-备货表当月日均${cal.multi ? '（各 ASIN 相加）' : ''}</span></div><div class="chart" data-p="v"></div></div>`;
+    <div class="panel"><div class="panel-h"><b>预估日销量（件/天）</b><span><i style="border-color:var(--blue)"></i>备货计划方案的预估日均${cal.multi ? '（各 ASIN 相加）' : ''}</span></div><div class="chart" data-p="v"></div></div>`;
   const tipInn = (i) => { const d = ds[i]; return (d.inn.length ? d.inn.map((a) => `<div>◆ ${esc(a.kind)} +${fmtN(a.qty)} <span class="flat">${esc(a.ref || '')}${cal.multi ? ' · ' + esc(a.asin) : ''}</span></div>`).join('') : '')
     + `<div class="flat">预估销量 ${fmtN(d.sales, 1)}</div>` + (d.short > 0.5 ? `<div class="down">缺货 ${fmtN(d.short, 1)} 件${cal.multi ? '（' + esc(d.byAsin.join('、')) + '）' : ''}</div>` : ''); };
   lineChart(box.querySelector('[data-p="s"]'), ds, [{ name: '预计库存', color: 'var(--or)', vals: ds.map((d) => d.stock) }], (v) => fmtN(v),
@@ -1143,7 +1348,7 @@ async function diagnose() {
 // ===== 启动 =====
 function finish(wk, day, pm, src, inv = {}) {
   build(wk.map((r) => normRow('wk', r)), day.map((r) => normRow('day', r)), pm);
-  buildInv(pm, inv.ov || [], inv.ship || [], inv.batch || [], inv.fc || []);
+  buildInv(inv.ov || [], inv.ship || [], inv.bh || [], inv.sv || [], inv.ch || []);
   state.week = DEFAULT_WEEK;
   const nSpu = Object.values(ENT).filter((e) => e.layer === 'SPU').length;
   $('meta').textContent = `${nSpu} 个 SPU×国家 · ${src}`;
@@ -1162,9 +1367,9 @@ try {
     let pm = [];
     try { pm = await readTable('pm'); } catch (e) { console.warn('产品主表读不到，卡片不显示图片和毛利', e); }
     const inv = {};
-    for (const k of ['ov', 'ship', 'batch', 'fc']) { try { inv[k] = await readTable(k); } catch (e) { inv[k] = []; console.warn(`${TABLES[k].name} 读不到，库存预测不完整`, e); } }
+    for (const k of ['ov', 'ship', 'bh', 'sv', 'ch']) { try { inv[k] = await readTable(k); } catch (e) { inv[k] = []; console.warn(`${TABLES[k].name} 读不到，库存预测不完整`, e); } }
     DAY_LOADING = true;
-    finish(wk, [], pm, '取数：四季品经营表 + 产品主表 + 库存四表', inv);
+    finish(wk, [], pm, '取数：四季品经营表 + 产品主表 + 备货计划五表', inv);
     const meta0 = $('meta').textContent;
     // 日表最大，放最后后台读：复盘页先能用，产品表现页读完再出
     readTable('day').then((day) => { buildDay(day.map((r) => normRow('day', r))); DAY_LOADING = false; $('meta').textContent = meta0 + ' + 每日数据表';
