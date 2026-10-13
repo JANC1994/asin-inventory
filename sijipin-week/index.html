@@ -1,0 +1,1182 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>四季品经营复盘</title>
+<!--
+  飞书应用「灯具组-全流程」自定义插件页：四季品经营复盘（2026-10-13，结构沿用 seasonal-track-page）
+  读三张表：
+    · 四季品经营表 tblbSnNiUOOLlZwu：一行 = (SPU 或 ASIN) × 国家 × 周；SPU 行 = 一张卡片，ASIN 行进卡片的「ASIN 明细」
+        8 个手填字段可在卡片上改，保存写回「所选那一周」的行（用户 10-13 定：复盘写在被复盘的那一周）
+        建议操作 = 主管填（用户 10-13 定）
+    · 每日数据表-灯 tblKAoK9pN3cWI9t：产品表现页近 30 天趋势。一行 = 日期×店铺×ASIN
+        聚合口径（同 X24 周报）：ASIN×国家×日 Sessions 取 MAX、其余求和；库存各店铺相加；广告订单 = ROUND(广告CVR×点击)
+    · 产品主表-灯类+精铺 tblqksywqgYvywOT：图片（按 主图ASIN + 国家文本）
+  默认周 = 最近一个「完整」周。四条硬规矩见 wiki/页面设计/概念/飞书应用自定义插件页.md。
+-->
+<style>
+  :root {
+    --bg: #faf6f1; --card: #ffffff; --ink: #2b2118; --sub: #7a6d61; --line: #f0e4d7; --line2: #e8d9c8;
+    --or: #f07a12; --or-d: #c95f05; --or-soft: #fff1e2; --or-soft2: #ffe3c4; --blue: #2f6fd0;
+    --red: #d9363e; --red-soft: #fdebec; --yellow: #b7860b; --yellow-soft: #fff7d9;
+    --green: #2a9d4b; --green-soft: #e6f6eb; --grey: #9a9089; --grey-soft: #f3efea;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 13px/1.5 -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; }
+  .wrap { padding: 14px 16px 28px; max-width: 1600px; margin: 0 auto; }
+  .meta { color: var(--sub); font-size: 12px; }
+  .err { color: var(--red); white-space: pre-wrap; }
+  .loading, .empty { padding: 48px 16px; text-align: center; color: var(--sub); background: #fff; border-radius: 12px; border: 1px dashed var(--line2); }
+  .card0 { background: var(--card); border-radius: 12px; padding: 14px 16px; border: 1px solid var(--line); margin-bottom: 12px; }
+  table { border-collapse: collapse; width: 100%; }
+  .tbl td { padding: 6px 8px; border-bottom: 1px solid var(--line); }
+
+  /* 顶栏 */
+  .hero { background: linear-gradient(120deg, #f07a12 0%, #f59a3c 60%, #f8b35f 100%); color: #fff; border-radius: 12px;
+          padding: 14px 18px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; box-shadow: 0 4px 14px rgba(240,122,18,.18); }
+  .hero h2 { margin: 0; font-size: 18px; letter-spacing: .5px; }
+  .hero .desc { margin: 4px 0 0; font-size: 12.5px; line-height: 1.6; color: rgba(255,255,255,.95); max-width: 1150px; }
+  .hero.hero-top { border-radius: 12px 12px 0 0; box-shadow: none; }
+  .sticky { position: sticky; top: 0; z-index: 20; background: var(--bg); margin: 0 -16px; padding: 0 16px 2px; }
+  .hero.hero-f { padding: 10px 18px; border-radius: 0 0 12px 12px; border-top: 1px solid rgba(255,255,255,.3); margin-bottom: 12px; }
+  .sticky.stuck { box-shadow: 0 6px 12px -8px rgba(80,50,20,.35); }
+  .sticky.stuck .hero.hero-f { border-radius: 0 0 10px 10px; border-top: 0; }
+  .seg { display: inline-flex; background: rgba(255,255,255,.22); border-radius: 9px; padding: 3px; gap: 2px; }
+  .seg button { height: 28px; padding: 0 14px; border: 0; border-radius: 7px; background: transparent; color: #fff; font-size: 13.5px; cursor: pointer; }
+  .seg button.on { background: #fff; color: var(--or-d); font-weight: 700; box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+  .hero select { height: 32px; padding: 0 10px; border: 0; border-radius: 8px; font-size: 13.5px; color: var(--ink); background: #fff; }
+  .hero select { cursor: pointer; }
+  .hero select.pick { min-width: 220px; max-width: 320px; }
+  .hero .meta { color: rgba(255,255,255,.92); margin-left: auto; }
+
+  /* 筛选片 */
+  .bar1 { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+  .lchip { display: flex; align-items: center; gap: 8px; min-width: 92px; padding: 6px 12px; background: #fff; border: 1.5px solid var(--line);
+           border-radius: 10px; cursor: pointer; font-size: 13px; color: var(--ink); }
+  .lchip:hover { border-color: var(--or-soft2); }
+  .lchip b { font-size: 16px; margin-left: auto; font-variant-numeric: tabular-nums; }
+  .lchip .dot { width: 11px; height: 11px; border-radius: 50%; }
+  .lchip.on { border-color: var(--or); background: var(--or-soft); box-shadow: 0 0 0 3px rgba(240,122,18,.12); }
+  .lchip.zero { opacity: .45; }
+  .lchip.todo { border-style: dashed; border-color: var(--or); color: var(--or-d); }
+  .lchip.todo.on { border-style: solid; }
+  .vsep { width: 1px; align-self: stretch; background: var(--line2); margin: 0 4px; }
+
+  /* 汇总 */
+  .sumt { width: 100%; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+  .sumt th { color: var(--sub); font-weight: normal; text-align: right; padding: 4px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  .sumt td { text-align: right; padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  .sumt th:first-child, .sumt td:first-child { text-align: left; }
+  .sumt td b { font-size: 15px; }
+  .sumbox { display: flex; gap: 12px; flex-wrap: wrap; align-items: stretch; }
+  .sumbox .card0 { margin-bottom: 0; }
+
+  /* 分组 */
+  .grp { margin: 18px 0 8px; display: flex; align-items: center; gap: 10px; }
+  .grp b { font-size: 15px; padding-left: 8px; border-left: 4px solid var(--or); }
+  .lbar { width: 160px; height: 8px; border-radius: 4px; overflow: hidden; display: flex; gap: 2px; }
+  .lbar i { display: block; height: 100%; }
+
+  /* 卡片 */
+  .grid { display: flex; flex-direction: column; gap: 14px; }
+  .pc { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px 16px 22px; display: flex; flex-direction: column; gap: 12px;
+        position: relative; overflow: hidden; box-shadow: 0 1px 3px rgba(80,50,20,.05); min-width: 0; }
+  .pc::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--grey); }
+  .pc.red::before { background: var(--red); } .pc.yellow::before { background: #f2b705; } .pc.green::before { background: var(--green); }
+  .pc.flash { box-shadow: 0 0 0 3px rgba(240,122,18,.45); }
+  .pc-head { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+  .pc-head .reason { flex: 1 1 260px; min-width: 0; }
+  .pc-act { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+  .pc-act [data-msg] { font-size: 11.5px; color: var(--sub); white-space: nowrap; }
+  .pc-body { display: grid; grid-template-columns: minmax(300px, .95fr) minmax(300px, 1.05fr) minmax(340px, 1.35fr); gap: 18px; align-items: start; }
+  .pc-col { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+  .pc-col.fill { border-left: 1px dashed var(--line2); padding-left: 18px; }
+  .col-t { font-size: 12px; color: var(--sub); margin-bottom: -4px; }
+  @media (max-width: 1240px) { .pc-body { grid-template-columns: 1fr 1fr; } .pc-col.fill { grid-column: 1 / -1; border-left: 0; padding-left: 0; border-top: 1px dashed var(--line2); padding-top: 10px; } }
+  @media (max-width: 700px) { .pc-body { grid-template-columns: 1fr; } }
+  .pc-img { width: 76px; height: 76px; border-radius: 10px; background: var(--grey-soft); flex: none; overflow: hidden;
+            display: flex; align-items: center; justify-content: center; color: var(--grey); font-size: 11px; border: 1px solid var(--line); }
+  .pc-img img { width: 100%; height: 100%; object-fit: cover; }
+  .pc-title { flex: 0 1 auto; min-width: 160px; max-width: 360px; }
+  .pc-title b { font-size: 17px; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tags { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
+  .tag { font-size: 11px; padding: 0 7px; border-radius: 4px; background: var(--or-soft); color: var(--or-d); line-height: 19px; white-space: nowrap; }
+  .tag.g { background: var(--grey-soft); color: var(--sub); }
+  .tag.ok { background: var(--green-soft); color: var(--green); }
+  .tag.part { background: var(--yellow-soft); color: var(--yellow); }
+  .light { flex: none; padding: 3px 10px; border-radius: 12px; font-size: 12px; font-weight: 600; background: var(--grey-soft); color: var(--sub); white-space: nowrap; }
+  .light.red { background: var(--red-soft); color: var(--red); } .light.yellow { background: var(--yellow-soft); color: var(--yellow); } .light.green { background: var(--green-soft); color: var(--green); }
+  .reason { border-radius: 8px; padding: 7px 10px; font-size: 12.5px; line-height: 1.55; background: var(--grey-soft); color: var(--sub); }
+  .reason.red { background: var(--red-soft); color: #a8262d; } .reason.yellow { background: var(--yellow-soft); color: #7d5a00; } .reason.green { background: var(--green-soft); color: #1d6e35; }
+  .tgt { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--sub); }
+  .tgt b { color: var(--ink); font-variant-numeric: tabular-nums; }
+  .pbar { flex: 1; height: 6px; border-radius: 3px; background: #efe6dc; overflow: hidden; }
+  .pbar i { display: block; height: 100%; background: var(--or); border-radius: 3px; }
+
+  .mt { width: 100%; table-layout: fixed; font-size: 12.5px; font-variant-numeric: tabular-nums; background: #fcfaf7; border: 1px solid var(--line); border-radius: 10px; border-collapse: separate; border-spacing: 0; overflow: hidden; }
+  .mt th, .mt td { padding: 4px 6px; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mt th { color: var(--sub); font-weight: normal; font-size: 11.5px; border-bottom: 1px solid var(--line); }
+  .mt th:first-child, .mt td:first-child { text-align: left; width: 26%; color: var(--sub); }
+  .mt td:nth-child(2) { font-weight: 700; }
+  .mt td:nth-child(3) { color: var(--sub); }
+  .up { color: var(--green); } .down { color: var(--red); } .flat { color: var(--sub); }
+
+  .inv4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+  .inv4 > div { border: 1px solid var(--line); border-radius: 8px; background: #fcfaf7; padding: 5px 8px; min-width: 0; }
+  .inv4 span, .inv4 i { display: block; font-size: 11px; color: var(--sub); font-style: normal; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .inv4 b { display: block; font-size: 16px; font-variant-numeric: tabular-nums; }
+  .inv4 .warn { background: var(--yellow-soft); border-color: #f3dc8a; } .inv4 .warn b { color: var(--yellow); }
+  .inv4 .bad { background: var(--red-soft); border-color: #f4c0c3; } .inv4 .bad b { color: var(--red); }
+  .w8 { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px 6px; background: #fcfaf7; }
+  .w8-t { font-size: 11.5px; color: var(--sub); display: flex; justify-content: space-between; }
+  .w8-bars { position: relative; display: flex; align-items: flex-end; gap: 6px; height: 96px; padding-top: 14px; }
+  .w8-b { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; min-width: 0; }
+  .w8-b .n { font-size: 10.5px; font-variant-numeric: tabular-nums; color: var(--sub); }
+  .w8-b i { display: block; width: 100%; max-width: 34px; border-radius: 4px 4px 0 0; min-height: 2px; background: #f6c597; }
+  .w8-b.cur i { background: var(--or); } .w8-b.cur .n { color: var(--or-d); font-weight: 700; }
+  .w8-b.run i { background: repeating-linear-gradient(45deg, #f6c597 0 4px, #fbe3cc 4px 8px); }
+  .w8-x { display: flex; gap: 5px; margin-top: 3px; }
+  .w8-x span { flex: 1; text-align: center; font-size: 10px; color: var(--sub); }
+
+  .sec { padding-top: 2px; }
+  .sec + .sec { border-top: 1px dashed var(--line2); padding-top: 8px; }
+  .sec-t { font-size: 12.5px; font-weight: 700; color: var(--or-d); margin-bottom: 4px; display: flex; gap: 8px; align-items: baseline; }
+  .sec-t .meta { font-weight: normal; }
+  .sec.boss { background: #f6f3ff; border: 1px solid #e3dcfa; border-radius: 8px; padding: 6px 8px 4px; }
+  .sec.boss .sec-t { color: #5b3fc4; }
+  details.sec > summary { list-style: none; cursor: pointer; }
+  details.sec > summary::-webkit-details-marker { display: none; }
+  details.sec > summary .sec-t::before { content: '▸'; color: var(--or); }
+  details.sec[open] > summary .sec-t::before { content: '▾'; }
+  .fld { display: flex; gap: 8px; align-items: flex-start; margin-top: 2px; }
+  .fld label { flex: none; width: 64px; font-size: 12px; color: var(--sub); padding-top: 5px; }
+  .fld textarea, .fld input { flex: 1; min-width: 0; min-height: 28px; resize: none; overflow: hidden; border: 1px solid var(--line); border-radius: 6px; padding: 4px 7px;
+                  font: 12.5px/1.45 inherit; font-family: inherit; color: var(--ink); background: #fffdfa; }
+  .fld input { max-width: 110px; height: 28px; font-variant-numeric: tabular-nums; }
+  .fld textarea:focus, .fld input:focus { outline: none; border-color: var(--or); background: #fff; box-shadow: 0 0 0 2px rgba(240,122,18,.12); }
+  .fld .dirty { border-color: #f2b705 !important; background: #fffbea !important; }
+  .fld textarea::placeholder, .fld input::placeholder { color: #cdc3b8; }
+  .fld .hint { font-size: 11.5px; color: var(--sub); padding-top: 5px; }
+
+  .btn { height: 28px; padding: 0 12px; border: 1px solid var(--or); border-radius: 7px; background: #fff; color: var(--or-d); cursor: pointer; font-size: 12.5px; white-space: nowrap; }
+  .btn.primary { background: var(--or); color: #fff; }
+  .btn:disabled { opacity: .45; cursor: default; }
+  .btn.ghost { border-color: var(--line2); color: var(--sub); }
+  .foot { display: flex; align-items: center; gap: 6px; margin-top: auto; padding-top: 4px; }
+  .foot [data-msg] { font-size: 11.5px; color: var(--sub); margin-left: auto; text-align: right; }
+
+  .at { width: 100%; table-layout: fixed; font-size: 11.5px; font-variant-numeric: tabular-nums; }
+  .at th, .at td { padding: 3px 2px; text-align: right; border-top: 1px solid var(--line); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .at th { color: var(--sub); font-weight: normal; }
+  .at th:first-child, .at td:first-child { text-align: left; width: 29%; }
+  .at th:last-child, .at td:last-child { width: 9%; text-align: center; }
+  .at td:first-child a { color: var(--or-d); cursor: pointer; text-decoration: none; font-family: ui-monospace, Consolas, monospace; font-size: 11px; }
+  .at td:first-child a:hover { text-decoration: underline; }
+  .at tr.hl td { background: var(--or-soft); }
+
+  /* 填写进度 */
+  .pt { width: 100%; font-size: 12.5px; }
+  .pt th { color: var(--sub); font-weight: normal; padding: 6px 6px; border-bottom: 1px solid var(--line2); text-align: center; white-space: nowrap; }
+  .pt td { padding: 6px 6px; border-bottom: 1px solid var(--line); text-align: center; white-space: nowrap; }
+  .pt th:nth-child(-n+3), .pt td:nth-child(-n+3) { text-align: left; }
+  .pt tr.go { cursor: pointer; } .pt tr.go:hover td { background: var(--or-soft); }
+  .pt .y { color: var(--green); font-weight: 700; } .pt .n { color: #d5cbc0; }
+  .pt th.boss { color: #5b3fc4; }
+  .pt tr.own td { background: #fcfaf7; font-weight: 700; color: var(--or-d); cursor: default; }
+
+  /* 产品表现 */
+  .pick { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  .pick select { height: 36px; min-width: 320px; padding: 0 10px; border: 1.5px solid var(--or); border-radius: 8px; font-size: 14px; background: #fff; color: var(--ink); cursor: pointer; }
+  .mod-h { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+  .mod-h b { font-size: 15px; padding-left: 8px; border-left: 4px solid var(--or); }
+  .chips { display: grid; grid-template-columns: repeat(auto-fill, minmax(124px, 1fr)); gap: 8px; margin-bottom: 12px; }
+  .mchip { text-align: left; background: #fcfaf7; border: 1.5px solid var(--line); border-radius: 10px; padding: 7px 10px; cursor: pointer; font: inherit; color: var(--ink); min-width: 0; overflow: hidden; position: relative; }
+  .mchip .k, .mchip .v, .mchip .c { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mchip .no { position: absolute; top: 6px; right: 7px; width: 16px; height: 16px; border-radius: 50%; background: var(--or); color: #fff; font-size: 10.5px; line-height: 16px; text-align: center; font-weight: 700; }
+  .rseg { display: inline-flex; border: 1px solid var(--line2); border-radius: 8px; overflow: hidden; margin-left: auto; }
+  .rseg button { height: 26px; padding: 0 12px; border: 0; background: #fff; color: var(--sub); font-size: 12.5px; cursor: pointer; }
+  .rseg button + button { border-left: 1px solid var(--line2); }
+  .rseg button.on { background: var(--or); color: #fff; font-weight: 700; }
+  .panel + .panel { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--line2); }
+  .panel-h { display: flex; gap: 14px; align-items: baseline; flex-wrap: wrap; font-size: 12px; color: var(--sub); margin-bottom: 2px; }
+  .panel-h b { font-size: 13px; color: var(--ink); }
+  .panel-h i { display: inline-block; width: 14px; height: 0; border-top: 2px solid; margin-right: 5px; vertical-align: 3px; }
+  .mchip:hover { border-color: var(--or-soft2); }
+  .mchip.on { border-color: var(--or); background: var(--or-soft); box-shadow: 0 0 0 3px rgba(240,122,18,.12); }
+  .mchip .k { font-size: 11.5px; color: var(--sub); }
+  .mchip .v { font-size: 17px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .mchip .c { font-size: 11px; white-space: nowrap; }
+  .chart { position: relative; }
+  .chart svg { display: block; width: 100%; }
+  .chart .tip { position: absolute; pointer-events: none; background: #fff; border: 1px solid var(--line2); border-radius: 8px; padding: 6px 9px; font-size: 12px;
+                box-shadow: 0 4px 12px rgba(80,50,20,.12); white-space: nowrap; display: none; font-variant-numeric: tabular-nums; z-index: 5; }
+  .chart .tip b { display: block; color: var(--sub); font-weight: normal; font-size: 11.5px; }
+  .chart .tip .sw { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+  .legend { display: flex; gap: 14px; font-size: 12px; color: var(--sub); margin-bottom: 6px; flex-wrap: wrap; }
+  .legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; margin-right: 5px; vertical-align: 3px; }
+  .note { font-size: 11.5px; color: var(--sub); margin-top: 6px; }
+
+  .savebar { display: none; align-items: center; gap: 12px; background: #fff7e8; border: 1px solid #ffd591; border-radius: 8px; padding: 10px 14px; margin-bottom: 10px; }
+  .savebar.show { display: flex; }
+  .savebar button { height: 32px; padding: 0 16px; border: 0; border-radius: 6px; background: var(--or); color: #fff; font-size: 14px; cursor: pointer; }
+  @media (max-width: 520px) { .pick select, .hero select.pick { min-width: 0; width: 100%; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="savebar" id="savebar">
+    <span>这是插件的配置预览。确认没问题后点右边按钮，插件才会保存到应用页面上。</span>
+    <button id="saveBtn">保存到页面</button>
+    <span class="meta" id="saveMsg"></span>
+  </div>
+  <div class="hero hero-top">
+    <div>
+      <h2>四季品经营复盘</h2>
+      <p class="desc">每张卡 = 一个 SPU × 国家在所选那一周的经营数据，红灯排前。数字和红黄绿灯由系统每天按「四季品经营表」算好；
+        卡片下半部分直接填：目标与策略（新周自动沿用上周，有变化再改）、本周复盘（竞品动态 / 问题和归因 / 计划操作）、主管建议，点「保存」写回多维表的这一周。
+        「产品表现」看单个 SPU 或 ASIN 的每日趋势（产品、广告可切近 7/14/30 天并对比上一周期，库存看未来 120 天预测）。</p>
+    </div>
+  </div>
+  <div class="sticky" id="sticky">
+    <div class="hero hero-f">
+      <div class="seg" id="mode"><button data-mode="review">经营复盘</button><button data-mode="progress">填写进度</button><button data-mode="perf">📈 产品表现</button></div>
+      <select id="owner"></select>
+      <select id="week"></select>
+      <select id="country"></select>
+      <select id="pick" class="pick"></select>
+      <span class="meta" id="meta">数据加载中…</span>
+    </div>
+    <div id="filters"></div>
+  </div>
+  <div id="main"><div class="loading">正在读取多维表数据…</div></div>
+</div>
+
+<script type="module">
+// ===== ① 页面配置 =====
+const SDK_URL = 'https://cdn.jsdelivr.net/npm/@lark-base-open/js-sdk@1.0.2/dist/index.mjs';
+const BASE_TOKEN = 'JGvebyaAYapWtOslxc9cuKYXnwd';   // 灯具组-全流程
+const GOAL_FIELDS = ['产品目标', '经营策略', '关键指标'];          // 沿用上周，可改
+const REVIEW_FIELDS = ['竞品动态', '问题和归因', '计划操作'];       // 本周复盘（3 项都填 = 已填）
+const BOSS_FIELDS = ['建议操作'];                                   // 主管填
+const TEXT_FIELDS = [...GOAL_FIELDS, ...REVIEW_FIELDS, ...BOSS_FIELDS];
+const NUM_EDIT = ['周目标销量'];
+const WK_NUM = ['有效天数', '距今周数', '启用', '销量', '订单量', '销售额', '总点击数', '广告展示数', '广告点击', '广告花费', '广告销售额', '广告订单量',
+  '毛利', '毛利率', '退货量', 'CVR', '销售均价', '广告CTR', '广告单占比', '广告CVR', 'CPC', 'ACOS', 'TACOS', '退货率', 'CVR较前4周', '销量达成率', '周目标销量'];
+const DAY_NUM = ['销量', '订单量', '销售额', 'Sessions', '广告曝光量', '点击', '广告花费', '广告销售额', '广告CVR', '退货量', '小类排名',
+  'FBA可售-领星', 'FBA在途入库-领星', 'FBA接收中-领星', 'FBA调拨处理中-领星'];
+const TABLES = {
+  // view：「插件-近9周（经营表页面用，勿删）」= 启用=1 且 距今周数<=8（约 700 行）；视图被删时自动退回读全表
+  wk: { id: 'tblbSnNiUOOLlZwu', name: '四季品经营表', view: 'vewL1VwST4', fields: [
+    '周报键', '层级', 'ASIN', '国家文本', '周起始日', '周状态', '_SPU键', '负责人', '启用', '距今周数', '主图ASIN', ...WK_NUM.filter((f) => f !== '周目标销量'),
+    '红绿灯', '亮灯原因', ...NUM_EDIT, ...TEXT_FIELDS] },
+  // view：「插件-近66天（经营表页面用，勿删）」= 公式字段 _经营表页面=1（近66天 且 产品主表勾了「进四季品经营表」，约 5000 行；全表 1.8 万行太慢）
+  day: { id: 'tblKAoK9pN3cWI9t', name: '每日数据表-灯', view: 'vew7B6MlLH', fields: ['日期', 'ASIN', '国家', '店铺', '维度', ...DAY_NUM] },
+  pm: { id: 'tblqksywqgYvywOT', name: '产品主表-灯类+精铺', fields: ['ASIN', '国家文本', '国家', '领星SKU', '品名', '图片', '采购成本不含税', '头程费用', 'FBA配送费', 'FBA配送费（旺季）', '佣金比例', '汇率'] },
+  // 库存预测（口径同 ASIN库存管理页 tools/asin-inventory-plugin，用户 2026-10-09 定）
+  ov: { id: 'tbl23j9fj1autV9a', name: 'ASIN库存概况-灯', fields: ['记录键', 'ASIN', '国家', 'FBA可售', 'FBA预留', '近30天日均', '数据更新日'] },
+  ship: { id: 'tblDvoc2YSab7TMr', name: 'FBA在途货件明细-灯', fields: ['ASIN', '国家', '货件号', '发货量', '已收量', '预计到仓日'] },
+  batch: { id: 'tblZBxZ9itqto4Jk', name: '采购单-预发货批次表', fields: ['可售SKU', ...[1, 2, 3, 4].flatMap((n) => ['数量', '发货日', '状态', '店铺', '货件号'].map((f) => `批${n}${f}`))] },
+  fc: { id: 'tblBymnJvmClZQdy', name: '销量预估-备货表', fields: ['领星SKU', '国家', ...Array.from({ length: 12 }, (_, i) => `${i + 1}月日均`)] },
+};
+const FREIGHT_DAYS = 35, SHELF_DAYS = 7, CAL_DAYS = 120;   // 头程 / 上架 / 预测天数（同 ASIN库存管理页）
+const PERF_DAYS = 60;   // 最长 30 天 + 上一周期 30 天
+
+// ===== ② 通用工具 =====
+const $ = (id) => document.getElementById(id);
+const DAY = 86400000, BJ = 8 * 3600000;
+const dn = (ms) => Math.floor((Number(ms) + BJ) / DAY);   // 北京时间天序号
+const ud = (n) => new Date(n * DAY);
+const fmtD = (n) => { const d = ud(n); return `${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`; };
+const WKD = '日一二三四五六';
+const num = (v) => (v == null || v === '' || isNaN(v)) ? null : Number(v);
+const fmtN = (v, p = 0) => v == null || !isFinite(v) ? '—' : Number(v).toLocaleString('zh-CN', { maximumFractionDigits: p, minimumFractionDigits: p });
+const pct = (v, p = 1) => v == null || !isFinite(v) ? '—' : (v * 100).toFixed(p) + '%';
+const pctS = (v) => pct(v, v != null && Math.abs(v) >= 0.995 ? 0 : 1);   // 窄列：≥100% 不带小数
+const cur = (country) => country === '加拿大' ? 'C$' : '$';
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const store = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
+const div = (a, b) => (b ? a / b : null);
+
+function cell(v) {
+  if (v == null) return null;
+  if (typeof v === 'number' || typeof v === 'string' || typeof v === 'boolean') return v;
+  if (Array.isArray(v)) {
+    if (!v.length) return null;
+    if (v.every((x) => x && typeof x === 'object' && 'text' in x && !('id' in x && 'name' in x && !('type' in x)))) return v.map((x) => x.text ?? '').join('');
+    if (v.length === 1) return cell(v[0]);
+    return v.map(cell).join('、');
+  }
+  if (typeof v === 'object') {
+    if ('text' in v) return v.text;
+    if ('name' in v) return v.name;
+    if ('value' in v) return cell(v.value);
+  }
+  return String(v);
+}
+function normRow(key, r) {
+  const o = { ...r };
+  for (const f of ['周起始日', '日期']) if (f in o && o[f] != null && typeof o[f] !== 'number') o[f] = Date.parse(o[f]);
+  for (const f of (key === 'wk' ? WK_NUM : key === 'day' ? DAY_NUM : [])) if (f in o) o[f] = num(o[f]);
+  for (const f of ['层级', '店铺', '维度', '负责人', '国家', '国家文本', '红绿灯', '周状态']) if (f in o && typeof o[f] !== 'string') o[f] = cell(o[f]);
+  for (const f of TEXT_FIELDS) if (f in o && o[f] != null && typeof o[f] !== 'string') o[f] = cell(o[f]);
+  return o;
+}
+
+let SDK = null;
+const TBLS = {}, FIDS = {}, DIAG = { missing: {}, read: {} };
+async function readTable(key) {
+  const cfg = TABLES[key];
+  const table = await SDK.bitable.base.getTableById(cfg.id);
+  const fields = await table.getFieldMetaList();
+  const idByName = Object.fromEntries(fields.map((f) => [f.name, f.id]));
+  DIAG.missing[cfg.name] = cfg.fields.filter((w) => !idByName[w]);
+  TBLS[key] = table; FIDS[key] = idByName;
+  const rows = [];
+  let pageToken, useView = !!cfg.view;
+  for (let guard = 0; guard < 500; guard++) {
+    const q = { pageSize: 200, pageToken };
+    if (useView) q.viewId = cfg.view;
+    let res;
+    try { res = await table.getRecordsByPage(q); } catch (e) {
+      if (!useView) throw e;
+      console.warn('按视图读取失败，改读全表', e); useView = false; rows.length = 0; pageToken = undefined; continue;
+    }
+    for (const r of res.records) {
+      const o = { _id: r.recordId };
+      for (const w of cfg.fields) if (idByName[w]) o[w] = key === 'pm' && w === '图片' ? (r.fields[idByName[w]] || []) : cell(r.fields[idByName[w]]);   // 日期字段 cell() 保留毫秒数
+      rows.push(o);
+    }
+    DIAG.read[cfg.name] = rows.length;
+    $('meta').textContent = `正在读取 ${cfg.name}… 已读 ${rows.length} 行`;
+    if (!res.hasMore) break;
+    pageToken = res.pageToken;
+  }
+  return rows;
+}
+
+// ===== ③ 数据整理 =====
+const LIGHTS = [
+  { key: 'red', label: '异常', color: '#e5483f', match: (s) => s.includes('🔴') || s.includes('异常') },
+  { key: 'yellow', label: '关注', color: '#f5c518', match: (s) => s.includes('🟡') || s.includes('关注') },
+  { key: 'green', label: '正常', color: '#34c759', match: (s) => s.includes('🟢') || s.includes('正常') },
+  { key: 'none', label: '未判', color: '#d5cbc0', match: () => true },   // ⚪ 未判 / 样本少 / 空
+];
+const LORDER = { red: 0, yellow: 1, green: 2, none: 3 };
+const lightOf = (s) => LIGHTS.find((l) => l.match(String(s || ''))).key;
+const filled = (v) => v != null && String(v).trim() !== '';
+const fillState = (r) => { const n = REVIEW_FIELDS.filter((f) => filled(r[f])).length; return n === REVIEW_FIELDS.length ? 'done' : n ? 'part' : 'todo'; };
+const FILL_LABEL = { todo: '未填', part: '部分', done: '已填' };
+const owners = (r) => String(r['负责人'] || '').split(/[、,，]/).map((s) => s.trim()).filter(Boolean);
+
+let ENT = {}, WEEKS = [], DEFAULT_WEEK = null, DAYAGG = {}, DAYS = [], IMG = {}, PM = {}, COST = {};
+const entKey = (r) => r['层级'] === 'SPU' ? `SPU|${r['_SPU键']}|${r['国家文本']}` : `ASIN|${r['ASIN']}|${r['国家文本']}`;
+
+const n0 = (v) => (v == null || v === '' || isNaN(v)) ? 0 : Number(v);
+let INV = { ov: {}, ships: {}, plans: {}, monthly: {} };
+function buildInv(pm, ov, ship, batch, fc) {
+  const skuToAsin = {};
+  for (const m of pm) if (m['领星SKU'] && m['ASIN']) skuToAsin[`${m['领星SKU']}|${cell(m['国家']) || m['国家文本']}`] = m['ASIN'];
+  INV = { ov: {}, ships: {}, plans: {}, monthly: {} };
+  for (const o of ov) INV.ov[o['记录键'] || `${o['ASIN']}|${cell(o['国家'])}`] = o;
+  for (const x of ship) { const k = `${x['ASIN']}|${cell(x['国家'])}`; (INV.ships[k] = INV.ships[k] || []).push(x); }
+  // 预发货计划：批次排了发货日、还没发（状态≠已发、无货件号）
+  for (const b of batch) for (const n of [1, 2, 3, 4]) {
+    const qty = n0(b[`批${n}数量`]), d = b[`批${n}发货日`];
+    if (!qty || !d || String(b[`批${n}状态`] || '').includes('已发') || b[`批${n}货件号`]) continue;
+    const country = String(cell(b[`批${n}店铺`]) || '').includes('-CA') ? '加拿大' : '美国';
+    const asin = skuToAsin[`${b['可售SKU']}|${country}`];
+    if (asin) (INV.plans[`${asin}|${country}`] = INV.plans[`${asin}|${country}`] || []).push({ qty, ship: typeof d === 'number' ? d : Date.parse(d), ref: `${b['可售SKU']} 批${n}` });
+  }
+  // 销量预估表月日均：按 ASIN×国家 汇总
+  for (const f of fc) {
+    const asin = skuToAsin[`${f['领星SKU']}|${cell(f['国家'])}`]; if (!asin) continue;
+    const k = `${asin}|${cell(f['国家'])}`; INV.monthly[k] = INV.monthly[k] || Array(12).fill(0);
+    for (let i = 0; i < 12; i++) INV.monthly[k][i] += n0(f[`${i + 1}月日均`]);
+  }
+}
+// 一个 ASIN×国家 未来 120 天：起点 = 可售+预留；货件 ETA+上架7天到（逾期未收 = 明天到）；预发货 = 发货日+头程35+上架7；日销 = 预估表当月日均，空则近30天日均
+function invCalendar(k, today) {
+  const o = INV.ov[k] || {};
+  const arr = [];
+  for (const x of INV.ships[k] || []) {
+    const qty = Math.max(0, n0(x['发货量']) - n0(x['已收量'])); if (!qty) continue;
+    const eta = x['预计到仓日'] ? dn(typeof x['预计到仓日'] === 'number' ? x['预计到仓日'] : Date.parse(x['预计到仓日'])) : null;
+    arr.push(eta == null || eta < today ? { day: today + 1, qty, kind: '逾期未收', ref: x['货件号'] } : { day: eta + SHELF_DAYS, qty, kind: '货件', ref: x['货件号'] });
+  }
+  for (const pl of INV.plans[k] || []) arr.push({ day: dn(pl.ship) + FREIGHT_DAYS + SHELF_DAYS, qty: pl.qty, kind: '预发货', ref: pl.ref });
+  const m = INV.monthly[k];
+  let stock = n0(o['FBA可售']) + n0(o['FBA预留']);
+  const start = stock, days = [];
+  for (let i = 0; i < CAL_DAYS; i++) {
+    const d = today + i, inn = arr.filter((a) => a.day === d);
+    const mv = m ? m[ud(d).getUTCMonth()] : 0, sales = mv > 0 ? mv : n0(o['近30天日均']);
+    const avail = stock + inn.reduce((s2, a) => s2 + a.qty, 0);
+    days.push({ d, sales, inn, short: Math.max(0, sales - avail), stock: Math.max(0, avail - sales) });
+    stock = Math.max(0, avail - sales);
+  }
+  const transit = (INV.ships[k] || []).reduce((s2, x) => s2 + Math.max(0, n0(x['发货量']) - n0(x['已收量'])), 0);
+  return { start, days, transit, upd: o['数据更新日'], has: !!INV.ov[k] };
+}
+
+function build(wk, day, pm) {
+  ENT = {};
+  const wset = new Map();
+  for (const r of wk) {
+    if (r['启用'] != null && Number(r['启用']) !== 1) continue;
+    if (!r['周起始日']) continue;
+    const k = entKey(r), w = dn(r['周起始日']);
+    const e = (ENT[k] = ENT[k] || { key: k, layer: r['层级'], spu: r['_SPU键'] || '（无SPU）', asin: r['ASIN'] || '', country: r['国家文本'] || '', weeks: new Map() });
+    e.weeks.set(w, r);
+    if (r['主图ASIN']) e.imgAsin = r['主图ASIN'];
+    if (r['负责人']) e.owner = r['负责人'];
+    if (r['层级'] === 'SPU') wset.set(w, r['周状态'] || wset.get(w));
+  }
+  WEEKS = [...wset.keys()].sort((a, b) => b - a).map((w) => ({ w, st: wset.get(w) }));
+  DEFAULT_WEEK = (WEEKS.find((x) => x.st === '完整') || WEEKS[0] || {}).w ?? null;
+  // ASIN 归属 SPU：取该 ASIN 最新一周的 _SPU键
+  for (const e of Object.values(ENT)) if (e.layer === 'ASIN') {
+    const last = [...e.weeks.entries()].sort((a, b) => b[0] - a[0])[0][1];
+    e.spu = last['_SPU键'] || e.spu;
+  }
+  PM = {}; COST = {};
+  for (const p of pm) {
+    const k = `${p['ASIN']}|${p['国家文本']}`;
+    if (!PM[k] || (!PM[k]['图片'] && p['图片'])) PM[k] = p;
+    // 成本口径同 X24 周报脚本：单件货成 =（采购成本不含税+头程费用）÷汇率；同 ASIN+国家多行时取成本填齐的那行
+    const ok = ['采购成本不含税', '头程费用', 'FBA配送费', '佣金比例', '汇率'].every((f) => p[f] != null && p[f] !== '') && n0(p['汇率']) > 0;
+    const c = { ok, comm: n0(p['佣金比例']), fba: n0(p['FBA配送费']), fbaPeak: n0(p['FBA配送费（旺季）']) || null,
+      cogs: n0(p['汇率']) > 0 ? (n0(p['采购成本不含税']) + n0(p['头程费用'])) / n0(p['汇率']) : 0 };
+    if (!COST[k] || (ok && !COST[k].ok)) COST[k] = c;
+  }
+  buildDay(day);
+}
+// 日数据：只留经营表里的 ASIN×国家；ASIN×国家×日 Sessions 取 MAX、其余求和（插件里日表最后读，读完单独调用）
+let DAY_READY = false, DAY_LOADING = false, DAY_ERR = '';
+function buildDay(day) {
+  const need = new Set(Object.values(ENT).filter((e) => e.layer === 'ASIN').map((e) => `${e.asin}|${e.country}`));
+  DAYAGG = {};
+  const dset = new Set();
+  for (const r of day) {
+    if (String(r['维度'] || '').includes('父体') || !r['日期']) continue;
+    const k = `${r['ASIN']}|${r['国家']}`;
+    if (!need.has(k)) continue;
+    const d = dn(r['日期']); dset.add(d);
+    const m = (DAYAGG[k] = DAYAGG[k] || {});
+    const a = (m[d] = m[d] || { sales: 0, orders: 0, rev: 0, sess: 0, imp: 0, clk: 0, spend: 0, adrev: 0, adord: 0, fba: 0, inb: 0, recv: 0, xfer: 0, inv: false,
+      ret: 0, comm: 0, fbaFee: 0, cogs: 0, miss: 0, rank: null });
+    a.sales += r['销量'] || 0; a.orders += r['订单量'] || 0; a.rev += r['销售额'] || 0;
+    a.sess = Math.max(a.sess, r['Sessions'] || 0);
+    a.imp += r['广告曝光量'] || 0; a.clk += r['点击'] || 0; a.spend += r['广告花费'] || 0; a.adrev += r['广告销售额'] || 0;
+    a.adord += Math.round((r['广告CVR'] || 0) * (r['点击'] || 0));
+    if (r['FBA可售-领星'] != null || r['FBA在途入库-领星'] != null) a.inv = true;
+    a.fba += r['FBA可售-领星'] || 0; a.inb += r['FBA在途入库-领星'] || 0; a.recv += r['FBA接收中-领星'] || 0; a.xfer += r['FBA调拨处理中-领星'] || 0;
+    a.ret += r['退货量'] || 0;
+    if (r['小类排名'] > 0) a.rank = a.rank == null ? r['小类排名'] : Math.min(a.rank, r['小类排名']);   // 同 ASIN 各店铺取最好的
+    const c = COST[k], qty = r['销量'] || 0, amt = r['销售额'] || 0;
+    if (c && c.ok) {
+      const md = ud(d), mo = md.getUTCMonth() + 1, dd = md.getUTCDate();
+      const peak = (mo === 10 && dd >= 15) || mo === 11 || mo === 12 || (mo === 1 && dd <= 14);   // 10/15~1/14 用旺季配送费，没填用普通
+      a.comm += amt * c.comm; a.fbaFee += qty * (peak && c.fbaPeak ? c.fbaPeak : c.fba); a.cogs += qty * c.cogs;
+    } else if (qty > 0) a.miss += qty;
+  }
+  const maxD = Math.max(...dset);
+  DAYS = isFinite(maxD) ? Array.from({ length: PERF_DAYS }, (_, i) => maxD - PERF_DAYS + 1 + i) : [];
+  DAY_READY = day.length > 0;
+}
+
+let state = {
+  mode: ['review', 'progress', 'perf'].includes(store.get('swp.mode')) ? store.get('swp.mode') : 'review',
+  owner: store.get('swp.owner') || '', week: null, country: '', pick: '', light: 'all', fill: 'all',
+  ent: store.get('swp.ent') || '',
+  pmSel: loadSel('swp.pmSel', ['销量']), adSel: loadSel('swp.adSel', ['广告花费']),
+  pmR: Number(store.get('swp.pmR')) || 30, adR: Number(store.get('swp.adR')) || 30,
+};
+function loadSel(k, d) { try { const v = JSON.parse(store.get(k)); return Array.isArray(v) && v.length ? v.slice(0, 3) : d; } catch (e) { return d; } }
+const DRAFT = {};   // 未保存的改动：`${recordId}|${字段}` → 值；换筛选不丢
+const dirtyCount = () => Object.keys(DRAFT).length;
+window.addEventListener('beforeunload', (e) => { if (dirtyCount()) { e.preventDefault(); e.returnValue = ''; } });
+
+// 当前周的 SPU 卡片
+function cards() {
+  const pk = ENT[state.pick];
+  const list = [];
+  for (const e of Object.values(ENT)) {
+    if (e.layer !== 'SPU') continue;
+    const r = e.weeks.get(state.week);
+    if (!r) continue;
+    if (state.owner && !owners(r).includes(state.owner)) continue;
+    if (state.country && e.country !== state.country) continue;
+    if (pk && !(pk.spu === e.spu && pk.country === e.country)) continue;
+    list.push({ e, r, prev: e.weeks.get(state.week - 7) || null, light: lightOf(r['红绿灯']), fill: fillState(r) });
+  }
+  return list;
+}
+const asinRows = (spuEnt) => Object.values(ENT).filter((e) => e.layer === 'ASIN' && e.spu === spuEnt.spu && e.country === spuEnt.country)
+  .map((e) => ({ e, r: e.weeks.get(state.week), prev: e.weeks.get(state.week - 7) })).filter((x) => x.r)
+  .sort((a, b) => (b.r['销量'] || 0) - (a.r['销量'] || 0));
+
+// ===== ④ 顶栏 =====
+function renderTop() {
+  $('mode').querySelectorAll('[data-mode]').forEach((b) => {
+    b.classList.toggle('on', b.dataset.mode === state.mode);
+    b.onclick = () => { if (state.mode === b.dataset.mode) return; state.mode = b.dataset.mode; store.set('swp.mode', state.mode); renderTop(); render(); window.scrollTo(0, 0); };
+  });
+  // 负责人（带所选周的灯数）
+  const cnt = {};
+  for (const e of Object.values(ENT)) {
+    if (e.layer !== 'SPU') continue;
+    const r = e.weeks.get(state.week);
+    if (!r) continue;
+    for (const o of owners(r)) { const c = (cnt[o] = cnt[o] || { n: 0, red: 0, todo: 0 }); c.n++; if (lightOf(r['红绿灯']) === 'red') c.red++; if (fillState(r) !== 'done') c.todo++; }
+  }
+  const names = Object.keys(cnt).sort((a, b) => cnt[b].n - cnt[a].n);
+  $('owner').innerHTML = `<option value="">全部负责人</option>` + names.map((n) =>
+    `<option value="${esc(n)}"${n === state.owner ? ' selected' : ''}>${esc(n)}　${cnt[n].n} 个SPU${cnt[n].red ? ` · 🔴${cnt[n].red}` : ''}${cnt[n].todo ? ` · 未填完${cnt[n].todo}` : ''}</option>`).join('');
+  if (state.owner && !cnt[state.owner]) state.owner = '';
+  $('owner').onchange = (e) => { state.owner = e.target.value; store.set('swp.owner', state.owner); renderTop(); render(); };
+  // 周
+  $('week').innerHTML = WEEKS.map(({ w, st }) => `<option value="${w}"${w === state.week ? ' selected' : ''}>${fmtD(w)} ~ ${fmtD(w + 6)}　${st || ''}${w === DEFAULT_WEEK ? '（上一完整周）' : ''}</option>`).join('');
+  $('week').onchange = (e) => { state.week = Number(e.target.value); renderTop(); render(); };
+  $('week').style.display = state.mode === 'perf' ? 'none' : '';
+  // 国家
+  const cs = [...new Set(Object.values(ENT).map((e) => e.country).filter(Boolean))];
+  $('country').innerHTML = `<option value="">全部国家</option>` + cs.map((c) => `<option${c === state.country ? ' selected' : ''}>${esc(c)}</option>`).join('');
+  $('country').onchange = (e) => { state.country = e.target.value; render(); };
+  // SPU / ASIN 下拉（跟随负责人、国家、周）
+  const spus = Object.values(ENT).filter((e) => e.layer === 'SPU' && e.weeks.get(state.week) && (!state.country || e.country === state.country)
+    && (!state.owner || owners(e.weeks.get(state.week)).includes(state.owner))).sort((a, b) => a.spu.localeCompare(b.spu, 'zh') || a.country.localeCompare(b.country, 'zh'));
+  if (state.pick && !spus.some((s) => s.key === state.pick || (ENT[state.pick] && ENT[state.pick].spu === s.spu && ENT[state.pick].country === s.country))) state.pick = '';
+  $('pick').innerHTML = `<option value="">全部 SPU / ASIN</option>` + spus.map((s) => {
+    const as = Object.values(ENT).filter((a) => a.layer === 'ASIN' && a.spu === s.spu && a.country === s.country && a.weeks.get(state.week)).sort((a, b) => a.asin.localeCompare(b.asin));
+    return `<optgroup label="${esc(s.spu)} · ${esc(s.country)}"><option value="${esc(s.key)}"${s.key === state.pick ? ' selected' : ''}>▣ ${esc(s.spu)} · ${esc(s.country)}</option>`
+      + as.map((a) => `<option value="${esc(a.key)}"${a.key === state.pick ? ' selected' : ''} title="${esc(pname(a))}">${esc(asinLabel(a))}</option>`).join('') + '</optgroup>';
+  }).join('');
+  $('pick').onchange = (e) => { state.pick = e.target.value; render(); };
+  $('pick').style.display = state.mode === 'perf' ? 'none' : '';
+}
+
+// ===== ⑤ 经营复盘 =====
+function renderFilters(list) {
+  if (state.mode === 'perf') { $('filters').innerHTML = ''; return; }
+  const lc = { red: 0, yellow: 0, green: 0, none: 0 }, fc = { todo: 0, part: 0, done: 0 };
+  list.forEach((x) => { lc[x.light]++; fc[x.fill]++; });
+  const chip = (grp, key, label, n, dot, cls = '') => `<div class="lchip ${cls}${state[grp] === key ? ' on' : ''}${n ? '' : ' zero'}" data-g="${grp}" data-k="${key}">${dot ? `<span class="dot" style="background:${dot}"></span>` : ''}${label}<b>${n}</b></div>`;
+  $('filters').innerHTML = `<div class="bar1">
+    ${chip('light', 'all', '全部', list.length)}
+    ${LIGHTS.map((l) => chip('light', l.key, l.label, lc[l.key], l.color)).join('')}
+    <span class="vsep"></span>
+    ${chip('fill', 'todo', '复盘未填', fc.todo, '', 'todo')}${chip('fill', 'part', '部分填写', fc.part)}${chip('fill', 'done', '已填', fc.done)}
+  </div>`;
+  $('filters').querySelectorAll('.lchip').forEach((el) => el.onclick = () => {
+    const g = el.dataset.g, k = el.dataset.k;
+    state[g] = state[g] === k && k !== 'all' ? 'all' : k; render();
+  });
+}
+
+function sortCards(list) {
+  return list.sort((a, b) => LORDER[a.light] - LORDER[b.light] || (b.r['销量'] || 0) - (a.r['销量'] || 0));
+}
+
+function summaryHtml(list) {
+  const by = {};
+  for (const x of list) {
+    const s = (by[x.e.country] = by[x.e.country] || { n: 0, sales: 0, psales: 0, rev: 0, spend: 0, gp: 0, gpRev: 0 });
+    s.n++; s.sales += x.r['销量'] || 0; s.psales += (x.prev && x.prev['销量']) || 0; s.rev += x.r['销售额'] || 0; s.spend += x.r['广告花费'] || 0;
+    if (x.r['毛利'] != null) { s.gp += x.r['毛利']; s.gpRev += x.r['销售额'] || 0; }
+  }
+  const rows = Object.entries(by).map(([c, s]) => {
+    const chg = s.psales ? s.sales / s.psales - 1 : null;
+    return `<tr><td>${esc(c)}</td><td>${s.n}</td><td><b>${fmtN(s.sales)}</b></td><td class="${chg == null ? 'flat' : chg >= 0 ? 'up' : 'down'}">${chg == null ? '—' : (chg >= 0 ? '+' : '') + pct(chg, 0)}</td>
+      <td>${cur(c)}${fmtN(s.rev)}</td><td>${cur(c)}${fmtN(s.spend)}</td><td>${pct(div(s.spend, s.rev))}</td><td>${pct(div(s.gp, s.gpRev))}</td></tr>`;
+  }).join('');
+  return `<div class="card0"><table class="sumt"><thead><tr><th>国家</th><th>SPU</th><th>本周销量</th><th>环比</th><th>销售额</th><th>广告花费</th><th>TACOS</th><th>毛利率</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+
+// 指标表：本周 / 上周 / 变化；dir=+1 越大越好，-1 越小越好，0 中性；chg='rel' 相对变化，'pp' 百分点
+const METRICS = [
+  { k: '销量', f: '销量', fmt: (v) => fmtN(v), dir: 1, chg: 'rel' },
+  { k: '销售额', f: '销售额', fmt: (v, c) => v == null ? '—' : cur(c) + fmtN(v), dir: 1, chg: 'rel' },
+  { k: 'CVR', f: 'CVR', fmt: (v) => pct(v), dir: 1, chg: 'pp' },
+  { k: '销售均价', f: '销售均价', fmt: (v, c) => v == null ? '—' : cur(c) + fmtN(v, 2), dir: 0, chg: 'rel' },
+  { k: 'CPC', f: 'CPC', fmt: (v, c) => v == null ? '—' : cur(c) + fmtN(v, 2), dir: -1, chg: 'rel' },
+  { k: 'ACOS', f: 'ACOS', fmt: (v) => pct(v), dir: -1, chg: 'pp' },
+  { k: 'TACOS', f: 'TACOS', fmt: (v) => pct(v), dir: -1, chg: 'pp' },
+  { k: '广告单占比', f: '广告单占比', fmt: (v) => pct(v, 0), dir: 0, chg: 'pp' },
+  { k: '毛利率', f: '毛利率', fmt: (v) => pct(v), dir: 1, chg: 'pp' },
+];
+function chgHtml(m, a, b, noArrow) {
+  if (a == null || b == null) return '<span class="flat">—</span>';
+  let d, txt;
+  if (m.chg === 'pp') { d = a - b; txt = (d >= 0 ? '+' : '') + (d * 100).toFixed(1) + '%'; }   // 比率类：本周 − 上周（如 20.6%→28.7% 记 +8.1%）
+  else { if (!b) return '<span class="flat">—</span>'; d = a / b - 1; txt = d > 9.99 ? '>+999%' : (d >= 0 ? '+' : '') + (d * 100).toFixed(0) + '%'; }
+  const cls = Math.abs(d) < 1e-9 || !m.dir ? 'flat' : (d > 0) === (m.dir > 0) ? 'up' : 'down';
+  return `<span class="${cls}">${noArrow ? '' : d > 0 ? '▲' : d < 0 ? '▼' : ''}${txt}</span>`;
+}
+
+function w8Html(e) {
+  const ws = Array.from({ length: 7 }, (_, i) => state.week - 7 * (6 - i)).concat([state.week + 7]);   // 所选周及往前 6 周 + 下一周（若有）
+  const pts = ws.map((w) => ({ w, r: e.weeks.get(w) })).filter((p) => p.r);
+  const max = Math.max(1, ...pts.map((p) => p.r['销量'] || 0));
+  return `<div class="w8"><div class="w8-t"><span>近 8 周销量</span><span>${pts.some((p) => p.r['周状态'] === '进行中') ? '斜纹 = 本周进行中' : ''}</span></div>
+    <div class="w8-bars">${pts.map((p) => { const v = p.r['销量'] || 0;
+      return `<div class="w8-b${p.w === state.week ? ' cur' : ''}${p.r['周状态'] === '进行中' ? ' run' : ''}" title="${fmtD(p.w)}~${fmtD(p.w + 6)}　销量 ${fmtN(v)}"><span class="n">${fmtN(v)}</span><i style="height:${Math.max(2, v / max * 100)}%"></i></div>`; }).join('')}</div>
+    <div class="w8-x">${pts.map((p) => `<span>${fmtD(p.w)}</span>`).join('')}</div></div>`;
+}
+
+const val = (r, f) => { const k = `${r._id}|${f}`; return k in DRAFT ? DRAFT[k] : (r[f] ?? ''); };
+function fldHtml(r, f, ph, isNum) {
+  const v = val(r, f), dirty = `${r._id}|${f}` in DRAFT ? ' dirty' : '';
+  if (isNum) return `<div class="fld"><label>${f}</label><input type="number" min="0" step="1" data-f="${f}" class="${dirty}" value="${esc(v)}" placeholder="未填"><span class="hint" data-hint></span></div>`;
+  return `<div class="fld"><label>${f}</label><textarea rows="1" data-f="${f}" class="${dirty}" placeholder="${esc(ph)}">${esc(v)}</textarea></div>`;
+}
+
+function cardHtml(x) {
+  const { e, r, prev } = x, c = e.country;
+  const lt = r['红绿灯'] || '⚪ 未判';
+  const tgt = num(val(r, '周目标销量'));
+  const rate = tgt ? (r['销量'] || 0) / tgt : null;
+  const asins = asinRows(e);
+  const pending = [...NUM_EDIT, ...TEXT_FIELDS].filter((f) => `${r._id}|${f}` in DRAFT).length;
+  return `<div class="pc ${x.light}" data-id="${r._id}" data-key="${esc(e.key)}">
+    <div class="pc-head">
+      <div class="pc-img" data-img="${esc(e.key)}">${imgTag(e)}</div>
+      <div class="pc-title"><b title="${esc(e.spu)}">${esc(e.spu)}</b>
+        <div class="tags"><span class="tag">${esc(c)}</span><span class="tag g">${esc(r['负责人'] || '未填负责人')}</span>
+          <span class="tag g">${fmtD(state.week)}~${fmtD(state.week + 6)} ${esc(r['周状态'] || '')}${r['有效天数'] != null && r['有效天数'] < 7 ? ` ${r['有效天数']}天` : ''}</span>
+          <span class="tag ${x.fill === 'done' ? 'ok' : x.fill === 'part' ? 'part' : ''}">复盘${FILL_LABEL[x.fill]}</span></div></div>
+      <span class="light ${x.light}">${esc(lt)}</span>
+      ${r['亮灯原因'] ? `<div class="reason ${x.light}">${esc(r['亮灯原因'])}</div>` : '<div class="reason" style="visibility:hidden">—</div>'}
+      <div class="pc-act"><button class="btn ghost" data-trend>📈 看趋势</button><span data-msg>${pending ? `${pending} 项未保存` : ''}</span>
+        <button class="btn primary" data-save${pending ? '' : ' disabled'}>保存</button></div>
+    </div>
+    <div class="pc-body">
+      <div class="pc-col">
+        <div class="tgt">周目标 <b>${tgt ? fmtN(tgt) : '未填'}</b>${rate != null ? `<div class="pbar"><i style="width:${Math.min(100, rate * 100)}%"></i></div><b>达成 ${pct(rate, 0)}</b>` : '<span class="meta">未填时按环比判灯</span>'}</div>
+        <table class="mt"><thead><tr><th>指标</th><th>本周</th><th>上周</th><th>变化</th></tr></thead><tbody>
+          ${METRICS.map((m) => { const a = r[m.f], b = prev ? prev[m.f] : null;
+            return `<tr><td>${m.k}</td><td>${m.fmt(a, c)}</td><td>${prev ? m.fmt(b, c) : '—'}</td><td>${chgHtml(m, a, b)}</td></tr>`; }).join('')}
+        </tbody></table>
+      </div>
+      <div class="pc-col">
+        ${invStripHtml(e)}
+        ${w8Html(e)}
+        ${asins.length ? `<div class="col-t">ASIN 明细（${asins.length} 个，点 ASIN 看趋势）</div>${asinTblHtml(asins, c)}` : ''}
+      </div>
+      <div class="pc-col fill">
+        <div class="sec"><div class="sec-t">目标与策略 <span class="meta">新周自动沿用上周，有变化再改</span></div>
+          ${fldHtml(r, '周目标销量', '', true)}
+          ${fldHtml(r, '产品目标', '如：月销 2K+，毛利 20%')}${fldHtml(r, '经营策略', '如：拓展变体、拓展泛词')}${fldHtml(r, '关键指标', '如：销量、利润率')}
+        </div>
+        <div class="sec"><div class="sec-t">本周复盘 <span class="meta">3 项都填 = 已填</span></div>
+          ${fldHtml(r, '竞品动态', '竞品降价/上新/排名变化…')}${fldHtml(r, '问题和归因', '本周哪里不对、为什么')}${fldHtml(r, '计划操作', '下周具体做什么')}
+        </div>
+        <div class="sec boss"><div class="sec-t">主管建议</div>${fldHtml(r, '建议操作', '主管填写')}</div>
+      </div>
+    </div>
+  </div>`;
+}
+
+// 复盘卡片的库存条：口径同产品表现页的 120 天预测
+function invStripHtml(e) {
+  const cal = invFor(e), ds = cal.days;
+  const avg = ds.slice(0, 30).reduce((a, d) => a + d.sales, 0) / 30;   // 未来30天预估日均（销量预估-备货表，空则近30天日均）
+  const days = avg > 0 ? cal.start / avg : null;
+  const cls = days == null ? '' : days < 42 ? 'bad' : days < 72 ? 'warn' : '';   // <头程35+上架7 = 补不上；<72 = 低于安全线（同 ASIN库存页标红口径）
+  const firstShort = ds.find((d) => d.short > 0.5);
+  const early = cal.multi && firstShort ? `最先卖空：${[...new Set(firstShort.byAsin)].join('、')} 约 ${fmtD(firstShort.d)}（已算上到货）` : '';
+  const nxt = ds.find((d) => d.inn.length);
+  const nxtQty = nxt ? nxt.inn.reduce((a, b) => a + b.qty, 0) : 0;
+  const overdue = nxt && nxt.inn.every((a) => a.kind === '逾期未收');
+  return `<div class="inv4">
+    <div title="FBA 可售 + 预留"><span>可售库存</span><b>${fmtN(cal.start)}</b><i>含预留</i></div>
+    <div title="FBA 货件已发未收（发货量 − 已收量）"><span>在途库存</span><b>${fmtN(cal.transit)}</b><i>已发未收</i></div>
+    <div class="${cls}" title="${esc(`可售库存 ÷ 未来30天预估日均 ${fmtN(avg, 1)}` + (early ? '\n' + early : ''))}"><span>可售天数${early ? ' ⚠' : ''}</span><b>${days == null ? '—' : fmtN(days)}</b><i>日均 ${fmtN(avg, 1)}</i></div>
+    <div title="${esc(nxt ? nxt.inn.map((a) => `${a.kind} ${a.ref || ''} +${a.qty}`).join('\n') : '')}"><span>下一批到货</span><b>${nxt ? fmtD(nxt.d) : '—'}</b><i>${nxt ? '+' + fmtN(nxtQty) + (overdue ? ' 逾期' : '') : '120天内无'}</i></div>
+  </div>`;
+}
+
+function asinTblHtml(asins, c) {
+  return `<table class="at"><thead><tr><th>ASIN</th><th>销量</th><th>环比</th><th>CVR</th><th>ACOS</th><th>TACOS</th><th>灯</th></tr></thead><tbody>
+    ${asins.map(({ e, r, prev }) => `<tr class="${e.key === state.pick ? 'hl' : ''}"><td><a data-goent="${esc(e.key)}" title="${esc(pname(e) || e.asin)}（点击看趋势）">${esc(e.asin)}</a></td><td>${fmtN(r['销量'])}</td>
+      <td>${chgHtml(METRICS[0], r['销量'], prev && prev['销量'], true)}</td><td>${pctS(r['CVR'])}</td><td>${pctS(r['ACOS'])}</td><td>${pctS(r['TACOS'])}</td>
+      <td title="${esc(r['亮灯原因'] || '')}">${esc(String(r['红绿灯'] || '').slice(0, 2) || '⚪')}</td></tr>`).join('')}
+  </tbody></table>`;
+}
+
+function renderReview(main) {
+  const all = cards();
+  renderFilters(all);
+  let list = all.filter((x) => (state.light === 'all' || x.light === state.light) && (state.fill === 'all' || x.fill === state.fill));
+  if (!list.length) { main.innerHTML = summaryHtml(all) + `<div class="empty">这一周没有符合条件的 SPU</div>`; return; }
+  sortCards(list);
+  let html = summaryHtml(list);
+  if (state.owner) html += `<div class="grid">${list.map(cardHtml).join('')}</div>`;
+  else {
+    const g = {};
+    list.forEach((x) => { const o = owners(x.r)[0] || '（未填负责人）'; (g[o] = g[o] || []).push(x); });
+    for (const [o, xs] of Object.entries(g).sort((a, b) => b[1].length - a[1].length)) {
+      const n = (k) => xs.filter((x) => x.light === k).length;
+      html += `<div class="grp"><b>${esc(o)}</b><span class="meta">${xs.length} 个 SPU · 🔴${n('red')} 🟡${n('yellow')} 🟢${n('green')} · 复盘已填 ${xs.filter((x) => x.fill === 'done').length}/${xs.length}</span>
+        <div class="lbar">${LIGHTS.map((l) => n(l.key) ? `<i style="flex:${n(l.key)};background:${l.color}"></i>` : '').join('')}</div></div>
+        <div class="grid">${xs.map(cardHtml).join('')}</div>`;
+    }
+  }
+  main.innerHTML = html;
+  list.forEach(bindCard);
+  loadImages(list.map((x) => x.e));
+}
+
+function bindCard(x) {
+  const el = document.querySelector(`.pc[data-id="${x.r._id}"]`);
+  if (!el) return;
+  const r = x.r, msg = el.querySelector('[data-msg]'), saveBtn = el.querySelector('[data-save]');
+  const refresh = () => {
+    const n = [...el.querySelectorAll('[data-f]')].filter((i) => `${r._id}|${i.dataset.f}` in DRAFT).length;
+    saveBtn.disabled = !n; msg.textContent = n ? `${n} 项未保存` : '';
+  };
+  el.querySelectorAll('textarea').forEach(grow);
+  el.querySelectorAll('[data-f]').forEach((inp) => inp.oninput = () => {
+    const f = inp.dataset.f, k = `${r._id}|${f}`;
+    const orig = r[f] == null ? '' : String(r[f]);
+    if (inp.value === orig) delete DRAFT[k]; else DRAFT[k] = inp.value;
+    inp.classList.toggle('dirty', k in DRAFT);
+    if (inp.tagName === 'TEXTAREA') grow(inp);
+    refresh();
+  });
+  el.querySelector('[data-trend]').onclick = () => gotoPerf(x.e.key);
+  el.querySelectorAll('[data-goent]').forEach((a) => a.onclick = () => gotoPerf(a.dataset.goent));
+  saveBtn.onclick = async () => {
+    const changed = [...el.querySelectorAll('[data-f]')].filter((i) => `${r._id}|${i.dataset.f}` in DRAFT);
+    if (!changed.length) return;
+    const bad = changed.find((i) => i.type === 'number' && i.value !== '' && !(Number(i.value) >= 0));
+    if (bad) { msg.textContent = '周目标销量要填非负数字'; return; }
+    saveBtn.disabled = true; msg.textContent = '保存中…';
+    try {
+      if (TBLS.wk) {
+        const fields = {};
+        for (const i of changed) {
+          const fid = FIDS.wk[i.dataset.f];
+          if (!fid) throw new Error(`表里找不到字段「${i.dataset.f}」`);
+          fields[fid] = i.type === 'number' ? (i.value === '' ? null : Number(i.value)) : (i.value.trim() ? [{ type: 'text', text: i.value }] : null);
+        }
+        await TBLS.wk.setRecord(r._id, { fields });
+      }
+      for (const i of changed) { r[i.dataset.f] = i.type === 'number' ? num(i.value) : i.value; delete DRAFT[`${r._id}|${i.dataset.f}`]; }
+      render();
+      const m = document.querySelector(`.pc[data-id="${r._id}"] [data-msg]`);
+      if (m) m.textContent = TBLS.wk ? `已保存 ${changed.length} 项 ✔` : `预览：已模拟保存 ${changed.length} 项（插件版才写回）`;
+    } catch (e) {
+      msg.textContent = '保存失败：' + (e && e.message ? e.message : e) + '（应用数据权限要对四季品经营表开「可编辑」）';
+      saveBtn.disabled = false;
+    }
+  };
+}
+function grow(t) { t.style.height = 'auto'; t.style.height = t.scrollHeight + 2 + 'px'; }
+
+// ===== ⑥ 填写进度 =====
+function renderProgress(main) {
+  const all = cards();
+  renderFilters(all);
+  const list = sortCards(all.filter((x) => (state.light === 'all' || x.light === state.light) && (state.fill === 'all' || x.fill === state.fill)));
+  const cols = [...NUM_EDIT, ...GOAL_FIELDS, ...REVIEW_FIELDS, ...BOSS_FIELDS];
+  const g = {};
+  list.forEach((x) => { const o = owners(x.r)[0] || '（未填负责人）'; (g[o] = g[o] || []).push(x); });
+  let body = '';
+  for (const [o, xs] of Object.entries(g).sort((a, b) => a[0].localeCompare(b[0], 'zh'))) {
+    body += `<tr class="own"><td colspan="${3 + cols.length}">${esc(o)}　复盘已填 ${xs.filter((x) => x.fill === 'done').length} / ${xs.length}　部分 ${xs.filter((x) => x.fill === 'part').length}</td></tr>`;
+    body += xs.map((x) => `<tr class="go" data-go="${esc(x.e.key)}"><td>${esc(x.e.spu)}</td><td>${esc(x.e.country)}</td><td>${esc(x.r['红绿灯'] || '⚪')}</td>
+      ${cols.map((f) => filled(val(x.r, f)) ? `<td class="y" title="${esc(String(val(x.r, f)).slice(0, 80))}">✓</td>` : '<td class="n">·</td>').join('')}</tr>`).join('');
+  }
+  main.innerHTML = list.length ? `<div class="card0" style="overflow-x:auto"><div class="meta" style="margin-bottom:6px">${fmtD(state.week)} ~ ${fmtD(state.week + 6)} 这一周各 SPU 的填写情况（✓ = 已填，鼠标停留看内容），点一行跳到它的卡片。</div>
+    <table class="pt"><thead><tr><th>SPU</th><th>国家</th><th>灯</th>${cols.map((f) => `<th class="${BOSS_FIELDS.includes(f) ? 'boss' : ''}">${f}${BOSS_FIELDS.includes(f) ? '（主管）' : ''}</th>`).join('')}</tr></thead><tbody>${body}</tbody></table></div>`
+    : `<div class="empty">这一周没有符合条件的 SPU</div>`;
+  main.querySelectorAll('[data-go]').forEach((tr) => tr.onclick = () => {
+    state.mode = 'review'; store.set('swp.mode', 'review'); state.light = 'all'; state.fill = 'all'; renderTop(); render();
+    const el = document.querySelector(`.pc[data-key="${CSS.escape(tr.dataset.go)}"]`);
+    if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.classList.add('flash'); setTimeout(() => el.classList.remove('flash'), 1600); }
+  });
+}
+
+// ===== ⑦ 产品表现 =====
+function gotoPerf(key) { state.ent = key; store.set('swp.ent', key); state.mode = 'perf'; store.set('swp.mode', 'perf'); renderTop(); render(); window.scrollTo(0, 0); }
+
+function perfEntities() {
+  const spus = Object.values(ENT).filter((e) => e.layer === 'SPU' && (!state.country || e.country === state.country)
+    && (!state.owner || owners({ 负责人: e.owner }).includes(state.owner)));
+  spus.sort((a, b) => a.spu.localeCompare(b.spu, 'zh') || a.country.localeCompare(b.country, 'zh'));
+  return spus.map((s) => ({ s, asins: Object.values(ENT).filter((e) => e.layer === 'ASIN' && e.spu === s.spu && e.country === s.country).sort((a, b) => a.asin.localeCompare(b.asin)) }));
+}
+function seriesFor(e) {
+  const keys = e.layer === 'SPU' ? Object.values(ENT).filter((a) => a.layer === 'ASIN' && a.spu === e.spu && a.country === e.country).map((a) => `${a.asin}|${a.country}`) : [`${e.asin}|${e.country}`];
+  return DAYS.map((d) => {
+    const t = { d, sales: 0, orders: 0, rev: 0, sess: 0, imp: 0, clk: 0, spend: 0, adrev: 0, adord: 0, fba: 0, inb: 0, recv: 0, xfer: 0, has: false, inv: false,
+      ret: 0, comm: 0, fbaFee: 0, cogs: 0, miss: 0, rank: null, missAsins: [] };
+    for (const k of keys) { const a = DAYAGG[k] && DAYAGG[k][d]; if (!a) continue; t.has = true; if (a.inv) t.inv = true;
+      for (const f of ['sales', 'orders', 'rev', 'sess', 'imp', 'clk', 'spend', 'adrev', 'adord', 'fba', 'inb', 'recv', 'xfer', 'ret', 'comm', 'fbaFee', 'cogs', 'miss']) t[f] += a[f];
+      if (a.miss > 0) t.missAsins.push(k.split('|')[0]);
+      if (a.rank != null) t.rank = t.rank == null ? a.rank : Math.min(t.rank, a.rank); }   // SPU：取最好的 ASIN 排名
+    return t;
+  });
+}
+// 指标定义：sum = 区间合计；ratio = 分子合计/分母合计
+const PERF = [
+  { k: '销量', sum: 'sales', fmt: 'n', dir: 1 }, { k: '订单量', sum: 'orders', fmt: 'n', dir: 1 }, { k: '销售额', sum: 'rev', fmt: '$', dir: 1 },
+  { k: '总点击', sum: 'sess', fmt: 'n', dir: 1, tip: 'Sessions（广告点击+自然点击）' }, { k: 'CVR', r: ['orders', 'sess'], fmt: '%', dir: 1, tip: '订单量 ÷ 总点击' },
+  { k: '销售均价', r: ['rev', 'sales'], fmt: '$2', dir: 0 },
+  { k: '毛利', gp: 'amt', fmt: '$', dir: 1, tip: '同周报口径：销售额 − 佣金 − FBA配送费（10/15~1/14 用旺季费）− 货成 − 广告花费 − 销售额×退货率；有出单但产品主表缺成本时不算' },
+  { k: '利润率', gp: 'rate', fmt: '%', dir: 1, roll: 7, tip: '毛利 ÷ 销售额（同周报「毛利率」）；曲线按近7天滚动算，单日波动太大' },
+  { k: '退货率', r: ['ret', 'sales'], fmt: '%', dir: -1, roll: 7, tip: '退货量 ÷ 销量；曲线按近7天滚动算' },
+  { k: '小类排名', rank: true, fmt: 'n', dir: -1, tip: '每天取最好的名次，卡片 = 区间平均；SPU 取各 ASIN 中最好的；数字越小越好' },
+];
+const ADM = [
+  { k: '广告花费', sum: 'spend', fmt: '$', dir: -1 }, { k: '广告销售额', sum: 'adrev', fmt: '$', dir: 1 }, { k: '广告曝光', sum: 'imp', fmt: 'n', dir: 1 },
+  { k: '广告点击', sum: 'clk', fmt: 'n', dir: 1 }, { k: 'CTR', r: ['clk', 'imp'], fmt: '%2', dir: 1 }, { k: 'CPC', r: ['spend', 'clk'], fmt: '$2', dir: -1 },
+  { k: 'ACOS', r: ['spend', 'adrev'], fmt: '%', dir: -1 }, { k: 'TACOS', r: ['spend', 'rev'], fmt: '%', dir: -1 },
+  { k: '广告订单', sum: 'adord', fmt: 'n', dir: 1, tip: '按 广告CVR×点击 反推' }, { k: '广告CVR', r: ['adord', 'clk'], fmt: '%', dir: 1 },
+  { k: '广告单占比', r: ['adord', 'orders'], fmt: '%', dir: 0 },
+];
+const RANGES = [7, 14, 30];
+const fmtBy = (f, v, c) => v == null || !isFinite(v) ? '—' : f === 'n' ? fmtN(v) : f === '$' ? cur(c) + fmtN(v) : f === '$2' ? cur(c) + fmtN(v, 2) : f === '%2' ? pct(v, 2) : pct(v, 1);
+// 毛利（同 X24 周报）：区间里有出单却缺成本 → 不算
+function gpOf(pts) {
+  const t = { rev: 0, comm: 0, fbaFee: 0, cogs: 0, spend: 0, ret: 0, sales: 0, miss: 0 };
+  for (const p of pts) for (const f in t) t[f] += p[f] || 0;
+  if (t.miss > 0) return null;
+  const gp = t.rev - t.comm - t.fbaFee - t.cogs - t.spend - (t.sales > 0 ? t.rev * t.ret / t.sales : 0);
+  return { gp, rate: t.rev > 0 ? gp / t.rev : null };
+}
+function agg(m, pts) {
+  if (m.gp) { const g = gpOf(pts.filter((p) => p.has)); return g ? (m.gp === 'amt' ? g.gp : g.rate) : null; }
+  if (m.rank) { const v = pts.map((p) => p.rank).filter((x) => x != null); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; }
+  return m.sum ? pts.reduce((s2, p) => s2 + p[m.sum], 0) : div(pts.reduce((s2, p) => s2 + p[m.r[0]], 0), pts.reduce((s2, p) => s2 + p[m.r[1]], 0));
+}
+function dayVal(m, p) {
+  if (!p || !p.has) return null;
+  if (m.gp) { const g = gpOf([p]); return g ? (m.gp === 'amt' ? g.gp : g.rate) : null; }
+  if (m.rank) return p.rank;
+  return m.sum ? p[m.sum] : div(p[m.r[0]], p[m.r[1]]);
+}
+// 曲线取值：roll 指标取到当天为止的 N 天滚动值（用全量 pts，避免窗口开头缺数）
+function valAt(m, all, idx) {
+  if (idx < 0) return null;
+  if (!m.roll) return dayVal(m, all[idx]);
+  const w = all.slice(Math.max(0, idx - m.roll + 1), idx + 1).filter((p) => p.has);
+  return w.length ? agg(m, w) : null;
+}
+const missOf = (pts) => [...new Set(pts.flatMap((p) => p.missAsins || []))];
+const rangeTxt = (ps) => ps.length ? `${fmtD(ps[0].d)}~${fmtD(ps[ps.length - 1].d)}` : '';
+
+// 指标片：数值 = 所选区间合计（比率按合计算）；变化 = 对比上一个同长度区间
+function chipsHtml(defs, curP, prevP, sel, grp, c) {
+  return `<div class="chips">${defs.map((m) => {
+    const a = agg(m, curP), b = prevP.some((p) => p.has) ? agg(m, prevP) : null;
+    const isPct = !m.sum && m.fmt.startsWith('%');
+    const miss = m.gp ? missOf(curP) : [];
+    if (m.gp && a == null && miss.length) {
+      const i0 = sel.indexOf(m.k);
+      return `<button class="mchip${i0 >= 0 ? ' on' : ''}" data-${grp}="${m.k}" title="${esc('产品主表缺成本（采购成本/头程/FBA配送费/佣金比例/汇率）：' + miss.join('、'))}">${i0 >= 0 ? `<span class="no">${i0 + 1}</span>` : ''}
+        <div class="k">${m.k}</div><div class="v flat">缺成本</div><div class="c down">${esc(miss.length)} 个ASIN缺 · 停留看</div></button>`;
+    }
+    let ch = '<span class="flat">较上期 —</span>';
+    if (a != null && b != null && (isPct || b > 0)) {
+      const d = isPct ? a - b : a / b - 1;
+      const cls = !m.dir || Math.abs(d) < 1e-9 ? 'flat' : (d > 0) === (m.dir > 0) ? 'up' : 'down';
+      ch = `<span class="${cls}">较上期 ${d > 0 ? '▲' : d < 0 ? '▼' : ''}${isPct ? (d * 100).toFixed(1) : d > 9.99 ? '>999' : (d * 100).toFixed(0)}%</span>`;   // 上期接近 0 时封顶
+    }
+    const i = sel.indexOf(m.k);
+    return `<button class="mchip${i >= 0 ? ' on' : ''}" data-${grp}="${m.k}" title="${esc((m.tip ? m.tip + '；' : '') + '上一周期 ' + fmtBy(m.fmt, b, c))}">${i >= 0 ? `<span class="no">${i + 1}</span>` : ''}
+      <div class="k">${m.k}</div><div class="v">${fmtBy(m.fmt, a, c)}</div><div class="c">${ch}</div></button>`;
+  }).join('')}</div>`;
+}
+function moduleHtml(id, title, defs, sel, R, grp, pts, c) {
+  const curP = pts.slice(-R), prevP = pts.slice(-2 * R, -R);
+  return `<div class="card0"><div class="mod-h"><b>${title}</b><span class="meta">点指标卡切换曲线，最多同时选 3 个（已选 ${sel.length}/3）· 卡片数字 = 所选天数合计，比率按合计算</span>
+      <div class="rseg" data-r="${grp}">${RANGES.map((n) => `<button data-n="${n}" class="${n === R ? 'on' : ''}">近${n}天</button>`).join('')}</div></div>
+    ${chipsHtml(defs, curP, prevP, sel, grp, c)}<div id="${id}"></div></div>`;
+}
+// 每个选中的指标一张小图（不同量纲不共用一根 y 轴），每张图：本期 + 上一周期 + 本期均值
+function drawPanels(box, defs, sel, R, pts, c) {
+  if (!box) return;
+  const curP = pts.slice(-R), prevP = pts.slice(-2 * R, -R);
+  const ms = sel.map((k) => defs.find((m) => m.k === k)).filter(Boolean);
+  const off = pts.length - R;
+  box.innerHTML = ms.map((m, i) => `<div class="panel"><div class="panel-h"><b>${m.k}${m.roll ? `<span class="meta">（近${m.roll}天滚动）</span>` : ''}</b>
+      <span><i style="border-color:var(--or)"></i>本期 ${rangeTxt(curP)}</span><span><i style="border-color:#b4a899"></i>上一周期 ${rangeTxt(prevP)}</span>
+      <span><i style="border-top-style:dashed;border-color:#7a6d61"></i>本期均值</span></div><div class="chart" data-p="${i}"></div></div>`).join('');
+  ms.forEach((m, i) => lineChart(box.querySelector(`[data-p="${i}"]`), curP, [
+    { name: '本期', color: 'var(--or)', vals: curP.map((_, j) => valAt(m, pts, off + j)), dates: curP.map((p) => p.d), nulls: m.gp ? curP.map((p) => p.miss > 0 ? '缺成本' : null) : null },
+    { name: '上一周期', color: '#b4a899', width: 1.5, vals: curP.map((_, j) => valAt(m, pts, off - R + j)), dates: curP.map((_, j) => prevP[j] ? prevP[j].d : null),
+      nulls: m.gp ? curP.map((_, j) => prevP[j] && prevP[j].miss > 0 ? '缺成本' : null) : null },
+  ], (v) => fmtBy(m.fmt, v, c), { avg: m.sum ? '日均' : '均值', intOnly: m.fmt === 'n', height: ms.length > 1 ? 170 : 230 }));
+}
+
+function renderPerf(main) {
+  renderFilters([]);
+  if (!DAY_READY) { main.innerHTML = `<div class="loading">${DAY_LOADING ? '正在读取每日数据表（约 5000 行，十几秒）…读完自动显示' : '每日数据表没读到，产品表现暂时看不了（' + esc(DAY_ERR || '无数据') + '）'}</div>`; return; }
+  const groups = perfEntities();
+  const flat = groups.flatMap((g) => [g.s, ...g.asins]);
+  if (!flat.length) { main.innerHTML = `<div class="empty">没有可选的产品（检查负责人 / 国家筛选）</div>`; return; }
+  let e = ENT[state.ent];
+  if (!e || !flat.includes(e)) {   // 没选过：默认近30天销量最高的 SPU
+    const tot = (x) => seriesFor(x).slice(-30).reduce((s, p) => s + p.sales, 0);
+    e = groups.map((g) => g.s).sort((a, b) => tot(b) - tot(a))[0] || flat[0];
+  }
+  state.ent = e.key;
+  const c = e.country, pts = seriesFor(e), cal = invFor(e);
+  const opts = groups.map((g) => `<optgroup label="${esc(g.s.spu)} · ${esc(g.s.country)}">
+    <option value="${esc(g.s.key)}"${g.s === e ? ' selected' : ''}>▣ ${esc(g.s.spu)} · ${esc(g.s.country)}（SPU 汇总 ${g.asins.length} 个ASIN）</option>
+    ${g.asins.map((a) => `<option value="${esc(a.key)}"${a === e ? ' selected' : ''} title="${esc(pname(a))}">${esc(asinLabel(a))}</option>`).join('')}</optgroup>`).join('');
+  main.innerHTML = `
+    <div class="card0"><div class="pick">
+      <div class="pc-img" data-img="${esc(e.key)}">${imgTag(e)}</div>
+      <select id="ent">${opts}</select>
+      <span class="meta">数据截至 ${DAYS.length ? fmtD(DAYS[DAYS.length - 1]) : '—'}（美国时间，每日数据表-灯）· 负责人 ${esc(e.owner || '—')}</span>
+    </div></div>
+    ${moduleHtml('ch1', '产品表现', PERF, state.pmSel, state.pmR, 'pm', pts, c)}
+    ${moduleHtml('ch2', '广告表现', ADM, state.adSel, state.adR, 'ad', pts, c)}
+    <div class="card0"><div class="mod-h"><b>库存趋势 · 未来 ${CAL_DAYS} 天</b><span class="meta">口径同「ASIN库存管理」页：起点 = FBA 可售+预留；货件按预计到仓 +${SHELF_DAYS} 天上架（逾期未收算明天到）；预发货按发货日 +${FREIGHT_DAYS}+${SHELF_DAYS} 天；日销 = 销量预估-备货表当月日均，没填用近30天日均</span></div>
+      ${invChips(cal)}
+      <div id="ch3"></div>
+      ${cal.missing ? `<div class="note">⚠ ${esc(cal.missing)} 在 ASIN库存概况 里没有库存行，按 0 起算。</div>` : ''}</div>`;
+  $('ent').onchange = (ev) => { state.ent = ev.target.value; store.set('swp.ent', state.ent); render(); };
+  const toggle = (selKey, k) => {
+    const sel = state[selKey].slice(), i = sel.indexOf(k);
+    if (i >= 0) { if (sel.length > 1) sel.splice(i, 1); } else { sel.push(k); if (sel.length > 3) sel.shift(); }   // 超过 3 个挤掉最早选的
+    state[selKey] = sel; store.set('swp.' + selKey, JSON.stringify(sel)); render();
+  };
+  main.querySelectorAll('[data-pm]').forEach((b) => b.onclick = () => toggle('pmSel', b.dataset.pm));
+  main.querySelectorAll('[data-ad]').forEach((b) => b.onclick = () => toggle('adSel', b.dataset.ad));
+  main.querySelectorAll('.rseg').forEach((sg) => sg.querySelectorAll('button').forEach((b) => b.onclick = () => {
+    const k = sg.dataset.r + 'R'; state[k] = Number(b.dataset.n); store.set('swp.' + k, state[k]); render(); }));
+  CHARTS = [
+    () => drawPanels($('ch1'), PERF, state.pmSel, state.pmR, pts, c),
+    () => drawPanels($('ch2'), ADM, state.adSel, state.adR, pts, c),
+    () => drawInv($('ch3'), cal),
+  ];
+  CHARTS.forEach((f) => f());
+  loadImages([e]);
+}
+let CHARTS = [];
+let rsT; window.addEventListener('resize', () => { clearTimeout(rsT); rsT = setTimeout(() => CHARTS.forEach((f) => f()), 120); });
+
+// SPU = 各 ASIN 的 120 天日历逐日相加
+function invFor(e) {
+  const today = dn(Date.now());
+  const keys = e.layer === 'SPU' ? Object.values(ENT).filter((a) => a.layer === 'ASIN' && a.spu === e.spu && a.country === e.country).map((a) => `${a.asin}|${a.country}`) : [`${e.asin}|${e.country}`];
+  const cals = keys.map((k) => ({ k, ...invCalendar(k, today) }));
+  const days = Array.from({ length: CAL_DAYS }, (_, i) => {
+    const t = { d: today + i, sales: 0, stock: 0, short: 0, inn: [], byAsin: [] };
+    for (const cl of cals) { const x = cl.days[i]; t.sales += x.sales; t.stock += x.stock; t.short += x.short; if (x.short > 0.5) t.byAsin.push(cl.k.split('|')[0]);
+      t.inn.push(...x.inn.map((a) => ({ ...a, asin: cl.k.split('|')[0] }))); }
+    return t;
+  });
+  const upd = cals.map((cl) => cl.upd).filter(Boolean).map((v) => typeof v === 'number' ? v : Date.parse(v));
+  return { days, start: cals.reduce((s2, cl) => s2 + cl.start, 0), transit: cals.reduce((s2, cl) => s2 + cl.transit, 0), multi: keys.length > 1,
+    upd: upd.length ? dn(Math.max(...upd)) : null, missing: cals.filter((cl) => !cl.has).map((cl) => cl.k.split('|')[0]).join('、') };
+}
+function invChips(cal) {
+  const ds = cal.days, inQty = ds.reduce((s2, d) => s2 + d.inn.reduce((a, b) => a + b.qty, 0), 0);
+  const firstShort = ds.find((d) => d.short > 0.5), sales = ds.reduce((s2, d) => s2 + d.sales, 0), shortQty = ds.reduce((s2, d) => s2 + d.short, 0);
+  const chip = (k, v, c2, cls = '') => `<div class="mchip" style="cursor:default" title="${esc(k + '：' + v + '（' + c2 + '）')}"><div class="k">${k}</div><div class="v ${cls}">${v}</div><div class="c flat">${c2}</div></div>`;
+  return `<div class="chips">
+    ${chip('当前库存', fmtN(cal.start), `可售+预留${cal.upd != null ? ' · ' + fmtD(cal.upd) : ''}`)}
+    ${chip('120天内到货', fmtN(inQty), `货件 + 预发货 ${ds.reduce((s2, d) => s2 + d.inn.length, 0)} 笔`)}
+    ${chip('120天预估销量', fmtN(sales), `日均 ${fmtN(sales / CAL_DAYS, 1)}`)}
+    ${chip(cal.multi ? '最早断货' : '预计断货', firstShort ? fmtD(firstShort.d) : '不断货', firstShort ? `${firstShort.d - ds[0].d} 天后${cal.multi ? ' · ' + esc([...new Set(firstShort.byAsin)].join('、')) : ''}` : '120 天内', firstShort ? 'down' : '')}
+    ${chip('预计缺货量', fmtN(shortQty), '120天内卖不上', shortQty > 0.5 ? 'down' : '')}
+  </div>`;
+}
+// 两张图共用横轴：上 = 预计库存（到货打点、缺货日标红），下 = 预估日销量（量纲不同不共用纵轴）
+function drawInv(box, cal) {
+  if (!box) return;
+  const ds = cal.days;
+  box.innerHTML = `<div class="panel"><div class="panel-h"><b>预计库存（件）</b><span><i style="border-color:var(--or)"></i>当天卖完后剩余</span>
+      <span><b style="color:var(--blue)">◆</b> 到货</span><span><b style="color:var(--red)">▮</b> 缺货日${cal.multi ? '（至少一个 ASIN 卖空）' : ''}</span></div><div class="chart" data-p="s"></div></div>
+    <div class="panel"><div class="panel-h"><b>预估日销量（件/天）</b><span><i style="border-color:var(--blue)"></i>销量预估-备货表当月日均${cal.multi ? '（各 ASIN 相加）' : ''}</span></div><div class="chart" data-p="v"></div></div>`;
+  const tipInn = (i) => { const d = ds[i]; return (d.inn.length ? d.inn.map((a) => `<div>◆ ${esc(a.kind)} +${fmtN(a.qty)} <span class="flat">${esc(a.ref || '')}${cal.multi ? ' · ' + esc(a.asin) : ''}</span></div>`).join('') : '')
+    + `<div class="flat">预估销量 ${fmtN(d.sales, 1)}</div>` + (d.short > 0.5 ? `<div class="down">缺货 ${fmtN(d.short, 1)} 件${cal.multi ? '（' + esc(d.byAsin.join('、')) + '）' : ''}</div>` : ''); };
+  lineChart(box.querySelector('[data-p="s"]'), ds, [{ name: '预计库存', color: 'var(--or)', vals: ds.map((d) => d.stock) }], (v) => fmtN(v),
+    { intOnly: true, height: 230, marks: ds.map((d, i) => d.inn.length ? { i, label: '+' + fmtN(d.inn.reduce((a, b) => a + b.qty, 0)) } : null).filter(Boolean),
+      shade: ds.map((d, i) => d.short > 0.5 ? i : null).filter((i) => i != null), extra: tipInn });
+  lineChart(box.querySelector('[data-p="v"]'), ds, [{ name: '预估日销量', color: 'var(--blue)', vals: ds.map((d) => d.sales) }], (v) => fmtN(v, 1),
+    { height: 150, extra: (i) => ds[i].short > 0.5 ? `<div class="down">缺货 ${fmtN(ds[i].short, 1)} 件</div>` : '' });
+}
+
+// 折线图：单 y 轴；opts.avg = 第一条序列的均值虚线标签；悬停十字线 + 提示（各序列可带自己的日期）
+function niceStep(v, intOnly) { if (!(v > 0)) return intOnly ? 1 : 0.01; const p = Math.pow(10, Math.floor(Math.log10(v))); const n = v / p;
+  const st = (n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10) * p; return intOnly ? Math.max(1, Math.ceil(st)) : st; }
+function lineChart(box, pts, series, fmt, opts = {}) {
+  if (!box || !box.isConnected) return;
+  const W = Math.max(300, box.clientWidth), H = opts.height || 230, L = 58, R = 14, T = 14, B = 26;
+  const iw = W - L - R, ih = H - T - B, n = pts.length;
+  const all = series.flatMap((s) => s.vals).filter((v) => v != null);
+  const lo = Math.min(0, ...all), stp = niceStep((Math.max(0, ...all) - lo) * 1.04 / 4, opts.intOnly);
+  const ymin = lo < 0 ? -Math.ceil(-lo / stp) * stp : 0, ymax = ymin + stp * 4;
+  const x = (i) => L + (n <= 1 ? iw / 2 : i * iw / (n - 1)), y = (v) => T + ih - (v - ymin) / (ymax - ymin) * ih;
+  let g = '';
+  for (let k = 0; k <= 4; k++) { const v = ymin + stp * k, yy = y(v);
+    g += `<line x1="${L}" x2="${W - R}" y1="${yy}" y2="${yy}" stroke="#efe6dc" stroke-width="1"/><text x="${L - 6}" y="${yy + 4}" text-anchor="end" font-size="11" fill="#9a8f84">${esc(fmt(v))}</text>`; }
+  const step = Math.ceil(n / 8);
+  pts.forEach((p, i) => { if ((n - 1 - i) % step === 0) g += `<text x="${x(i)}" y="${H - 8}" text-anchor="middle" font-size="11" fill="#9a8f84">${fmtD(p.d)}</text>`; });
+  let marks = '';
+  if (opts.shade && opts.shade.length) { const bw = n > 1 ? iw / (n - 1) : iw;
+    marks += opts.shade.map((i) => `<rect x="${Math.max(L, x(i) - bw / 2)}" y="${T}" width="${bw}" height="${ih}" fill="#d9363e" opacity=".10"/>`).join(''); }
+  [...series].reverse().forEach((s, si) => {   // 倒序画：第一条（本期）在最上层
+    const segs = []; let curSeg = [];
+    s.vals.forEach((v, i) => { if (v == null) { if (curSeg.length) segs.push(curSeg); curSeg = []; } else curSeg.push([x(i), y(v)]); });
+    if (curSeg.length) segs.push(curSeg);
+    const first = si === series.length - 1;
+    for (const sg of segs) {
+      const d = sg.map((q, i) => `${i ? 'L' : 'M'}${q[0].toFixed(1)},${q[1].toFixed(1)}`).join('');
+      if (opts.avg && first && sg.length > 1) marks += `<path d="${d}L${sg[sg.length - 1][0]},${y(Math.max(ymin, 0))}L${sg[0][0]},${y(Math.max(ymin, 0))}Z" fill="${s.color}" opacity=".10"/>`;
+      marks += `<path d="${d}" fill="none" stroke="${s.color}" stroke-width="${s.width || 2}" stroke-linejoin="round" stroke-linecap="round"/>`;
+      if (sg.length === 1) marks += `<circle cx="${sg[0][0]}" cy="${sg[0][1]}" r="3" fill="${s.color}"/>`;
+    }
+  });
+  if (opts.marks) for (const mk of opts.marks) { const v = series[0].vals[mk.i]; if (v == null) continue; const cx = x(mk.i), cy = y(v);
+    marks += `<path d="M${cx},${cy - 6}L${cx + 5},${cy}L${cx},${cy + 6}L${cx - 5},${cy}Z" fill="var(--blue)" stroke="#fff" stroke-width="1.5"/>
+      <text x="${cx}" y="${Math.max(T + 9, cy - 10)}" text-anchor="middle" font-size="10.5" font-weight="600" fill="#2f6fd0">${esc(mk.label)}</text>`; }
+  let avgTxt = '';
+  if (opts.avg) {
+    const vs = series[0].vals.filter((v) => v != null);
+    if (vs.length) { const av = vs.reduce((a, b) => a + b, 0) / vs.length, yy = y(av); avgTxt = fmt(av);
+      marks += `<line x1="${L}" x2="${W - R}" y1="${yy}" y2="${yy}" stroke="#7a6d61" stroke-width="1" stroke-dasharray="4 4" opacity=".6"/>
+        <text x="${W - R}" y="${yy - 5}" text-anchor="end" font-size="11" fill="#7a6d61">${opts.avg} ${esc(avgTxt)}</text>`; }
+  }
+  box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" height="${H}" role="img" aria-label="${esc(series.map((s) => s.name).join('、'))} 趋势">${g}${marks}
+    <line class="xh" x1="0" x2="0" y1="${T}" y2="${T + ih}" stroke="#c9b9a8" stroke-width="1" style="display:none"/>
+    <g class="dots"></g><rect x="${L}" y="${T}" width="${iw}" height="${ih}" fill="transparent" style="cursor:crosshair"/></svg><div class="tip"></div>`;
+  if (!all.length) box.insertAdjacentHTML('beforeend', `<div class="note" style="position:absolute;left:${L}px;top:${T + ih / 2 - 10}px">这段时间没有数据</div>`);
+  const svg = box.querySelector('svg'), xh = svg.querySelector('.xh'), dots = svg.querySelector('.dots'), tip = box.querySelector('.tip');
+  const hit = svg.querySelector('rect');
+  hit.onmousemove = (ev) => {
+    const rc = svg.getBoundingClientRect(), mx = (ev.clientX - rc.left) * W / rc.width;
+    const i = Math.max(0, Math.min(n - 1, Math.round((mx - L) / (n <= 1 ? 1 : iw / (n - 1)))));
+    xh.setAttribute('x1', x(i)); xh.setAttribute('x2', x(i)); xh.style.display = '';
+    dots.innerHTML = series.map((s) => s.vals[i] == null ? '' : `<circle cx="${x(i)}" cy="${y(s.vals[i])}" r="4.5" fill="${s.color}" stroke="#fff" stroke-width="2"/>`).join('');
+    const p = pts[i];
+    const dayTxt = (d) => d == null ? '' : `${fmtD(d)} 周${WKD[ud(d).getUTCDay()]}`;
+    const multiDate = series.some((s) => s.dates);
+    tip.innerHTML = (multiDate ? '' : `<b>${dayTxt(p.d)}</b>`) + series.map((s) => `<div><span class="sw" style="background:${s.color}"></span>${esc(s.name)}${s.dates ? ` <span class="flat">${dayTxt(s.dates[i])}</span>` : ''}　<strong>${s.vals[i] == null ? esc((s.nulls && s.nulls[i]) || '无数据') : esc(fmt(s.vals[i]))}</strong></div>`).join('')
+      + (opts.extra ? opts.extra(i) : '') + (avgTxt ? `<div class="flat">本期${opts.avg} ${esc(avgTxt)}</div>` : '');
+    tip.style.display = 'block';
+    const px = x(i) * rc.width / W, tw = tip.offsetWidth;
+    tip.style.left = (px + 12 + tw > rc.width ? px - tw - 12 : px + 12) + 'px'; tip.style.top = '8px';
+  };
+  hit.onmouseleave = () => { xh.style.display = 'none'; dots.innerHTML = ''; tip.style.display = 'none'; };
+}
+
+// ===== ⑧ 图片 =====
+const pname = (a) => { const p = PM[`${a.asin}|${a.country}`]; return p && p['品名'] ? String(p['品名']) : ''; };
+const asinLabel = (a) => { const n = pname(a); return `　└ ${a.asin}${n ? ' · ' + (n.length > 28 ? n.slice(0, 28) + '…' : n) : ''}`; };
+function imgTag(e) {
+  const p = PM[`${e.imgAsin || e.asin}|${e.country}`];
+  const u = p && (p._imgData || IMG[e.key]);
+  return u ? `<img src="${esc(u)}" alt="">` : '无图';
+}
+async function loadImages(ents) {
+  if (!TBLS.pm || !FIDS.pm['图片']) return;
+  for (const e of ents) {
+    const p = PM[`${e.imgAsin || e.asin}|${e.country}`];
+    const box = document.querySelector(`[data-img="${CSS.escape(e.key)}"]`);
+    if (!box || !p || !(p['图片'] || []).length) continue;
+    try {
+      if (!IMG[e.key]) { const urls = await TBLS.pm.getCellAttachmentUrls([p['图片'][0].token], FIDS.pm['图片'], p._id); IMG[e.key] = urls && urls[0]; }
+      if (IMG[e.key]) box.innerHTML = `<img src="${esc(IMG[e.key])}" alt="">`;
+    } catch (err) { box.textContent = '图未取到'; }
+  }
+}
+
+// ===== ⑨ 渲染入口 =====
+function render() {
+  const main = $('main');
+  CHARTS = [];
+  if (state.mode === 'perf') renderPerf(main);
+  else if (state.mode === 'progress') renderProgress(main);
+  else renderReview(main);
+}
+
+// ===== ⑩ 保存插件配置 =====
+function setupSave() {
+  const dash = SDK && SDK.dashboard;
+  let st = '';
+  try { st = dash && dash.state; } catch (e) { st = '读取失败'; }
+  $('saveMsg').textContent = `（插件状态：${st || '未知'}）`;
+  if (dash && typeof dash.saveConfig === 'function' && st !== 'View' && st !== 'FullScreen') {
+    $('savebar').classList.add('show');
+    $('saveBtn').onclick = async () => {
+      $('saveBtn').disabled = true; $('saveMsg').textContent = '保存中…';
+      try {
+        const ok = await dash.saveConfig({
+          dataConditions: Object.values(TABLES).map((t) => ({ tableId: t.id, baseToken: BASE_TOKEN, dataRange: { type: 'ALL' }, series: 'COUNTA' })),
+          customConfig: { page: document.title, version: 1 },
+        });
+        $('saveMsg').textContent = ok === false ? '保存失败，请重试' : '已保存 ✔';
+      } catch (e) { $('saveMsg').textContent = '保存失败：' + (e && e.message ? e.message : e); }
+      finally { $('saveBtn').disabled = false; }
+    };
+  } else if (dash && dash.setRendered) dash.setRendered().catch(() => {});
+}
+
+async function diagnose() {
+  const res = [];
+  const t = async (name, fn) => {
+    try { const v = await Promise.race([fn(), new Promise((_, rej) => setTimeout(() => rej(new Error('超时 8s')), 8000))]);
+      let shown; try { shown = typeof v === 'string' ? v : JSON.stringify(v); } catch (x) { shown = String(v); }
+      res.push(['✔', name, String(shown).slice(0, 300)]); return v;
+    } catch (e) { res.push(['✘', name, e && e.message ? e.message : String(e)]); return undefined; }
+  };
+  const { bitable, dashboard } = SDK;
+  await t('dashboard.state', async () => dashboard.state);
+  for (const cfg of Object.values(TABLES)) {
+    const tb = await t(`getTableById ${cfg.name}`, () => bitable.base.getTableById(cfg.id));
+    if (tb) await t(`getRecordsByPage ${cfg.name}`, () => tb.getRecordsByPage({ pageSize: 2 }));
+  }
+  return `<div class="card0"><b>接口诊断</b> <span class="meta">请把这块整体截图发回</span><table class="tbl"><tbody>${res.map((r) =>
+    `<tr><td style="width:24px">${r[0]}</td><td>${esc(r[1])}</td><td style="color:var(--sub)">${esc(r[2])}</td></tr>`).join('')}</tbody></table></div>`;
+}
+
+{ const st = $('sticky'); window.addEventListener('scroll', () => st.classList.toggle('stuck', st.getBoundingClientRect().top <= 0 && window.scrollY > 0), { passive: true }); }
+
+// ===== 启动 =====
+function finish(wk, day, pm, src, inv = {}) {
+  build(wk.map((r) => normRow('wk', r)), day.map((r) => normRow('day', r)), pm);
+  buildInv(pm, inv.ov || [], inv.ship || [], inv.batch || [], inv.fc || []);
+  state.week = DEFAULT_WEEK;
+  const nSpu = Object.values(ENT).filter((e) => e.layer === 'SPU').length;
+  $('meta').textContent = `${nSpu} 个 SPU×国家 · ${src}`;
+  renderTop(); render();
+  if (!nSpu) $('main').insertAdjacentHTML('afterbegin', `<div class="card0"><b>没有读到可显示的 SPU —— 自查信息</b> <span class="meta">请截图发回</span>
+    <pre style="white-space:pre-wrap;font-size:11px">${esc(JSON.stringify({ read: DIAG.read, missing: DIAG.missing, sample: wk.slice(0, 2) }, null, 1))}</pre></div>`);
+}
+try {
+  if (window.__SNAPSHOT__) {
+    const S = window.__SNAPSHOT__;
+    finish(S.wk, S.day, S.pm, `本地快照 ${S.at}（预览：保存只是模拟，不写回）`, S);
+  } else {
+    SDK = await import(SDK_URL);
+    setupSave();
+    const wk = await readTable('wk');
+    let pm = [];
+    try { pm = await readTable('pm'); } catch (e) { console.warn('产品主表读不到，卡片不显示图片和毛利', e); }
+    const inv = {};
+    for (const k of ['ov', 'ship', 'batch', 'fc']) { try { inv[k] = await readTable(k); } catch (e) { inv[k] = []; console.warn(`${TABLES[k].name} 读不到，库存预测不完整`, e); } }
+    DAY_LOADING = true;
+    finish(wk, [], pm, '取数：四季品经营表 + 产品主表 + 库存四表', inv);
+    const meta0 = $('meta').textContent;
+    // 日表最大，放最后后台读：复盘页先能用，产品表现页读完再出
+    readTable('day').then((day) => { buildDay(day.map((r) => normRow('day', r))); DAY_LOADING = false; $('meta').textContent = meta0 + ' + 每日数据表';
+      if (state.mode === 'perf') render(); })
+      .catch((e) => { DAY_LOADING = false; DAY_ERR = e && e.message ? e.message : String(e); console.warn('每日数据表读不到', e); $('meta').textContent = meta0; if (state.mode === 'perf') render(); });
+  }
+} catch (e) {
+  const msg = esc(e && e.message ? e.message : e);
+  $('meta').textContent = '';
+  $('main').innerHTML = `<div class="card0 err">加载失败：${msg}</div>`;
+  if (SDK) { try { $('main').innerHTML += await diagnose(); } catch (e2) { /* 保留报错 */ } }
+}
+</script>
+</body>
+</html>
