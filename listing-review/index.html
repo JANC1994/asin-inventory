@@ -1,0 +1,684 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Listing审核</title>
+<!--
+  飞书应用「灯具组-全流程」自定义插件页：Listing审核（2026-10-13，架构同 seasonal-review-page）
+  读两张表：
+    · Listing审核表 tblF7uOotHeqdnTz（1 行 = ASIN × 店铺）
+    · 产品主表-灯类+精铺 tblqksywqgYvywOT：图片（按 ASIN 匹配，审核表的「图片」是 lookup，拿不到附件 token）
+  两个视图：审核总览（按 SPU 分组的进度表）｜逐条审核（左清单 + 右详情）
+  前台文案（标题/亮点/卖点/ST）只读：由「AI抓文案」按钮 / Keepa 脚本写入，页面不改。
+  页面现场跑确定性规则（移植 tools/keepa/listing_rule_check.py 的规则部分），AI 规范分析字段只展示。
+  可写回：文案审核状态 / 图片审核状态 / 运营审核文案 / 主管审核文案 / 运营审核图片 / 主管审核图片 / 6 个完成勾选。
+  四条硬规矩见 wiki/页面设计/概念/飞书应用自定义插件页.md。
+-->
+<style>
+  :root {
+    --bg: #faf6f1; --card: #ffffff; --ink: #2b2118; --sub: #7a6d61; --line: #f0e4d7; --line2: #e8d9c8;
+    --or: #f07a12; --or-d: #c95f05; --or-soft: #fff1e2; --or-soft2: #ffe3c4;
+    --red: #d9363e; --red-soft: #fdecec; --amber: #c98a00; --amber-soft: #fff6dc;
+    --green: #2a9d4b; --green-soft: #e6f6eb; --grey: #9a9089; --grey-soft: #f3efea; --blue: #2f6fd6; --blue-soft: #e8f0fd;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 13px/1.5 -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; }
+  .wrap { padding: 14px 16px 28px; max-width: 1600px; margin: 0 auto; }
+  .meta { color: var(--sub); font-size: 12px; }
+  .err { color: var(--red); white-space: pre-wrap; }
+  .loading, .empty { padding: 48px 16px; text-align: center; color: var(--sub); background: #fff; border-radius: 12px; border: 1px dashed var(--line2); }
+  .card0 { background: var(--card); border-radius: 10px; padding: 14px 16px; border: 1px solid var(--line); margin-bottom: 12px; }
+  .tbl { border-collapse: collapse; width: 100%; }
+  .tbl td { padding: 6px 8px; border-bottom: 1px solid var(--line); }
+  button { font-family: inherit; }
+  .btn { height: 30px; padding: 0 14px; border-radius: 8px; border: 1px solid var(--line2); background: #fff; color: var(--ink); cursor: pointer; font-size: 13px; }
+  .btn:hover { border-color: var(--or); color: var(--or-d); }
+  .btn.pri { background: var(--or); border-color: var(--or); color: #fff; font-weight: 700; }
+  .btn.pri:hover { background: var(--or-d); color: #fff; }
+  .btn:disabled { opacity: .5; cursor: default; }
+
+  /* 顶栏 */
+  .sticky { position: sticky; top: 0; z-index: 20; background: var(--bg); margin: 0 -16px; padding: 0 16px 2px; }
+  .sticky.stuck { box-shadow: 0 6px 12px -8px rgba(80,50,20,.35); }
+  .hero { background: linear-gradient(120deg, #f07a12 0%, #f59a3c 60%, #f8b35f 100%); color: #fff; border-radius: 12px 12px 0 0;
+          padding: 12px 18px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .hero h2 { margin: 0; font-size: 18px; letter-spacing: .5px; }
+  .hero .meta { color: rgba(255,255,255,.92); margin-left: auto; }
+  .seg { display: inline-flex; background: rgba(255,255,255,.22); border-radius: 9px; padding: 3px; gap: 2px; }
+  .seg button { height: 28px; padding: 0 14px; border: 0; border-radius: 7px; background: transparent; color: #fff; font-size: 13.5px; cursor: pointer; }
+  .seg button.on { background: #fff; color: var(--or-d); font-weight: 700; box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+  .hero-f { background: linear-gradient(120deg, #f38a2a 0%, #f7a650 100%); border-radius: 0 0 12px 12px; padding: 8px 18px 10px; margin-bottom: 12px;
+            border-top: 1px solid rgba(255,255,255,.3); display: flex; flex-direction: column; gap: 6px; }
+  .frow { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .frow > .lb { color: rgba(255,255,255,.9); font-size: 12px; width: 52px; flex: none; }
+  .chip { height: 26px; padding: 0 11px; border-radius: 13px; border: 1px solid rgba(255,255,255,.55); background: rgba(255,255,255,.12); color: #fff; font-size: 12px; cursor: pointer; }
+  .chip.on { background: #fff; border-color: #fff; color: var(--or-d); font-weight: 700; }
+  .chip.zero { opacity: .45; }
+  .chip i { font-style: normal; opacity: .75; margin-left: 3px; }
+  .fsel { height: 28px; border: 0; border-radius: 14px; padding: 0 8px; font-size: 12.5px; color: var(--ink); background: #fff; cursor: pointer; max-width: 230px; }
+  .fsel.on { box-shadow: 0 0 0 2px #fff, 0 0 0 4px rgba(201,95,5,.45); color: var(--or-d); font-weight: 700; }
+  .search { margin-left: auto; height: 28px; border: 0; border-radius: 14px; padding: 0 12px; font-size: 12.5px; width: 260px; max-width: 100%; color: var(--ink); }
+
+  /* 统计条 */
+  .kpis { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; margin-bottom: 12px; }
+  .kpi { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; }
+  .kpi .k { font-size: 12px; color: var(--sub); }
+  .kpi .v { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.3; }
+  .kpi .v small { font-size: 12px; color: var(--sub); font-weight: 400; margin-left: 4px; }
+  .kpi .bar { height: 5px; border-radius: 3px; background: var(--grey-soft); margin-top: 6px; overflow: hidden; display: flex; }
+  .kpi .bar i { display: block; height: 100%; }
+  .kpi.warn .v { color: var(--red); }
+
+  /* 总览表 */
+  .otbl { width: 100%; border-collapse: separate; border-spacing: 0; background: #fff; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .otbl th { background: #fcf6ef; color: var(--sub); font-weight: 600; font-size: 12px; padding: 8px 8px; text-align: left; border-bottom: 1px solid var(--line2); white-space: nowrap; }
+  .otbl td { padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  .otbl tr.row { cursor: pointer; }
+  .otbl tr.row:hover td { background: #fffaf4; }
+  .otbl tr.g td { background: #fcf6ef; cursor: pointer; user-select: none; padding: 8px 10px; }
+  .otbl tr.g .gn { font-size: 13.5px; font-weight: 700; }
+  .otbl tr.g .gn::before { content: '▾'; display: inline-block; width: 16px; color: var(--or); transition: transform .12s; }
+  .otbl tr.g.fold .gn::before { transform: rotate(-90deg); }
+  .otbl tr.g .gm { font-size: 12px; color: var(--sub); margin-left: 10px; }
+  .otbl .c { text-align: center; }
+  .mini { width: 40px; height: 40px; border-radius: 6px; overflow: hidden; background: var(--grey-soft); display: inline-flex; align-items: center; justify-content: center; color: var(--grey); font-size: 10px; flex: none; }
+  .mini img { width: 100%; height: 100%; object-fit: cover; }
+  .asin { font-family: ui-monospace, Consolas, monospace; font-weight: 700; font-size: 12.5px; }
+  .sub2 { font-size: 11.5px; color: var(--sub); }
+  .pill { display: inline-block; padding: 1px 9px; border-radius: 10px; font-size: 12px; white-space: nowrap; }
+  .p-pass { background: var(--green-soft); color: var(--green); }
+  .p-fail { background: var(--red-soft); color: var(--red); }
+  .p-wait { background: var(--amber-soft); color: var(--amber); }
+  .p-boss { background: var(--blue-soft); color: var(--blue); }
+  .p-none { background: var(--grey-soft); color: var(--grey); }
+  .p-hide { background: #ece7e2; color: #6d625a; }
+  .dots { display: inline-flex; gap: 4px; }
+  .dot { width: 18px; height: 18px; border-radius: 50%; font-size: 10px; line-height: 18px; text-align: center; background: var(--grey-soft); color: #b8ada3; }
+  .dot.on { background: var(--green); color: #fff; }
+  .cnt { font-variant-numeric: tabular-nums; white-space: nowrap; font-size: 12px; }
+  .cnt b.r { color: var(--red); } .cnt b.o { color: var(--amber); } .cnt span { color: #c9bfb5; }
+  .late { color: var(--red); font-weight: 700; }
+
+  /* 逐条审核 */
+  .split { display: grid; grid-template-columns: 300px 1fr; gap: 12px; align-items: start; }
+  .list { background: #fff; border: 1px solid var(--line); border-radius: 10px; max-height: calc(100vh - 150px); overflow: auto; position: sticky; top: 116px; }
+  .li { display: flex; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--line); cursor: pointer; align-items: center; }
+  .li:hover { background: #fffaf4; }
+  .li.on { background: var(--or-soft); box-shadow: inset 3px 0 0 var(--or); }
+  .li .t { flex: 1; min-width: 0; }
+  .li .t div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .li .mini { width: 36px; height: 36px; }
+  .det { min-width: 0; }
+  .dh { display: flex; gap: 14px; align-items: center; background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin-bottom: 12px; }
+  .dh .mini { width: 72px; height: 72px; border-radius: 8px; }
+  .dh .info { flex: 1; min-width: 0; }
+  .dh .info .asin { font-size: 15px; }
+  .dh .info a { color: var(--or-d); text-decoration: none; margin-left: 8px; font-size: 12px; }
+  .dh .nav { display: flex; gap: 6px; }
+  .cols { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 12px; align-items: start; }
+  .box { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin-bottom: 12px; }
+  .box > h3 { margin: 0 0 8px; font-size: 14px; display: flex; align-items: center; gap: 8px; }
+  .box > h3 .meta { font-weight: 400; }
+  .fld { border-top: 1px dashed var(--line2); padding: 8px 0; }
+  .fld:first-of-type { border-top: 0; }
+  .fld .fh { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--sub); margin-bottom: 3px; }
+  .fld .fh b { color: var(--ink); font-size: 12.5px; }
+  .fld .len { margin-left: auto; font-variant-numeric: tabular-nums; }
+  .fld .len.over { color: var(--red); font-weight: 700; }
+  .fld .tx { white-space: pre-wrap; word-break: break-word; line-height: 1.6; }
+  .fld .tx.nil { color: #c9bfb5; }
+  .fld mark { background: #ffd2d2; color: var(--red); border-radius: 2px; padding: 0 1px; }
+  .hits { margin: 4px 0 0; padding: 0; list-style: none; }
+  .hits li { font-size: 12px; padding: 1px 0; }
+  .hits li.r { color: var(--red); } .hits li.o { color: var(--amber); } .hits li.y { color: var(--sub); }
+  .banner { padding: 10px 14px; border-radius: 10px; margin-bottom: 12px; font-size: 13px; }
+  .banner.hide { background: #ece7e2; color: #5e544c; }
+  .score { display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; margin-bottom: 6px; }
+  .score .big { font-size: 26px; font-weight: 800; color: var(--or-d); }
+  .ai { font-size: 12.5px; line-height: 1.65; max-height: 360px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; background: #fffdfa; }
+  .ai div { padding: 1px 0; }
+  .ai .r { color: var(--red); } .ai .o { color: var(--amber); } .ai .y { color: var(--sub); } .ai .h { font-weight: 700; }
+  .rv { display: grid; grid-template-columns: 76px 1fr; gap: 6px 10px; align-items: start; }
+  .rv .lb { font-size: 12px; color: var(--sub); padding-top: 5px; }
+  .opts { display: inline-flex; gap: 4px; flex-wrap: wrap; }
+  .opt { height: 26px; padding: 0 12px; border-radius: 13px; border: 1px solid var(--line2); background: #fff; font-size: 12px; cursor: pointer; color: var(--ink); }
+  .opt.on.p-pass { background: var(--green); border-color: var(--green); color: #fff; }
+  .opt.on.p-fail { background: var(--red); border-color: var(--red); color: #fff; }
+  .opt.on.p-wait { background: var(--amber); border-color: var(--amber); color: #fff; }
+  .opt.on.p-boss { background: var(--blue); border-color: var(--blue); color: #fff; }
+  textarea { width: 100%; min-height: 54px; resize: vertical; border: 1px solid var(--line2); border-radius: 8px; padding: 6px 8px; font: inherit; color: var(--ink); background: #fffdfa; }
+  textarea:focus { outline: none; border-color: var(--or); background: #fff; }
+  .chk { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .chk label { display: flex; align-items: center; gap: 6px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; font-size: 12.5px; }
+  .chk label.on { background: var(--green-soft); border-color: #bfe6cb; color: var(--green); font-weight: 700; }
+  .chk input { accent-color: var(--green); }
+  .sbar { display: flex; gap: 10px; align-items: center; justify-content: flex-end; margin-top: 10px; }
+  details.log summary { cursor: pointer; color: var(--sub); font-size: 12px; }
+  details.log pre { white-space: pre-wrap; font: 12px/1.6 ui-monospace, Consolas, monospace; color: var(--sub); margin: 6px 0 0; max-height: 220px; overflow: auto; }
+
+  .savebar { display: none; align-items: center; gap: 10px; background: #fff; border: 1px solid var(--or-soft2); border-radius: 10px; padding: 8px 12px; margin-bottom: 12px; }
+  .savebar.show { display: flex; }
+  .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: #2b2118; color: #fff; padding: 8px 16px; border-radius: 8px; font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 50; }
+  .toast.show { opacity: 1; }
+
+  @media (max-width: 1100px) {
+    .kpis { grid-template-columns: repeat(3, 1fr); }
+    .split { grid-template-columns: 1fr; }
+    .list { position: static; max-height: 260px; }
+    .cols { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="savebar" id="savebar"><button class="btn pri" id="saveBtn">保存到页面</button><span class="meta" id="saveMsg"></span></div>
+  <div class="sticky" id="sticky">
+    <div class="hero">
+      <h2>Listing审核</h2>
+      <div class="seg" id="mode"><button data-m="ov">审核总览</button><button data-m="one">逐条审核</button></div>
+      <span class="meta" id="meta">数据加载中…</span>
+    </div>
+    <div class="hero-f" id="filters"></div>
+  </div>
+  <div id="main"><div class="loading">正在读取多维表数据…</div></div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script type="module">
+// ===== ① 页面配置 =====
+const SDK_URL = 'https://cdn.jsdelivr.net/npm/@lark-base-open/js-sdk@1.0.2/dist/index.mjs';
+const BASE_TOKEN = 'JGvebyaAYapWtOslxc9cuKYXnwd';   // 灯具组-全流程
+const COPY = ['标题', '亮点', '卖点1', '卖点2', '卖点3', '卖点4', '卖点5', 'ST'];
+const DONE = ['文案完成', '图片完成', 'A+完成', '视频完成', '品牌故事完成', '旗舰店完成'];
+const NOTES = ['运营审核文案', '主管审核文案', '运营审核图片', '主管审核图片'];
+const COPY_ST = ['待审核', '通过', '未通过'];
+const IMG_ST = ['待审核', '待审核-主管', '通过', '未通过'];
+const TABLES = {
+  lr: { id: 'tblF7uOotHeqdnTz', name: 'Listing审核表', fields: [
+    '审核键', 'ASIN', '店铺', '产品线', 'SPU', 'SKU', '品名', '负责人', ...COPY, '开售时间', 'AI 规范分析', '更新日志',
+    ...NOTES, '文案审核状态', '图片审核状态', ...DONE, 'listing最晚完成时间'] },
+  pm: { id: 'tblqksywqgYvywOT', name: '产品主表-灯类+精铺', fields: ['ASIN', '图片'] },
+};
+
+// ===== ② 通用工具 =====
+const $ = (id) => document.getElementById(id);
+const DAY = 86400000, BJ = 8 * 3600000;
+const dn = (ms) => Math.floor((Number(ms) + BJ) / DAY);                       // 北京时间天序号
+const ymd = (n) => new Date(n * DAY).toISOString().slice(0, 10);
+const TODAY = dn(Date.now());
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const txt = (v) => String(v ?? '').trim();
+const store = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
+const toast = (m) => { const t = $('toast'); t.textContent = m; t.classList.add('show'); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('show'), 2200); };
+
+// 单元格 → 纯值。多选/人员返回数组；文本段落拼接
+function cell(v) {
+  if (v == null) return null;
+  if (typeof v === 'number' || typeof v === 'string' || typeof v === 'boolean') return v;
+  if (Array.isArray(v)) {
+    if (!v.length) return null;
+    if (v.every((x) => x && typeof x === 'object' && x.type === 'text')) return v.map((x) => x.text ?? '').join('');
+    const parts = v.map(cell).filter((x) => x != null && x !== '');
+    return parts.length ? parts.join(',') : null;
+  }
+  if (typeof v === 'object') {
+    if ('text' in v) return v.text;
+    if ('name' in v) return v.name;
+    if ('value' in v) return cell(v.value);
+  }
+  return String(v);
+}
+const toDate = (v) => typeof v === 'number' ? v : (v ? Date.parse(v) : null);
+function norm(name, v) {
+  if (name === '图片') return Array.isArray(v) ? v.filter((x) => x && typeof x === 'object' && x.token) : [];
+  if (DONE.includes(name)) return !!v;
+  if (name === '开售时间' || name === 'listing最晚完成时间') return toDate(v);
+  if (name === '负责人') return Array.isArray(v) ? v.map((x) => x && (x.name || x.enName || x.id)).filter(Boolean) : [];
+  const c = cell(v);
+  return c == null ? null : String(c);
+}
+
+// ===== ③ 规则引擎（确定性规则，移植 tools/keepa/listing_rule_check.py）=====
+const MINOR = new Set('a an the and or nor but for so yet in on over with of to at by from as into per via de los la el'.split(' '));
+const TITLE_BANNED = /[!$?_{}^¬¦]/g;
+const DECOR = /[☀-➿\u{1F300}-\u{1FAFF}★☆♥●◆■▶✓✔✗✘•]/gu;
+const FULLWIDTH = /[＀-￯　-〿【】]/g;
+const BULLET_BANNED = /[™®€…†‡¢£¥©±~â]/g;
+const PLACEHOLDER = /\b(N\/A|n\/a|NA|TBD|not applicable)\b/;
+const PROMO = ['best seller', 'bestseller', 'best', '#1', 'top rated', 'hot item', 'sale', 'discount', 'cheapest', 'cheap', 'free shipping', 'limited time', 'deal'];
+const BRANDS = ['Pottery Barn', 'Disney', 'Marvel', 'Apple', 'Nike', "Amazon's Choice", 'Patent Pending'];
+const CLAIMS = ['eco-friendly', 'environmentally friendly', 'antimicrobial', 'antibacterial', 'bamboo', 'soy'];
+const GUARANTEE = ['money back', 'full refund', 'no questions asked', 'lifetime warranty', 'if not satisfied'];
+const reEsc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const wre = (w) => new RegExp('(?<![A-Za-z0-9])' + reEsc(w) + '(?![A-Za-z0-9])', 'gi');
+const LIMIT = { 标题: 75, 亮点: 125, 卖点1: 255, 卖点2: 255, 卖点3: 255, 卖点4: 255, 卖点5: 255, ST: 249 };
+
+// 返回 { 字段名: { hits:[[级别,文字]], marks:[RegExp…] } }
+function check(r) {
+  const out = Object.fromEntries(COPY.map((f) => [f, { hits: [], marks: [] }]));
+  const add = (f, lv, t, re) => { out[f].hits.push([lv, t]); if (re) out[f].marks.push(re); };
+  const title = txt(r['标题']), hl = txt(r['亮点']);
+  const bl = [1, 2, 3, 4, 5].map((i) => txt(r['卖点' + i]));
+  if (!title) return null;                                     // 前台不可见
+  // 标题
+  if (title.length > 75) add('标题', 'r', `T1 ${title.length} 字符，超 75 上限`);
+  if (title.match(TITLE_BANNED)) add('标题', 'r', `T2 含禁用字符 ${[...new Set(title.match(TITLE_BANNED))].join(' ')}`, TITLE_BANNED);
+  if (title.match(DECOR)) add('标题', 'r', 'T4 含装饰符号/emoji', DECOR);
+  if (title.match(FULLWIDTH)) add('标题', 'r', 'T9 含中文/全角标点', FULLWIDTH);
+  const words = title.match(/[A-Za-z][A-Za-z']*/g) || [];
+  const cnt = {};
+  for (const w of words) { const k = w.toLowerCase(); if (!MINOR.has(k)) cnt[k] = (cnt[k] || 0) + 1; }
+  const rep = Object.entries(cnt).filter(([, n]) => n > 2);
+  for (const [w, n] of rep) add('标题', 'r', `T5「${w}」出现 ${n} 次（上限 2）`, wre(w));
+  if (title === title.toUpperCase() && /[A-Z]/.test(title)) add('标题', 'r', 'T6 全大写');
+  const lowers = words.filter((w) => /^[a-z]/.test(w) && !MINOR.has(w.toLowerCase()));
+  if (lowers.length) add('标题', 'y', `T7 实词首字母未大写：${lowers.slice(0, 5).join('、')}`);
+  if (!/^ARIKJ/i.test(title)) add('标题', 'y', 'T10 未以品牌名开头');
+  // 亮点
+  if (!hl) add('亮点', 'r', 'H1 亮点缺失：仍是旧版长标题，需拆两段式');
+  else {
+    if (hl.length > 125) add('亮点', 'r', `H2 ${hl.length} 字符，超 125 上限`);
+    if (hl.match(FULLWIDTH)) add('亮点', 'r', 'H4 含中文/全角标点', FULLWIDTH);
+    if (hl.match(DECOR)) add('亮点', 'r', 'H4 含装饰符号/emoji', DECOR);
+    if (/\.\s*$/.test(hl) || /\b(we|our|you will)\b/i.test(hl)) add('亮点', 'y', 'H3 应为短语，不要写成整句');
+  }
+  // 五点
+  const n = bl.filter(Boolean).length;
+  if (n < 3) add('卖点1', 'r', `B1 五点只有 ${n} 条（至少 3 条）`);
+  else if (n < 5) add('卖点' + (n + 1), 'o', `B2 五点只有 ${n} 条，我方标准 5 条`);
+  bl.forEach((b, i) => {
+    const f = '卖点' + (i + 1);
+    if (!b) return;
+    const first = b.split('\n\n')[0];
+    if (first.length > 255) add(f, 'o', `B3 ${first.length} 字符，超 255（易被折叠）`);
+    else if (first.length < 100) add(f, 'y', `B3 只有 ${first.length} 字符，偏短`);
+    if (b.includes('\n\n')) add(f, 'y', `前台有 ${5 + b.split('\n\n').length - 1} 条五点，第 6 条起并在这里`);
+    if (b.match(BULLET_BANNED)) add(f, 'r', `B6 含禁用字符 ${[...new Set(b.match(BULLET_BANNED))].join(' ')}`, BULLET_BANNED);
+    if (b.match(DECOR)) add(f, 'r', 'B6 含装饰符号/emoji', DECOR);
+    if (b.match(FULLWIDTH)) add(f, 'r', 'B13 含全角/中文标点', FULLWIDTH);
+    if (PLACEHOLDER.test(b)) add(f, 'r', 'B7 含占位文本', new RegExp(PLACEHOLDER.source, 'g'));
+    if (/\bB0[A-Z0-9]{8}\b/.test(b)) add(f, 'r', 'B8 含 ASIN', /\bB0[A-Z0-9]{8}\b/g);
+    if (/https?:\/\/|www\.|@[a-z0-9-]+\.|\b\d{3}[-.\s]\d{3}[-.\s]\d{4}\b/i.test(b)) add(f, 'r', 'B9 含网址/联系方式');
+    for (const g of GUARANTEE) if (wre(g).test(b)) add(f, 'r', `B10 保证类用语「${g}」`, wre(g));
+    for (const c of CLAIMS) if (wre(c).test(b)) add(f, 'r', `B11 禁止声明「${c}」（需有证明）`, wre(c));
+    if (!b.slice(0, 110).includes(':')) add(f, 'y', 'B5 不是「标签: 描述」结构');
+  });
+  // ST（必填）
+  const st = txt(r['ST']);
+  if (!st) add('ST', 'o', 'S1 ST 未填（必填）：从后台/领星取回或按词库补写');
+  else {
+    const nb = new TextEncoder().encode(st).length;
+    if (nb > 249) add('ST', 'o', `S2 ${nb} 字节，超 249 上限`);
+    const front = new Set((title + ' ' + hl).toLowerCase().match(/[a-z][a-z']+/g) || []);
+    const dup = [...new Set((st.toLowerCase().match(/[a-z][a-z']+/g) || []).filter((w) => front.has(w) && !MINOR.has(w)))];
+    if (dup.length) add('ST', 'y', `S3 重复了标题/亮点的词：${dup.slice(0, 8).join('、')}`);
+  }
+  // 违禁词（标题/亮点/五点逐字段查）
+  for (const f of COPY.slice(0, 7)) {
+    const t = f === '标题' ? title : f === '亮点' ? hl : bl[+f.slice(2) - 1];
+    if (!t) continue;
+    for (const w of PROMO) {
+      const m = [...t.matchAll(wre(w))].find((m) => !(w === 'cheap' && /not\s*$/i.test(t.slice(Math.max(0, m.index - 4), m.index))));
+      if (m) { add(f, 'r', `违禁·促销词「${m[0]}」`, wre(w)); break; }
+    }
+    for (const w of BRANDS) if (wre(w).test(t)) add(f, 'r', `违禁·他人品牌「${w}」`, wre(w));
+  }
+  return out;
+}
+const lvCount = (res, lv) => res ? Object.values(res).reduce((s, x) => s + x.hits.filter((h) => h[0] === lv).length, 0) : 0;
+
+// AI 规范分析首行：【结论】需修改/核实｜评分76（B）｜🔴0 🟠5 🟡12｜2026-10-09 09:26 美国站
+function parseAI(s) {
+  const t = txt(s);
+  if (!t) return null;
+  const first = t.split('\n')[0];
+  const g = (re) => { const m = first.match(re); return m ? m[1] : null; };
+  return { text: t, concl: g(/【结论】([^｜]+)/), score: g(/评分(\d+)/), grade: g(/评分\d+（([A-Z])）/),
+           red: +(g(/🔴(\d+)/) ?? 0), orange: +(g(/🟠(\d+)/) ?? 0), yellow: +(g(/🟡(\d+)/) ?? 0),
+           at: g(/(\d{4}-\d{2}-\d{2}(?: \d{2}:\d{2})?)/), hidden: /前台不可见/.test(first) };
+}
+
+// ===== ④ 读表 =====
+let SDK = null, SNAP = false;
+const TBLS = {}, FIDS = {}, FMETA = {}, DIAG = { missing: {}, read: {} };
+async function readTable(key) {
+  const cfg = TABLES[key];
+  const table = await SDK.bitable.base.getTableById(cfg.id);
+  const fields = await table.getFieldMetaList();
+  const idByName = Object.fromEntries(fields.map((f) => [f.name, f.id]));
+  FMETA[key] = Object.fromEntries(fields.map((f) => [f.name, f]));
+  DIAG.missing[cfg.name] = cfg.fields.filter((w) => !idByName[w]);
+  TBLS[key] = table; FIDS[key] = idByName;
+  const rows = [];
+  let pageToken;
+  for (let guard = 0; guard < 500; guard++) {
+    const res = await table.getRecordsByPage({ pageSize: 200, pageToken });
+    for (const r of res.records) {
+      const o = { _id: r.recordId };
+      for (const w of cfg.fields) if (idByName[w]) o[w] = norm(w, r.fields[idByName[w]]);
+      rows.push(o);
+    }
+    DIAG.read[cfg.name] = rows.length;
+    $('meta').textContent = `正在读取 ${cfg.name}… 已读 ${rows.length} 行`;
+    if (!res.hasMore) break;
+    pageToken = res.pageToken;
+  }
+  return rows;
+}
+
+// ===== ⑤ 数据整理 =====
+let ITEMS = [], PMBY = {};
+const state = { mode: store.get('lrp.mode') === 'one' ? 'one' : 'ov', line: 'all', shop: 'all', owner: store.get('lrp.owner') || 'all',
+                cst: 'all', ist: 'all', q: '', cur: null };
+const folded = new Set();
+
+function build(rows, pm) {
+  PMBY = {};
+  for (const p of pm) if (p['ASIN'] && !PMBY[p['ASIN']]) PMBY[p['ASIN']] = p;
+  ITEMS = rows.filter((r) => txt(r['审核键'])).map((r) => {
+    const res = check(r), ai = parseAI(r['AI 规范分析']);
+    const late = r['listing最晚完成时间'] && dn(r['listing最晚完成时间']) < TODAY && !(r['文案审核状态'] === '通过' && r['图片审核状态'] === '通过');
+    return { r, res, ai, hidden: !txt(r['标题']), late,
+             asin: txt(r['ASIN']) || txt(r['审核键']).slice(0, 10), shop: txt(r['店铺']) || txt(r['审核键']).split('|')[1]?.trim() || '—',
+             line: txt(r['产品线']) || '（无）', spu: txt(r['SPU']) || '（无SPU）',
+             owners: (r['负责人'] || []).length ? r['负责人'] : ['（未分配）'],
+             cst: r['文案审核状态'] || '（未审）', ist: r['图片审核状态'] || '（未审）',
+             red: lvCount(res, 'r'), orange: lvCount(res, 'o') };
+  });
+}
+const match = (x, skip) => (skip === 'line' || state.line === 'all' || x.line === state.line)
+  && (skip === 'shop' || state.shop === 'all' || x.shop === state.shop)
+  && (skip === 'owner' || state.owner === 'all' || x.owners.includes(state.owner))
+  && (skip === 'cst' || state.cst === 'all' || x.cst === state.cst)
+  && (skip === 'ist' || state.ist === 'all' || x.ist === state.ist)
+  && (!state.q || [x.asin, x.r['SKU'], x.r['品名'], x.spu].some((v) => txt(v).toLowerCase().includes(state.q.toLowerCase())));
+const scope = () => ITEMS.filter((x) => match(x));
+// 排序：超期 → 红线多 → SPU
+const rank = (a, b) => (b.late - a.late) || (b.red - a.red) || (b.orange - a.orange) || a.spu.localeCompare(b.spu, 'zh') || a.asin.localeCompare(b.asin);
+
+// ===== ⑥ 渲染 =====
+const pillCls = (s) => s === '通过' ? 'p-pass' : s === '未通过' ? 'p-fail' : s === '待审核-主管' ? 'p-boss' : s === '待审核' ? 'p-wait' : 'p-none';
+const pill = (s) => `<span class="pill ${pillCls(s)}">${esc(s)}</span>`;
+const DOTS = { 文案完成: '文', 图片完成: '图', 'A+完成': 'A+', 视频完成: '视', 品牌故事完成: '品', 旗舰店完成: '旗' };
+const dots = (r) => `<span class="dots">${DONE.map((f) => `<span class="dot${r[f] ? ' on' : ''}" title="${f}">${DOTS[f]}</span>`).join('')}</span>`;
+const imgBox = (x, cls = 'mini') => `<span class="${cls}" data-img="${esc(x.asin)}">${PMBY[x.asin] && PMBY[x.asin]._imgData ? `<img src="${PMBY[x.asin]._imgData}" alt="">` : '无图'}</span>`;
+const counts = (x) => x.hidden ? '<span class="pill p-hide">前台不可见</span>'
+  : `<span class="cnt"><b class="r">🔴${x.red}</b> <b class="o">🟠${x.orange}</b>${x.ai && x.ai.score ? ` <span>· AI ${x.ai.score}分</span>` : ''}</span>`;
+
+function chips(key, label, vals) {
+  const all = ITEMS.filter((x) => match(x, key));
+  const n = (v) => all.filter((x) => key === 'owner' ? x.owners.includes(v) : x[key] === v).length;
+  return `<div class="frow"><span class="lb">${label}</span>` +
+    [['all', `全部<i>${all.length}</i>`], ...vals.map((v) => [v, `${esc(v)}<i>${n(v)}</i>`])].map(([v, h]) =>
+      `<button class="chip${state[key] === v ? ' on' : ''}${v !== 'all' && !n(v) ? ' zero' : ''}" data-k="${key}" data-v="${esc(v)}">${h}</button>`).join('') + '</div>';
+}
+const uniq = (f) => [...new Set(ITEMS.flatMap((x) => [].concat(x[f])))].sort((a, b) => a.localeCompare(b, 'zh'));
+// 下拉筛选：选项后带当前条数（按其余筛选算）
+function dd(key, label, vals) {
+  const all = ITEMS.filter((x) => match(x, key));
+  const n = (v) => all.filter((x) => key === 'owner' ? x.owners.includes(v) : x[key] === v).length;
+  return `<select class="fsel${state[key] !== 'all' ? ' on' : ''}" data-k="${key}"><option value="all">${label}：全部 (${all.length})</option>` +
+    vals.map((v) => `<option value="${esc(v)}"${state[key] === v ? ' selected' : ''}>${label}：${esc(v)} (${n(v)})</option>`).join('') + '</select>';
+}
+function renderFilters() {
+  const q = $('q'), had = document.activeElement === q, pos = q && q.selectionStart;
+  $('filters').innerHTML =
+    chips('line', '产品线', uniq('line')).replace('</div>',
+      dd('shop', '店铺', uniq('shop')) + dd('owner', '负责人', uniq('owners')) +
+      dd('cst', '文案', ['（未审）', ...COPY_ST]) + dd('ist', '图片', ['（未审）', ...IMG_ST]) +
+      `<input class="search" id="q" placeholder="搜 ASIN / SKU / 品名 / SPU" value="${esc(state.q)}"></div>`);
+  $('filters').querySelectorAll('.chip').forEach((b) => b.onclick = () => { state[b.dataset.k] = b.dataset.v; render(); });
+  $('filters').querySelectorAll('.fsel').forEach((s) => s.onchange = () => {
+    state[s.dataset.k] = s.value; if (s.dataset.k === 'owner') store.set('lrp.owner', s.value); render();
+  });
+  const nq = $('q');
+  nq.oninput = () => { state.q = nq.value; render(); };
+  if (had) { nq.focus(); nq.setSelectionRange(pos, pos); }
+}
+
+function render() {
+  document.querySelectorAll('#mode button').forEach((b) => b.classList.toggle('on', b.dataset.m === state.mode));
+  renderFilters();
+  const list = scope().sort(rank);
+  $('meta').textContent = `${list.length} / ${ITEMS.length} 条 · ${SRC}`;
+  if (!list.length) { $('main').innerHTML = '<div class="empty">当前筛选下没有记录</div>'; return; }
+  if (state.mode === 'ov') renderOverview(list); else renderOne(list);
+  loadImages();
+}
+
+function kpi(k, v, total, color, warn) {
+  const p = total ? Math.round(v / total * 100) : 0;
+  return `<div class="kpi${warn && v ? ' warn' : ''}"><div class="k">${k}</div><div class="v">${v}<small>/ ${total}${color ? ` · ${p}%` : ''}</small></div>` +
+    (color ? `<div class="bar"><i style="width:${p}%;background:${color}"></i></div>` : '') + '</div>';
+}
+function renderOverview(list) {
+  const vis = list.filter((x) => !x.hidden), N = list.length;
+  const k = kpi('文案审核通过', list.filter((x) => x.cst === '通过').length, N, 'var(--green)') +
+    kpi('图片审核通过', list.filter((x) => x.ist === '通过').length, N, 'var(--green)') +
+    kpi('6 项全部完成', list.filter((x) => DONE.every((f) => x.r[f])).length, N, 'var(--or)') +
+    kpi('有红线待改', vis.filter((x) => x.red).length, vis.length, '', true) +
+    kpi('ST 未填', vis.filter((x) => !txt(x.r['ST'])).length, vis.length, '', true) +
+    kpi('超期未完成', list.filter((x) => x.late).length, N, '', true);
+  const groups = {};
+  for (const x of list) (groups[x.spu] = groups[x.spu] || []).push(x);
+  const gs = Object.entries(groups).sort((a, b) => Math.max(...b[1].map((x) => x.red)) - Math.max(...a[1].map((x) => x.red)) || a[0].localeCompare(b[0], 'zh'));
+  let h = `<div class="kpis">${k}</div><table class="otbl"><thead><tr><th style="width:52px"></th><th>ASIN · 店铺</th><th>品名</th><th>负责人</th>
+    <th class="c">文案</th><th class="c">图片</th><th>完成项</th><th>规则检查</th><th>最晚完成</th></tr></thead><tbody>`;
+  for (const [spu, xs] of gs) {
+    const f = folded.has(spu);
+    h += `<tr class="g${f ? ' fold' : ''}" data-g="${esc(spu)}"><td colspan="9"><span class="gn">${esc(spu)}</span><span class="gm">${xs.length} 条 · 文案通过 ${xs.filter((x) => x.cst === '通过').length} · 图片通过 ${xs.filter((x) => x.ist === '通过').length} · 🔴 ${xs.reduce((s, x) => s + x.red, 0)}</span></td></tr>`;
+    if (f) continue;
+    for (const x of xs) {
+      const dl = x.r['listing最晚完成时间'];
+      h += `<tr class="row" data-id="${x.r._id}"><td>${imgBox(x)}</td>
+        <td><div class="asin">${esc(x.asin)}</div><div class="sub2">${esc(x.shop)}</div></td>
+        <td><div style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(x.r['品名'])}">${esc(txt(x.r['品名']).split(',')[0] || '—')}</div><div class="sub2">${esc(txt(x.r['SKU']).split(',')[0])}</div></td>
+        <td>${esc(x.owners.join('、'))}</td><td class="c">${pill(x.cst)}</td><td class="c">${pill(x.ist)}</td>
+        <td>${dots(x.r)}</td><td>${counts(x)}</td>
+        <td class="${x.late ? 'late' : 'sub2'}">${dl ? ymd(dn(dl)) : '—'}</td></tr>`;
+    }
+  }
+  $('main').innerHTML = h + '</tbody></table>';
+  $('main').querySelectorAll('tr.g').forEach((t) => t.onclick = () => { const g = t.dataset.g; folded.has(g) ? folded.delete(g) : folded.add(g); render(); });
+  $('main').querySelectorAll('tr.row').forEach((t) => t.onclick = () => { state.cur = t.dataset.id; state.mode = 'one'; store.set('lrp.mode', 'one'); render(); window.scrollTo(0, 0); });
+}
+
+function hl(text, marks) {
+  if (!text) return '<span class="tx nil">（空）</span>';
+  let ranges = [];
+  for (const re of marks) for (const m of text.matchAll(new RegExp(re.source, re.flags.includes('g') ? re.flags : re.flags + 'g'))) if (m[0]) ranges.push([m.index, m.index + m[0].length]);
+  ranges.sort((a, b) => a[0] - b[0]);
+  let out = '', p = 0;
+  for (const [a, b] of ranges) { if (a < p) continue; out += esc(text.slice(p, a)) + '<mark>' + esc(text.slice(a, b)) + '</mark>'; p = b; }
+  return `<div class="tx">${out + esc(text.slice(p))}</div>`;
+}
+function renderOne(list) {
+  if (!list.some((x) => x.r._id === state.cur)) state.cur = list[0].r._id;
+  const i = list.findIndex((x) => x.r._id === state.cur), x = list[i], r = x.r;
+  const nav = list.map((y) => `<div class="li${y.r._id === state.cur ? ' on' : ''}" data-id="${y.r._id}">${imgBox(y)}<div class="t">
+    <div><span class="asin">${esc(y.asin)}</span> <span class="sub2">${esc(y.shop)}</span></div>
+    <div class="sub2">${pill(y.cst)} ${pill(y.ist)} ${y.hidden ? '<span class="pill p-hide">不可见</span>' : `<b style="color:var(--red)">🔴${y.red}</b>`}</div></div></div>`).join('');
+  const site = /-CA/.test(x.shop) ? 'https://www.amazon.ca/dp/' : 'https://www.amazon.com/dp/';
+  // 左：前台文案
+  let copy = '';
+  if (x.hidden) copy = `<div class="banner hide">前台不可见（标题为空：售罄后被合并变体隐藏，或页面不存在），本次没有文案可审。详情见下方更新日志。</div>`;
+  for (const f of COPY) {
+    const v = txt(r[f]);
+    const len = f === 'ST' ? new TextEncoder().encode(v).length : (f.startsWith('卖点') ? v.split('\n\n')[0].length : v.length);
+    const c = x.res ? x.res[f] : { hits: [], marks: [] };
+    copy += `<div class="fld"><div class="fh"><b>${f}</b>${c.hits.length ? `<span>${c.hits.filter((h) => h[0] === 'r').length ? '🔴' : c.hits.some((h) => h[0] === 'o') ? '🟠' : '🟡'}</span>` : ''}
+      <span class="len${len > LIMIT[f] ? ' over' : ''}">${len} / ${LIMIT[f]}${f === 'ST' ? ' 字节' : ''}</span></div>${hl(v, c.marks)}
+      ${c.hits.length ? `<ul class="hits">${c.hits.map((h) => `<li class="${h[0]}">${h[0] === 'r' ? '🔴' : h[0] === 'o' ? '🟠' : '🟡'} ${esc(h[1])}</li>`).join('')}</ul>` : ''}</div>`;
+  }
+  // 右：AI 分析 + 审核
+  const ai = x.ai;
+  const aiBox = ai ? `<div class="score">${ai.score ? `<span class="big">${ai.score}</span><span>${esc(ai.grade || '')} 级</span>` : ''}<span>${esc(ai.concl || '')}</span>
+      <span class="cnt"><b class="r">🔴${ai.red}</b> <b class="o">🟠${ai.orange}</b> 🟡${ai.yellow}</span><span class="meta">${esc(ai.at || '')}</span></div>
+      <div class="ai">${ai.text.split('\n').map((l) => `<div class="${/^🔴/.test(l) ? 'r' : /^🟠/.test(l) ? 'o' : /^🟡/.test(l) ? 'y' : /^【/.test(l) ? 'h' : ''}">${esc(l)}</div>`).join('')}</div>`
+    : '<div class="meta">还没有 AI 规范分析（在表里点「AI抓文案」后生成）</div>';
+  const opts = (f, vals) => `<span class="opts" data-f="${f}">${vals.map((v) => `<button class="opt ${pillCls(v)}${r[f] === v ? ' on' : ''}" data-v="${esc(v)}">${esc(v)}</button>`).join('')}</span>`;
+  const ta = (f) => `<textarea data-f="${f}" placeholder="写审核意见…">${esc(r[f] || '')}</textarea>`;
+  const review = `<div class="rv"><span class="lb">文案状态</span><div>${opts('文案审核状态', COPY_ST)}</div>
+      <span class="lb">运营审文案</span>${ta('运营审核文案')}<span class="lb">主管审文案</span>${ta('主管审核文案')}
+      <span class="lb">图片状态</span><div>${opts('图片审核状态', IMG_ST)}</div>
+      <span class="lb">运营审图片</span>${ta('运营审核图片')}<span class="lb">主管审图片</span>${ta('主管审核图片')}
+      <span class="lb">完成项</span><div class="chk">${DONE.map((f) => `<label class="${r[f] ? 'on' : ''}"><input type="checkbox" data-f="${f}"${r[f] ? ' checked' : ''}>${f.replace('完成', '')}</label>`).join('')}</div></div>
+    <div class="sbar"><span class="meta" id="smsg"></span><button class="btn pri" id="sbtn">保存审核</button></div>`;
+  const sold = r['开售时间'] ? ymd(dn(r['开售时间'])) : '—', dl = r['listing最晚完成时间'];
+  $('main').innerHTML = `<div class="split"><div class="list" id="list">${nav}</div><div class="det">
+    <div class="dh">${imgBox(x, 'mini')}<div class="info"><div><span class="asin">${esc(x.asin)}</span> · ${esc(x.shop)}
+      <a href="${site}${esc(x.asin)}" target="_blank" rel="noopener">打开前台 ↗</a></div>
+      <div class="sub2">${esc(x.spu)} · ${esc(x.line)} · 负责人 ${esc(x.owners.join('、'))} · 开售 ${sold} · 最晚完成 <span class="${x.late ? 'late' : ''}">${dl ? ymd(dn(dl)) : '—'}</span></div>
+      <div class="sub2" title="${esc(r['品名'])}" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r['SKU'] || '')} · ${esc(r['品名'] || '')}</div></div>
+      <div class="nav"><button class="btn" id="prev"${i ? '' : ' disabled'}>← 上一条</button><span class="meta" style="align-self:center">${i + 1}/${list.length}</span><button class="btn" id="next"${i < list.length - 1 ? '' : ' disabled'}>下一条 →</button></div></div>
+    <div class="cols"><div><div class="box"><h3>前台文案 <span class="meta">只读 · 来自 AI抓文案 · 页面现场规则检查 🔴${x.red} 🟠${x.orange}</span></h3>${copy}</div></div>
+    <div><div class="box"><h3>审核</h3>${review}</div>
+      <div class="box"><h3>AI 规范分析</h3>${aiBox}</div>
+      <div class="box"><details class="log"><summary>更新日志</summary><pre>${esc(r['更新日志'] || '（无）')}</pre></details></div></div></div></div></div>`;
+  $('main').querySelectorAll('.li').forEach((d) => d.onclick = () => { state.cur = d.dataset.id; render(); });
+  $('prev').onclick = () => { state.cur = list[i - 1].r._id; render(); };
+  $('next').onclick = () => { state.cur = list[i + 1].r._id; render(); };
+  const on = $('list').querySelector('.li.on'); if (on) on.scrollIntoView({ block: 'nearest' });
+  // 编辑态：选项切换只改界面，点「保存审核」才写回
+  const draft = {};
+  $('main').querySelectorAll('.opts').forEach((g) => g.querySelectorAll('.opt').forEach((b) => b.onclick = () => {
+    const now = b.classList.contains('on');
+    g.querySelectorAll('.opt').forEach((o) => o.classList.remove('on'));
+    if (!now) b.classList.add('on');
+    draft[g.dataset.f] = now ? null : b.dataset.v;
+  }));
+  $('main').querySelectorAll('.chk input').forEach((c) => c.onchange = () => { c.parentElement.classList.toggle('on', c.checked); draft[c.dataset.f] = c.checked; });
+  $('main').querySelectorAll('textarea').forEach((t) => t.oninput = () => { draft[t.dataset.f] = t.value; });
+  $('sbtn').onclick = () => save(x, draft);
+}
+
+// ===== ⑦ 写回 =====
+function toCell(key, f, v) {
+  const m = FMETA[key][f];
+  if (!m) throw new Error(`审核表缺字段「${f}」`);
+  if (m.type === 7) return !!v;                                           // 复选框
+  if (m.type === 3 || m.type === 4) {                                     // 单选 / 多选
+    if (!v) return null;
+    const o = (m.property && m.property.options || []).find((o) => o.name === v);
+    if (!o) throw new Error(`「${f}」没有选项「${v}」`);
+    const one = { id: o.id, text: o.name };
+    return m.type === 4 ? [one] : one;
+  }
+  return txt(v) ? [{ type: 'text', text: String(v) }] : null;             // 文本
+}
+async function save(x, draft) {
+  const r = x.r, ch = {};
+  for (const [f, v] of Object.entries(draft)) if ((v ?? '') !== (r[f] ?? '') && !(DONE.includes(f) && !!v === !!r[f])) ch[f] = v;
+  const n = Object.keys(ch).length;
+  if (!n) { toast('没有改动'); return; }
+  $('sbtn').disabled = true; $('smsg').textContent = '保存中…'; $('smsg').style.color = '';
+  try {
+    if (!SNAP) {
+      const fields = {};
+      for (const [f, v] of Object.entries(ch)) fields[FIDS.lr[f]] = toCell('lr', f, v);
+      await TBLS.lr.setRecord(r._id, { fields });
+    }
+    for (const [f, v] of Object.entries(ch)) r[f] = DONE.includes(f) ? !!v : (txt(v) ? v : null);
+    x.cst = r['文案审核状态'] || '（未审）'; x.ist = r['图片审核状态'] || '（未审）';
+    toast(SNAP ? `本地预览：改了 ${n} 项（未写回）` : `已写回 ${n} 项`);
+    render();
+  } catch (e) {
+    $('sbtn').disabled = false; $('smsg').style.color = 'var(--red)';
+    $('smsg').textContent = '保存失败：' + (e && e.message ? e.message : e) + '（应用数据权限要对 Listing审核表 开「可编辑」）';
+  }
+}
+
+// 图片：快照自带缩略图；插件里取产品主表附件临时地址
+const IMGURL = {};
+async function loadImages() {
+  if (SNAP || !TBLS.pm || !FIDS.pm['图片']) return;
+  for (const box of document.querySelectorAll('[data-img]')) {
+    const a = box.dataset.img, p = PMBY[a];
+    if (!p || !p['图片'] || !p['图片'].length) continue;
+    try {
+      if (!IMGURL[a]) IMGURL[a] = (await TBLS.pm.getCellAttachmentUrls([p['图片'][0].token], FIDS.pm['图片'], p._id))[0];
+      if (IMGURL[a] && box.isConnected) box.innerHTML = `<img src="${esc(IMGURL[a])}" alt="">`;
+    } catch (e) { box.textContent = '图未取到'; box.title = String(e && e.message || e); }
+  }
+}
+
+// ===== ⑧ 保存插件配置（硬规矩①②）=====
+function setupSave() {
+  const dash = SDK && SDK.dashboard;
+  let st = '';
+  try { st = dash && dash.state; } catch (e) { st = '读取失败'; }
+  $('saveMsg').textContent = `（插件状态：${st || '未知'}）`;
+  if (dash && typeof dash.saveConfig === 'function' && st !== 'View' && st !== 'FullScreen') {
+    $('savebar').classList.add('show');
+    $('saveBtn').onclick = async () => {
+      $('saveBtn').disabled = true; $('saveMsg').textContent = '保存中…';
+      try {
+        const ok = await dash.saveConfig({
+          dataConditions: Object.values(TABLES).map((t) => ({ tableId: t.id, baseToken: BASE_TOKEN, dataRange: { type: 'ALL' }, series: 'COUNTA' })),
+          customConfig: { page: document.title, version: 1 },
+        });
+        $('saveMsg').textContent = ok === false ? '保存失败，请重试' : '已保存 ✔';
+      } catch (e) { $('saveMsg').textContent = '保存失败：' + (e && e.message ? e.message : e); }
+      finally { $('saveBtn').disabled = false; }
+    };
+  } else if (dash && dash.setRendered) {
+    dash.setRendered().catch(() => {});
+  }
+}
+
+// ===== ⑨ 诊断 =====
+async function diagnose() {
+  const res = [];
+  const t = async (name, fn) => {
+    try {
+      const v = await Promise.race([fn(), new Promise((_, rej) => setTimeout(() => rej(new Error('超时 8s')), 8000))]);
+      let shown; try { shown = typeof v === 'string' ? v : JSON.stringify(v); } catch (x) { shown = String(v); }
+      res.push(['✔', name, String(shown).slice(0, 300)]); return v;
+    } catch (e) { res.push(['✘', name, e && e.message ? e.message : String(e)]); return undefined; }
+  };
+  const { bitable, dashboard } = SDK;
+  await t('dashboard.state', async () => dashboard.state);
+  await t('dashboard.getConfig', () => dashboard.getConfig());
+  for (const cfg of Object.values(TABLES)) {
+    const tb = await t(`getTableById ${cfg.name}`, () => bitable.base.getTableById(cfg.id));
+    if (tb) await t(`getRecordsByPage ${cfg.name}`, () => tb.getRecordsByPage({ pageSize: 2 }));
+  }
+  return `<div class="card0"><b>接口诊断</b> <span class="meta">请把这块整体截图发回</span><table class="tbl"><tbody>${res.map((r) =>
+    `<tr><td style="width:24px">${r[0]}</td><td>${esc(r[1])}</td><td style="color:var(--sub)">${esc(r[2])}</td></tr>`).join('')}</tbody></table></div>`;
+}
+
+{ const st = $('sticky'); const onScroll = () => st.classList.toggle('stuck', st.getBoundingClientRect().top <= 0 && window.scrollY > 0);
+  window.addEventListener('scroll', onScroll, { passive: true }); }
+document.querySelectorAll('#mode button').forEach((b) => b.onclick = () => { state.mode = b.dataset.m; store.set('lrp.mode', state.mode); render(); });
+
+// ===== 启动 =====
+let SRC = '';
+function finish(rows, pm, src) {
+  SRC = src;
+  build(rows, pm);
+  render();
+  if (!ITEMS.length) $('main').insertAdjacentHTML('afterbegin', `<div class="card0"><b>没有读到记录</b> <span class="meta">读取行数 ${esc(JSON.stringify(DIAG.read))}；缺失字段 ${esc(JSON.stringify(DIAG.missing))}</span></div>`);
+}
+try {
+  if (window.__SNAPSHOT__) {
+    SNAP = true;
+    finish(window.__SNAPSHOT__.lr, window.__SNAPSHOT__.pm, `本地快照 ${window.__SNAPSHOT__.at}（预览，保存不写回）`);
+  } else {
+    SDK = await import(SDK_URL);
+    setupSave();
+    const rows = await readTable('lr');
+    let pm = [];
+    try { pm = await readTable('pm'); } catch (e) { console.warn('产品主表读不到，不显示图片', e); }
+    finish(rows, pm, '取数：Listing审核表 + 产品主表');
+  }
+} catch (e) {
+  const msg = esc(e && e.message ? e.message : e);
+  $('meta').textContent = '';
+  $('main').innerHTML = `<div class="card0 err">加载失败：${msg}</div><div class="card0">正在诊断…</div>`;
+  if (SDK) { try { $('main').innerHTML = `<div class="card0 err">加载失败：${msg}</div>` + await diagnose(); } catch (e2) { /* 保留报错 */ } }
+}
+</script>
+</body>
+</html>
