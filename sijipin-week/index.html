@@ -262,14 +262,18 @@ const REVIEW_FIELDS = ['竞品动态', '问题和归因', '计划操作'];      
 const BOSS_FIELDS = ['建议操作'];                                   // 主管填
 const TEXT_FIELDS = [...GOAL_FIELDS, ...REVIEW_FIELDS, ...BOSS_FIELDS];
 const NUM_EDIT = ['周目标销量'];
-const WK_NUM = ['有效天数', '距今周数', '启用', '销量', '订单量', '销售额', '总点击数', '广告展示数', '广告点击', '广告花费', '广告销售额', '广告订单量',
-  '毛利', '毛利率', '退货量', 'CVR', '销售均价', '广告CTR', '广告单占比', '广告CVR', 'CPC', 'ACOS', 'TACOS', '退货率', 'CVR较前4周', '销量达成率', '周目标销量'];
+// 只读数字（存储）字段；CVR/ACOS 等比率是经营表的公式字段，插件里读到的是带格式的值（如「8.8%」），改在页面按同一公式算（见 normRow）
+const WK_NUM = ['有效天数', '启用', '销量', '订单量', '销售额', '总点击数', '广告展示数', '广告点击', '广告花费', '广告销售额', '广告订单量',
+  '毛利', '毛利率', '退货量', '周目标销量'];
+const WK_RATIO = {   // 同四季品经营表的公式；分母为 0 → 空
+  CVR: ['订单量', '总点击数'], 销售均价: ['销售额', '销量'], 广告CTR: ['广告点击', '广告展示数'], 广告单占比: ['广告订单量', '订单量'],
+  广告CVR: ['广告订单量', '广告点击'], CPC: ['广告花费', '广告点击'], ACOS: ['广告花费', '广告销售额'], TACOS: ['广告花费', '销售额'], 退货率: ['退货量', '销量'] };
 const DAY_NUM = ['销量', '订单量', '销售额', 'Sessions', '广告曝光量', '点击', '广告花费', '广告销售额', '广告CVR', '退货量', '小类排名',
   'FBA可售-领星', 'FBA在途入库-领星', 'FBA接收中-领星', 'FBA调拨处理中-领星'];
 const TABLES = {
   // view：「插件-近9周（经营表页面用，勿删）」= 启用=1 且 距今周数<=8（约 700 行）；视图被删时自动退回读全表
   wk: { id: 'tblbSnNiUOOLlZwu', name: '四季品经营表', view: 'vewL1VwST4', fields: [
-    '周报键', '层级', 'ASIN', '国家文本', '周起始日', '周状态', '_SPU键', '负责人', '启用', '距今周数', '主图ASIN', ...WK_NUM.filter((f) => f !== '周目标销量'),
+    '周报键', '层级', 'ASIN', '国家文本', '周起始日', '周状态', '_SPU键', '负责人', '主图ASIN', ...WK_NUM.filter((f) => f !== '周目标销量'),
     '红绿灯', '亮灯原因', ...NUM_EDIT, ...TEXT_FIELDS] },
   // view：「插件-近66天（经营表页面用，勿删）」= 公式字段 _经营表页面=1（近66天 且 产品主表勾了「进四季品经营表」，约 5000 行；全表 1.8 万行太慢）
   day: { id: 'tblKAoK9pN3cWI9t', name: '每日数据表-灯', view: 'vew7B6MlLH', fields: ['日期', 'ASIN', '国家', '店铺', '维度', ...DAY_NUM] },
@@ -292,7 +296,13 @@ const dn = (ms) => Math.floor((Number(ms) + BJ) / DAY);   // 北京时间天序�
 const ud = (n) => new Date(n * DAY);
 const fmtD = (n) => { const d = ud(n); return `${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`; };
 const WKD = '日一二三四五六';
-const num = (v) => (v == null || v === '' || isNaN(v)) ? null : Number(v);
+// 数字：兼容 SDK 返回的格式化文本（「8.8%」「1,234」「$21.78」「C$5」）
+function num(v) {
+  if (v == null || v === '' || typeof v === 'boolean') return null;
+  if (typeof v === 'number') return isFinite(v) ? v : null;
+  const t = String(v).trim(), pc = t.endsWith('%'), x = Number(t.replace(/[^0-9.\-eE]/g, ''));
+  return t === '' || !/[0-9]/.test(t) || isNaN(x) ? null : pc ? x / 100 : x;
+}
 const fmtN = (v, p = 0) => v == null || !isFinite(v) ? '—' : Number(v).toLocaleString('zh-CN', { maximumFractionDigits: p, minimumFractionDigits: p });
 const pct = (v, p = 1) => v == null || !isFinite(v) ? '—' : (v * 100).toFixed(p) + '%';
 const pctS = (v) => pct(v, v != null && Math.abs(v) >= 0.995 ? 0 : 1);   // 窄列：≥100% 不带小数
@@ -323,6 +333,7 @@ function normRow(key, r) {
   for (const f of (key === 'wk' ? WK_NUM : key === 'day' ? DAY_NUM : [])) if (f in o) o[f] = num(o[f]);
   for (const f of ['层级', '店铺', '维度', '负责人', '国家', '国家文本', '红绿灯', '周状态']) if (f in o && typeof o[f] !== 'string') o[f] = cell(o[f]);
   for (const f of TEXT_FIELDS) if (f in o && o[f] != null && typeof o[f] !== 'string') o[f] = cell(o[f]);
+  if (key === 'wk') for (const [f, [a, b]] of Object.entries(WK_RATIO)) o[f] = o[a] != null && o[b] ? o[a] / o[b] : null;
   return o;
 }
 
@@ -344,6 +355,11 @@ async function readTable(key) {
     try { res = await table.getRecordsByPage(q); } catch (e) {
       if (!useView) throw e;
       console.warn('按视图读取失败，改读全表', e); useView = false; rows.length = 0; pageToken = undefined; continue;
+    }
+    if (key === 'wk' && !DIAG.raw && res.records.length) {
+      const r0 = res.records[0].fields;
+      DIAG.raw = Object.fromEntries(['CVR', '销售均价', 'CPC', '启用', '销量', '毛利率', '红绿灯'].filter((n) => idByName[n]).map((n) => [n, r0[idByName[n]]]));
+      console.log('[经营表原始值样本]', DIAG.raw);
     }
     for (const r of res.records) {
       const o = { _id: r.recordId };
@@ -569,7 +585,7 @@ function model(o, opt = {}) {
   return { model, cur, today0, winEnd, CHART_DAYS };
 }
 // ===== 备货计划模型 END =====
-const n0 = (v) => (v == null || v === '' || isNaN(v)) ? 0 : Number(v);
+const n0 = (v) => num(cell(v)) ?? 0;
 let INV = { ov: {}, ships: {}, o: {} }, BH = null;
 const first = (v) => String(cell(v) ?? '').split('、')[0];
 const msDay = (v) => { if (v == null || v === '') return ''; const n = dn(typeof v === 'number' ? v : Date.parse(v)); const d = ud(n);
@@ -1353,6 +1369,7 @@ function finish(wk, day, pm, src, inv = {}) {
   const nSpu = Object.values(ENT).filter((e) => e.layer === 'SPU').length;
   $('meta').textContent = `${nSpu} 个 SPU×国家 · ${src}`;
   renderTop(); render();
+  if (/debug/.test(location.search)) $('main').insertAdjacentHTML('afterbegin', `<div class="card0"><b>自查（?debug）</b><pre style="white-space:pre-wrap;font-size:11px;margin:6px 0 0">${esc(JSON.stringify({ read: DIAG.read, missing: DIAG.missing, raw: DIAG.raw }, null, 1))}</pre></div>`);
   if (!nSpu) $('main').insertAdjacentHTML('afterbegin', `<div class="card0"><b>没有读到可显示的 SPU —— 自查信息</b> <span class="meta">请截图发回</span>
     <pre style="white-space:pre-wrap;font-size:11px">${esc(JSON.stringify({ read: DIAG.read, missing: DIAG.missing, sample: wk.slice(0, 2) }, null, 1))}</pre></div>`);
 }
