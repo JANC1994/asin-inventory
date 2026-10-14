@@ -83,7 +83,7 @@
   .kpi .v small { font-size: 12px; color: var(--sub); font-weight: normal; }
   .kpi .v.bad { color: var(--red); }
   .lib { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 14px; align-items: start; }
-  .side { position: sticky; top: calc(var(--stickyH, 0px) + 8px); max-height: calc(100vh - var(--stickyH, 0px) - 20px); overflow-y: auto;
+  .side { position: sticky; top: calc(var(--stickyH, 0px) + 8px); max-height: calc(var(--vh, 100vh) - var(--stickyH, 0px) - 20px); overflow-y: auto;
           background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 6px; }
   .kseg { display: flex; background: var(--grey-soft); border-radius: 9px; padding: 3px; gap: 2px; margin-bottom: 6px; position: sticky; top: -6px; z-index: 1; box-shadow: 0 -6px 0 #fff; }
   .kseg button { flex: 1; height: 30px; border: 0; border-radius: 7px; background: transparent; color: var(--sub); font: inherit; font-size: 13px; cursor: pointer; white-space: nowrap; }
@@ -145,9 +145,9 @@
   .ln .c8 { display: flex; gap: 4px; flex-wrap: wrap; white-space: normal; }
 
   /* 抽屉 */
-  .mask { position: fixed; inset: 0; background: rgba(43,33,24,.28); z-index: 40; display: none; }
+  .mask { position: fixed; left: 0; right: 0; top: var(--vt, 0px); height: var(--vh, 100vh); background: rgba(43,33,24,.28); z-index: 40; display: none; }
   .mask.show { display: block; }
-  .drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(640px, 100vw); background: var(--bg); z-index: 41; box-shadow: -8px 0 24px rgba(43,33,24,.18);
+  .drawer { position: fixed; top: var(--vt, 0px); right: 0; height: var(--vh, 100vh); width: min(640px, 100vw); background: var(--bg); z-index: 41; box-shadow: -8px 0 24px rgba(43,33,24,.18);
             transform: translateX(105%); transition: transform .18s ease-out; display: flex; flex-direction: column; }
   .drawer.show { transform: none; }
   .dh { background: #fff; border-bottom: 1px solid var(--line); padding: 12px 16px; display: flex; gap: 12px; align-items: flex-start; }
@@ -241,14 +241,14 @@
   .tg.on { background: var(--green); }
   .tg.on::after { left: 16px; }
   .tg.pend { box-shadow: 0 0 0 2px #fff, 0 0 0 4px #f2b705; }
-  .swbar { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); background: #2b2118; color: #fff; border-radius: 12px; padding: 8px 10px 8px 16px;
+  .swbar { position: fixed; left: 50%; top: calc(var(--vt, 0px) + var(--vh, 100vh) - 60px); transform: translateX(-50%); background: #2b2118; color: #fff; border-radius: 12px; padding: 8px 10px 8px 16px;
            display: none; gap: 10px; align-items: center; z-index: 30; box-shadow: 0 6px 20px rgba(0,0,0,.25); }
   .swbar.show { display: flex; }
 
   /* 弹窗 */
-  .modal { position: fixed; inset: 0; z-index: 60; display: none; align-items: center; justify-content: center; background: rgba(43,33,24,.35); padding: 16px; }
+  .modal { position: fixed; left: 0; right: 0; top: var(--vt, 0px); height: var(--vh, 100vh); z-index: 60; display: none; align-items: center; justify-content: center; background: rgba(43,33,24,.35); padding: 16px; }
   .modal.show { display: flex; }
-  .mbox { background: #fff; border-radius: 12px; width: min(620px, 100%); max-height: 86vh; display: flex; flex-direction: column; box-shadow: 0 12px 40px rgba(0,0,0,.25); }
+  .mbox { background: #fff; border-radius: 12px; width: min(620px, 100%); max-height: calc(var(--vh, 100vh) - 40px); display: flex; flex-direction: column; box-shadow: 0 12px 40px rgba(0,0,0,.25); }
   .mbox .mh { padding: 12px 16px; border-bottom: 1px solid var(--line); font-weight: 700; font-size: 14.5px; }
   .mbox .mb { padding: 10px 16px; overflow-y: auto; }
   .mbox .mf { padding: 10px 16px; border-top: 1px solid var(--line); display: flex; gap: 8px; justify-content: flex-end; align-items: center; }
@@ -264,8 +264,11 @@
 
   .savebar { display: none; align-items: center; gap: 10px; background: #fff; border: 1px solid var(--or-soft2); border-radius: 10px; padding: 8px 12px; margin-bottom: 12px; }
   .savebar.show { display: flex; }
-  .toast { position: fixed; left: 50%; bottom: 70px; transform: translateX(-50%); background: #2b2118; color: #fff; padding: 8px 16px; border-radius: 8px; font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 70; }
+  .toast { position: fixed; left: 50%; top: calc(var(--vt, 0px) + var(--vh, 100vh) - 110px); transform: translateX(-50%); background: #2b2118; color: #fff; padding: 8px 16px; border-radius: 8px; font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 70; }
   .toast.show { opacity: 1; }
+  /* 吸顶兜底的定位标记（看不见） */
+  .pin-sent { position: absolute; left: 0; top: 0; width: 1px; pointer-events: none; opacity: 0; }
+  .pin-sent i { position: absolute; left: 0; width: 1px; height: 20px; }
 
   @media (max-width: 900px) {
     .kpis { grid-template-columns: repeat(2, 1fr); }
@@ -663,6 +666,11 @@ function editor(f, r) {
     const list = m.options.map((o) => o.name);
     return `<select class="in" ${base}><option value="">（空）</option>${list.map((o) => `<option${o === v ? ' selected' : ''}>${esc(o)}</option>`).join('')}${v && !list.includes(v) ? `<option selected>${esc(v)}</option>` : ''}</select>`;
   }
+  if (f === '国家') {
+    const list = [...new Set([...m.options.map((o) => o.name), ...(v || [])])], cv = (v || [])[0] || '';
+    return `<select class="in" data-f="国家" data-kind="one">${(v || []).length > 1 ? `<option value="__keep" selected>保持：${esc(v.join('、'))}</option>` : ''}<option value="">（空）</option>${
+      list.map((o) => `<option${(v || []).length <= 1 && o === cv ? ' selected' : ''}>${esc(o)}</option>`).join('')}</select>`;
+  }
   if (m.type === 'multi') {
     const list = [...new Set([...m.options.map((o) => o.name), ...(v || [])])];
     return `<div class="multi" ${base}>${list.map((o) => `<label class="${(v || []).includes(o) ? 'on' : ''}"><input type="checkbox" value="${esc(o)}"${(v || []).includes(o) ? ' checked' : ''}>${esc(o)}</label>`).join('')}</div>`;
@@ -682,6 +690,7 @@ function editor(f, r) {
 }
 function readEditor(el) {
   const f = el.dataset.f, k = el.dataset.kind;
+  if (k === 'one') return el.value === '__keep' ? undefined : (el.value ? [el.value] : []);
   if (k === 'multi') return [...el.querySelectorAll('input:checked')].map((i) => i.value);
   if (k === 'user') { if (el.value === '__keep') return undefined; const u = USERS.find((x) => x.id === el.value); return u ? [u] : []; }
   if (k === 'select') return el.value || null;
@@ -738,7 +747,7 @@ function renderDrawer() {
         <div class="meta mono" style="margin-top:3px">${esc(r['领星SKU'] || '')}　${esc(clean(r['SPU']) || '')}</div>
         <div class="meta" style="margin-top:3px">下游：${sw.length ? esc(sw.join('、')) : '一张都没进'}</div></div>
       <button class="x" id="d-x" title="关闭">×</button></div>
-    <div class="dtabs">${group.map((g) => `<button data-tab="${g._id}" class="${g._id === r._id ? 'on' : ''}">${esc(ctryShort(g))} · ${esc(g['店铺'] || '无店铺')}</button>`).join('')}
+    <div class="dtabs">${group.map((g) => `<button data-tab="${g._id}" title="${esc(g['店铺'] || '无店铺')}" class="${g._id === r._id ? 'on' : ''}">${esc(ctryShort(g))} · ${esc(clean(g['领星SKU']) || '无SKU')}</button>`).join('')}
       <span class="sp">${editMode ? '' : '<button class="btn pri sm" id="d-edit">编辑</button>'}</span></div>
     <div class="db">
       ${iss.length ? `<div class="issues">${iss.map((i) => `<span class="tag ${i.lv}">${esc(i.t)}</span>`).join('')}</div>` : ''}
@@ -910,6 +919,7 @@ function renderMain() {
   renderSwBar();
   setStickyH();
   observeImages();
+  pinSchedule();
 }
 function bindMain() {
   const m = $('main');
@@ -1002,9 +1012,54 @@ async function diagnose() {
     `<tr><td style="width:24px">${r[0]}</td><td>${esc(r[1])}</td><td style="color:var(--sub)">${esc(r[2])}</td></tr>`).join('')}</tbody></table></div>`;
 }
 
-{ const st = $('sticky'); const onScroll = () => st.classList.toggle('stuck', st.getBoundingClientRect().top <= 0 && window.scrollY > 0);
-  window.addEventListener('scroll', onScroll, { passive: true });
-  new ResizeObserver(setStickyH).observe(st); }
+// ===== ⑪ 吸顶兜底（页面硬规矩：顶部筛选栏滚动时必须留在可见区）=====
+// 飞书会把插件框撑到内容高度，滚动发生在飞书外层页面，插件里 position:sticky 失效、fixed 浮层也落在框外。
+// 跨域 iframe 读不到外层滚动位置，但 IntersectionObserver 的交叉区域是按「顶层视口」裁剪的：
+// 每 20px 放一个看不见的标记，交叉的标记拼出「插件框露在屏幕上的那一段」，再把顶栏、侧栏、表头、抽屉/弹窗挪进这一段。
+const PIN = { ok: false, top: 0, bot: 0 };   // 可见段（文档坐标）
+let pinRoot = null, pinIO = null, pinRaf = 0;
+const pinSeen = new Map();
+function pinBuild() {
+  const n = Math.ceil(Math.max(document.documentElement.scrollHeight, innerHeight) / 20) + 1;
+  if (pinRoot && pinRoot.childElementCount === n) return;
+  if (pinIO) pinIO.disconnect();
+  pinSeen.clear();
+  if (!pinRoot) { pinRoot = document.createElement('div'); pinRoot.className = 'pin-sent'; document.body.appendChild(pinRoot); }
+  pinRoot.innerHTML = '';
+  pinIO = new IntersectionObserver((ents) => {
+    for (const e of ents) pinSeen.set(e.target, e.isIntersecting && e.intersectionRect.height > 0
+      ? [e.intersectionRect.top + scrollY, e.intersectionRect.bottom + scrollY] : null);
+    let t = Infinity, b = -Infinity;
+    for (const v of pinSeen.values()) if (v) { t = Math.min(t, v[0]); b = Math.max(b, v[1]); }
+    if (t !== Infinity) { PIN.ok = true; PIN.top = t; PIN.bot = b; pinSchedule(); }
+  }, { threshold: Array.from({ length: 11 }, (_, i) => i / 10) });
+  for (let i = 0; i < n; i++) { const d = document.createElement('i'); d.style.top = i * 20 + 'px'; pinRoot.appendChild(d); pinIO.observe(d); }
+}
+function pinEl(el, want, maxBottomVp) {   // 把 el 往下平移，让它的顶边落在视口坐标 want；不超过 maxBottomVp
+  if (!el) return;
+  const cur = Number(el.dataset.pinY) || 0, r = el.getBoundingClientRect(), nat = r.top - cur;
+  let y = Math.max(0, want - nat);
+  if (maxBottomVp != null) y = Math.min(y, Math.max(0, maxBottomVp - nat - r.height));
+  if (Math.abs(y - cur) > 0.5) { el.style.transform = y ? `translateY(${y}px)` : ''; el.dataset.pinY = y; }
+}
+function pinApply() {
+  pinRaf = 0;
+  const vt = PIN.ok ? Math.max(0, PIN.top - scrollY) : 0;
+  const vh = PIN.ok ? Math.max(120, PIN.bot - Math.max(PIN.top, scrollY)) : innerHeight;
+  const rs = document.documentElement.style;
+  rs.setProperty('--vt', vt + 'px'); rs.setProperty('--vh', vh + 'px');
+  const st = $('sticky'), sh = st.offsetHeight;
+  pinEl(st, vt);
+  st.classList.toggle('stuck', vt > 0 || (st.getBoundingClientRect().top <= 0 && scrollY > 0));
+  const side = $('side'), lib = document.querySelector('.lib');
+  if (side && lib && getComputedStyle(side).position === 'sticky') pinEl(side, vt + sh + 8, lib.getBoundingClientRect().bottom);
+  const tb = document.querySelector('.swt');
+  if (tb) { const lim = tb.getBoundingClientRect().bottom; tb.querySelectorAll('thead th').forEach((th) => pinEl(th, vt + sh, lim)); }
+}
+function pinSchedule() { if (!pinRaf) pinRaf = requestAnimationFrame(pinApply); }
+{ window.addEventListener('scroll', pinSchedule, { passive: true });
+  window.addEventListener('resize', () => { pinBuild(); pinSchedule(); });
+  new ResizeObserver(() => { setStickyH(); pinBuild(); pinSchedule(); }).observe(document.body); }
 document.querySelectorAll('#mode button').forEach((b) => b.onclick = () => { state.mode = b.dataset.m; render(); });
 $('mask').onclick = () => closeDrawer();
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { if ($('modal').classList.contains('show')) $('modal').classList.remove('show'); else if (openRid) closeDrawer(); } });
