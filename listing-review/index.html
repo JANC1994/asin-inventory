@@ -41,6 +41,7 @@
 
   /* 顶栏 */
   .sticky { position: sticky; top: 0; z-index: 20; background: var(--bg); margin: 0 -16px; padding: 0 16px 2px; }
+  .sticky, .list, .cside { will-change: transform; }
   .sticky.stuck { box-shadow: 0 6px 12px -8px rgba(80,50,20,.35); }
   .hero { background: linear-gradient(120deg, #f07a12 0%, #f59a3c 60%, #f8b35f 100%); color: #fff; border-radius: 12px 12px 0 0;
           padding: 12px 18px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
@@ -103,7 +104,7 @@
 
   /* 逐条审核 */
   .split { display: grid; grid-template-columns: 300px 1fr; gap: 12px; align-items: start; }
-  .list { background: #fff; border: 1px solid var(--line); border-radius: 10px; max-height: calc(100vh - 150px); overflow: auto; position: sticky; top: 116px; }
+  .list { background: #fff; border: 1px solid var(--line); border-radius: 10px; max-height: calc(100vh - var(--hdr, 116px) - 20px); overflow: auto; position: sticky; top: calc(var(--hdr, 110px) + 6px); }
   .li { display: flex; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--line); cursor: pointer; align-items: center; }
   .li:hover { background: #fffaf4; }
   .li.on { background: var(--or-soft); box-shadow: inset 3px 0 0 var(--or); }
@@ -187,7 +188,7 @@
   .mod .atts { margin: 4px 0 6px; }
   textarea.note { min-height: 34px; margin-top: 6px; font-size: 12.5px; background: #fffef9; border-style: dashed; }
   .mod.noted textarea.note { border: 1px solid var(--or); background: var(--or-soft); }
-  .cside { padding: 10px 14px; min-width: 0; position: sticky; top: 118px; align-self: start; max-height: calc(100vh - 128px); overflow: auto; }
+  .cside { padding: 10px 14px; min-width: 0; position: sticky; top: calc(var(--hdr, 110px) + 8px); align-self: start; max-height: calc(100vh - var(--hdr, 110px) - 20px); overflow: auto; }
   .cside .sec { margin-bottom: 14px; }
   .cside h4 { margin: 0 0 6px; font-size: 13px; }
   .cside .ai { max-height: 46vh; }
@@ -519,6 +520,7 @@ function render() {
   $('meta').textContent = `${list.length} / ${ITEMS.length} 条 · ${SRC}`;
   if (!list.length) { $('main').innerHTML = '<div class="empty">当前筛选下没有记录</div>'; return; }
   if (state.mode === 'ov') renderOverview(list); else renderOne(list);
+  floatAll();
   loadImages();
 }
 
@@ -814,7 +816,36 @@ async function diagnose() {
     `<tr><td style="width:24px">${r[0]}</td><td>${esc(r[1])}</td><td style="color:var(--sub)">${esc(r[2])}</td></tr>`).join('')}</tbody></table></div>`;
 }
 
-{ const st = $('sticky'); const onScroll = () => st.classList.toggle('stuck', st.getBoundingClientRect().top <= 0 && window.scrollY > 0);
+// ===== 吸顶 =====
+// 两种情况：①插件框内部滚动 → CSS position:sticky 生效；②飞书把插件框撑到内容那么高、滚的是外层页面 →
+// sticky 失效。②用 IntersectionObserver 算出插件框当前露在屏幕上的那段（跨域 iframe 也能拿到 intersectionRect），
+// 把顶栏 / 左侧清单 / 右栏平移到可见区顶部，并把清单高度限制在可见高度内。
+let VT = 0, VH = 0;
+function floatAll() {
+  const hdr = $('sticky').offsetHeight;
+  document.documentElement.style.setProperty('--hdr', hdr + 'px');
+  const vh = VH || innerHeight;
+  const items = [[$('sticky'), 0], [document.getElementById('list'), hdr + 6], ...[...document.querySelectorAll('.cside')].map((e) => [e, hdr + 8])];
+  for (const [el, off] of items) {
+    if (!el) continue;
+    if (el !== $('sticky')) el.style.maxHeight = VH > 0 ? Math.max(240, vh - hdr - 20) + 'px' : '';
+    const sh = el._sh || 0, r = el.getBoundingClientRect(), top0 = r.top - sh, pr = el.parentElement.getBoundingClientRect();
+    let s = VT > 0 ? Math.max(0, VT + off - top0) : 0;
+    s = Math.min(s, Math.max(0, pr.bottom - (top0 + r.height)));
+    el._sh = s; el.style.transform = s ? `translateY(${s}px)` : '';
+  }
+  $('sticky').classList.toggle('stuck', VT > 0 || ($('sticky').getBoundingClientRect().top <= 0 && window.scrollY > 0));
+}
+try {
+  new IntersectionObserver((es) => {
+    const e = es[es.length - 1], ir = e.intersectionRect, br = e.boundingClientRect;
+    VT = ir.height && ir.top > Math.max(0, br.top) + 1 ? ir.top : 0;          // 外层页面把插件顶部滚出屏幕了多少
+    VH = ir.height && ir.height < innerHeight - 1 ? ir.height : 0;          // 插件框比屏幕高时，可见高度
+    floatAll();
+  }, { threshold: Array.from({ length: 1001 }, (_, i) => i / 1000) }).observe(document.body);
+} catch (e) { console.warn('IntersectionObserver 不可用', e); }
+window.addEventListener('resize', floatAll);
+{ const st = $('sticky'); const onScroll = () => st.classList.toggle('stuck', VT > 0 || (st.getBoundingClientRect().top <= 0 && window.scrollY > 0));
   window.addEventListener('scroll', onScroll, { passive: true }); }
 document.querySelectorAll('#mode button').forEach((b) => b.onclick = () => { state.mode = b.dataset.m; store.set('lrp.mode', state.mode); render(); });
 
