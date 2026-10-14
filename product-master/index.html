@@ -1,0 +1,1044 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>产品主表</title>
+<!--
+  飞书应用「灯具组-全流程」自定义插件页：产品主表（2026-10-13，方案见 wiki/页面设计/页面清单.md）
+  只读写一张表：产品主表-灯类+精铺 tblqksywqgYvywOT（1 行 = 领星SKU × 国家）
+  三个视图：
+    ① 产品库：按 SPU 分组，同 SKU 的美/加两行合成一张卡；点卡片开详情抽屉，分 5 区查看 / 编辑
+    ② 数据体检：缺成本、缺箱规、脏字符、重复行、勾选冲突等，点一条直接打开详情去改
+    ③ 下游开关：7 个「进XX」（进四季品追踪 10-13 起不显示，多维表已停用）勾选的矩阵，攒一批改动确认后统一保存
+  用户 10-13 定：成本所有人都能改；身份键（领星SKU/ASIN/MSKU/FNSKU）锁定，要解锁才能改；按 SPU 分组；新品登记放二期。
+  保存：先弹「旧值 → 新值」清单确认；写前重读这一行，别人刚改过就停下提示，不覆盖。
+  只读：图片（在表里上传）、国家文本、Listing审核键（公式）。
+  四条硬规矩见 wiki/页面设计/概念/飞书应用自定义插件页.md。
+-->
+<style>
+  :root {
+    --bg: #faf6f1; --card: #ffffff; --ink: #2b2118; --sub: #7a6d61; --line: #f0e4d7; --line2: #e8d9c8;
+    --or: #f07a12; --or-d: #c95f05; --or-soft: #fff1e2; --or-soft2: #ffe3c4;
+    --red: #d9363e; --red-soft: #fdeced; --yel: #b7791f; --yel-soft: #fff7e0; --green: #2a9d4b; --green-soft: #e6f6eb;
+    --grey: #9a9089; --grey-soft: #f3efea; --blue: #2f6fd0; --blue-soft: #eaf1fc;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 13px/1.5 -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; }
+  .wrap { padding: 14px 16px 80px; max-width: 1600px; margin: 0 auto; }
+  .meta { color: var(--sub); font-size: 12px; }
+  .err { color: var(--red); white-space: pre-wrap; }
+  .loading, .empty { padding: 48px 16px; text-align: center; color: var(--sub); background: #fff; border-radius: 12px; border: 1px dashed var(--line2); }
+  .card0 { background: var(--card); border-radius: 10px; padding: 14px 16px; border: 1px solid var(--line); margin-bottom: 12px; }
+  .tbl { border-collapse: collapse; width: 100%; }
+  .tbl td { padding: 6px 8px; border-bottom: 1px solid var(--line); }
+  .mono { font-family: Consolas, monospace; font-size: 12px; }
+
+  /* 顶栏 */
+  .sticky { position: sticky; top: 0; z-index: 20; background: var(--bg); margin: 0 -16px; padding: 0 16px 2px; }
+  .sticky.stuck { box-shadow: 0 6px 12px -8px rgba(80,50,20,.35); }
+  .hero { background: linear-gradient(120deg, #f07a12 0%, #f59a3c 60%, #f8b35f 100%); color: #fff; border-radius: 12px 12px 0 0;
+          padding: 12px 18px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .hero h2 { margin: 0; font-size: 18px; letter-spacing: .5px; }
+  .hero .meta { color: rgba(255,255,255,.92); margin-left: auto; }
+  .seg { display: inline-flex; background: rgba(255,255,255,.22); border-radius: 9px; padding: 3px; gap: 2px; }
+  .seg button { height: 28px; padding: 0 14px; border: 0; border-radius: 7px; background: transparent; color: #fff; font-size: 13.5px; cursor: pointer; }
+  .seg button.on { background: #fff; color: var(--or-d); font-weight: 700; box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+  .seg button i { font-style: normal; font-size: 11px; margin-left: 4px; background: var(--red); color: #fff; border-radius: 8px; padding: 0 5px; }
+  .hero-f { background: linear-gradient(120deg, #f38a2a 0%, #f7a650 100%); border-radius: 0 0 12px 12px; padding: 8px 18px 10px; margin-bottom: 12px;
+            border-top: 1px solid rgba(255,255,255,.3); display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .hero-f select, .hero-f input { height: 28px; border: 0; border-radius: 14px; padding: 0 10px; font-size: 12.5px; color: var(--ink); background: #fff; max-width: 100%; }
+  .hero-f select.on { box-shadow: 0 0 0 2px #fff, 0 0 0 4px rgba(201,95,5,.45); color: var(--or-d); font-weight: 700; }
+  .hero-f input { width: 240px; }
+  .chip { height: 26px; padding: 0 11px; border-radius: 13px; border: 1px solid rgba(255,255,255,.55); background: rgba(255,255,255,.12); color: #fff; font-size: 12px; cursor: pointer; }
+  .chip.on { background: #fff; border-color: #fff; color: var(--or-d); font-weight: 700; }
+  .hero-f .clr { margin-left: auto; }
+
+  /* 通用小件 */
+  .tag { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 9px; background: var(--grey-soft); color: var(--sub); white-space: nowrap; }
+  .tag.or { background: var(--or-soft); color: var(--or-d); }
+  .tag.ok { background: var(--green-soft); color: var(--green); }
+  .tag.bad { background: var(--red-soft); color: var(--red); }
+  .tag.warn { background: var(--yel-soft); color: var(--yel); }
+  .tag.us { background: var(--blue-soft); color: var(--blue); }
+  .tag.ca { background: var(--red-soft); color: var(--red); }
+  .btn { height: 28px; padding: 0 12px; border-radius: 7px; border: 1px solid var(--line2); background: #fff; color: var(--ink); font-size: 12.5px; cursor: pointer; white-space: nowrap; }
+  .btn:hover { border-color: var(--or); color: var(--or-d); }
+  .btn.pri { background: var(--or); border-color: var(--or); color: #fff; }
+  .btn.pri:hover { background: var(--or-d); color: #fff; }
+  .btn.sm { height: 24px; padding: 0 9px; font-size: 12px; }
+  .btn:disabled { opacity: .5; cursor: default; }
+  .img { width: 64px; height: 64px; border-radius: 8px; background: var(--grey-soft); display: flex; align-items: center; justify-content: center;
+         color: var(--grey); font-size: 11px; overflow: hidden; border: 1px solid var(--line); flex: none; }
+  .img img { width: 100%; height: 100%; object-fit: cover; }
+  .img.s { width: 36px; height: 36px; border-radius: 6px; font-size: 10px; }
+  .img.l { width: 96px; height: 96px; }
+
+  /* ① 产品库 */
+  .kpis { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-bottom: 14px; }
+  .kpi { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 9px 14px; }
+  .kpi .k { color: var(--sub); font-size: 12px; }
+  .kpi .v { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .kpi .v small { font-size: 12px; color: var(--sub); font-weight: normal; }
+  .kpi .v.bad { color: var(--red); }
+  .lib { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 14px; align-items: start; }
+  .side { position: sticky; top: calc(var(--stickyH, 0px) + 8px); max-height: calc(100vh - var(--stickyH, 0px) - 20px); overflow-y: auto;
+          background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 6px; }
+  .kseg { display: flex; background: var(--grey-soft); border-radius: 9px; padding: 3px; gap: 2px; margin-bottom: 6px; position: sticky; top: -6px; z-index: 1; box-shadow: 0 -6px 0 #fff; }
+  .kseg button { flex: 1; height: 30px; border: 0; border-radius: 7px; background: transparent; color: var(--sub); font: inherit; font-size: 13px; cursor: pointer; white-space: nowrap; }
+  .kseg button small { font-size: 11px; margin-left: 3px; opacity: .8; }
+  .kseg button.on { background: #fff; color: var(--or-d); font-weight: 700; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+  .side-h { font-size: 12px; color: var(--sub); padding: 4px 8px 6px; display: flex; justify-content: space-between; }
+  .si { display: flex; align-items: center; gap: 8px; width: 100%; border: 0; background: none; border-radius: 8px; padding: 6px 8px; cursor: pointer; text-align: left; color: var(--ink); font: inherit; }
+  .si:hover { background: var(--or-soft); }
+  .si.on { background: var(--or); color: #fff; }
+  .si .sn { flex: 1; min-width: 0; font-size: 13px; font-weight: 600; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .si .sn small { display: block; font-size: 11px; font-weight: 400; color: var(--sub); }
+  .si.on .sn small { color: rgba(255,255,255,.85); }
+  .si i { font-style: normal; font-size: 11px; background: var(--red); color: #fff; border-radius: 8px; padding: 0 6px; flex: none; }
+  .si.on i { background: #fff; color: var(--red); }
+  .spu { min-width: 0; }
+  .spu-h { display: flex; align-items: baseline; gap: 10px; padding: 4px 2px 8px; flex-wrap: wrap; }
+  .spu-h b { font-size: 15px; padding-left: 8px; border-left: 4px solid var(--or); }
+  .grid { display: flex; flex-direction: column; gap: 12px; }
+  /* ASIN 大横卡 */
+  .pc { background: #fff; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; transition: border-color .12s, box-shadow .12s; min-width: 0; }
+  .pc:hover { border-color: var(--or-soft2); box-shadow: 0 2px 10px rgba(240,122,18,.12); }
+  .pc.sel { border-color: var(--or); box-shadow: 0 0 0 3px rgba(240,122,18,.15); }
+  .pc-top { display: grid; grid-template-columns: 96px minmax(220px, 1.1fr) minmax(0, 1.6fr) auto; gap: 16px; align-items: center; padding: 12px 14px; cursor: pointer; }
+  .pc-id { min-width: 0; }
+  .pc-id .nm { font-size: 15px; font-weight: 700; line-height: 1.35; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .pc-id .ids { display: flex; gap: 5px; flex-wrap: wrap; align-items: center; margin-top: 5px; }
+  .pc-id .asin { font-family: Consolas, monospace; font-size: 13px; font-weight: 700; color: var(--or-d); margin-right: 2px; }
+  .pc-sub { margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pc-kv { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px 10px; background: #fcf6ef; border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; }
+  .kv { min-width: 0; }
+  .kv.w2 { grid-column: span 2; }
+  .kv .k { font-size: 11px; color: var(--sub); }
+  .kv .v { font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .kv.w2 .v { font-size: 12.5px; font-weight: 600; }
+  .kv .v.nil { color: #c9bfb5; font-weight: 400; }
+  .kv.miss .v.nil { color: var(--red); font-weight: 600; }
+  .kv.miss .v.nil::after { content: ' 缺'; font-size: 11px; }
+  .pc-act { display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }
+  .lns { border-top: 1px solid var(--line); }
+  .ln { display: grid; grid-template-columns: 44px minmax(150px, 1.3fr) minmax(110px, 1fr) minmax(150px, 1.2fr) 64px 70px 86px 110px minmax(120px, 1.2fr); gap: 10px;
+        align-items: center; padding: 7px 14px; border-top: 1px solid var(--line); font-size: 12.5px; cursor: pointer; }
+  .ln:first-child { border-top: 0; }
+  .ln:hover { background: var(--or-soft); }
+  .ln.sel { background: var(--or-soft); box-shadow: inset 3px 0 0 var(--or); }
+  .ln.hd { background: #fcf6ef; color: var(--sub); font-size: 11.5px; padding-top: 5px; padding-bottom: 5px; cursor: default; }
+  .ln.hd:hover { background: #fcf6ef; }
+  .ln > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ln .c4 { line-height: 1.3; font-size: 11.5px; }
+  .ln .c4 small { color: var(--sub); }
+  .ln .c5, .ln .c5b, .ln .c6 { text-align: right; font-variant-numeric: tabular-nums; }
+  .ln em.nil { color: #c9bfb5; }
+  .ln em { font-style: normal; color: var(--red); font-size: 11.5px; }
+  .ln .c6 b { color: var(--or-d); }
+  .ln .c7 { display: flex; gap: 3px; align-items: center; }
+  .ln .c7 i { width: 9px; height: 9px; border-radius: 50%; background: #e7ded5; display: inline-block; }
+  .ln .c7 i.on { background: var(--green); }
+  .ln .c7 i.on.a { background: var(--or); }
+  .ln .c7 small { color: var(--sub); margin-left: 4px; font-size: 11px; }
+  .ln .c8 { display: flex; gap: 4px; flex-wrap: wrap; white-space: normal; }
+
+  /* 抽屉 */
+  .mask { position: fixed; inset: 0; background: rgba(43,33,24,.28); z-index: 40; display: none; }
+  .mask.show { display: block; }
+  .drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(640px, 100vw); background: var(--bg); z-index: 41; box-shadow: -8px 0 24px rgba(43,33,24,.18);
+            transform: translateX(105%); transition: transform .18s ease-out; display: flex; flex-direction: column; }
+  .drawer.show { transform: none; }
+  .dh { background: #fff; border-bottom: 1px solid var(--line); padding: 12px 16px; display: flex; gap: 12px; align-items: flex-start; }
+  .dh .nm { font-size: 15px; font-weight: 700; line-height: 1.35; }
+  .dh .x { margin-left: auto; border: 0; background: none; font-size: 20px; color: var(--sub); cursor: pointer; line-height: 1; padding: 2px 4px; }
+  .dtabs { display: flex; gap: 6px; padding: 8px 16px; background: #fff; border-bottom: 1px solid var(--line); align-items: center; flex-wrap: wrap; }
+  .dtabs button { height: 26px; padding: 0 12px; border-radius: 13px; border: 1px solid var(--line2); background: #fff; font-size: 12.5px; cursor: pointer; color: var(--ink); }
+  .dtabs button.on { background: var(--or); border-color: var(--or); color: #fff; font-weight: 700; }
+  .dtabs .sp { margin-left: auto; display: flex; gap: 6px; }
+  .db { flex: 1; overflow-y: auto; padding: 12px 16px 16px; }
+  .sec { background: #fff; border: 1px solid var(--line); border-radius: 10px; margin-bottom: 10px; }
+  .sec-h { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+  .sec-h b { font-size: 13px; color: var(--or-d); }
+  .sec-h b::before { content: ''; display: inline-block; width: 4px; height: 12px; border-radius: 2px; background: var(--or); margin-right: 6px; vertical-align: -1px; }
+  .sec-h .meta { margin-left: auto; }
+  .sec.lock .sec-h b { color: var(--sub); }
+  .sec.lock .sec-h b::before { background: var(--grey); }
+  .fg { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 14px; padding: 10px 12px 12px; }
+  .fg .f { min-width: 0; }
+  .fg .f.w { grid-column: 1 / -1; }
+  .fg .k { font-size: 11.5px; color: var(--sub); display: flex; gap: 4px; align-items: baseline; }
+  .fg .k .u { font-size: 10.5px; padding: 0 5px; border-radius: 6px; background: var(--grey-soft); }
+  .fg .k .u.cny { background: #fdf0e6; color: #b8560a; }
+  .fg .k .u.usd { background: var(--blue-soft); color: var(--blue); }
+  .fg .v { font-size: 13px; word-break: break-word; white-space: pre-wrap; min-height: 20px; }
+  .fg .v.nil { color: #c9bfb5; }
+  .fg .v.mono { font-size: 12.5px; }
+  .fg .v.miss { color: var(--red); }
+  .calc { margin: 0 12px 12px; padding: 8px 10px; border-radius: 8px; background: var(--or-soft); font-size: 12.5px; display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: baseline; }
+  .calc b { font-size: 16px; color: var(--or-d); font-variant-numeric: tabular-nums; }
+  .calc .meta { font-size: 11.5px; }
+  .hint { margin: 0 12px 10px; font-size: 11.5px; color: var(--yel); background: var(--yel-soft); border-radius: 6px; padding: 5px 8px; }
+  .hint.red { color: var(--red); background: var(--red-soft); }
+  .syncop { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--sub); margin: -4px 12px 10px; }
+  .df { padding: 10px 16px; background: #fff; border-top: 1px solid var(--line); display: flex; gap: 8px; align-items: center; }
+  .df .meta { flex: 1; }
+  .issues { display: flex; gap: 5px; flex-wrap: wrap; padding: 0 0 10px; }
+
+  /* 编辑控件 */
+  .in { width: 100%; font: inherit; font-size: 13px; border: 1px solid var(--line2); border-radius: 6px; padding: 3px 7px; background: #fff; color: var(--ink); height: 28px; }
+  textarea.in { height: auto; min-height: 54px; resize: vertical; line-height: 1.5; }
+  .in:focus { outline: none; border-color: var(--or); box-shadow: 0 0 0 2px rgba(240,122,18,.15); }
+  .in.dirty { border-color: #f2b705; background: #fffbea; }
+  .in.mono { font-family: Consolas, monospace; font-size: 12.5px; }
+  .multi { display: flex; gap: 4px; flex-wrap: wrap; padding: 2px 0; border-radius: 6px; }
+  .multi.dirty { background: #fffbea; box-shadow: 0 0 0 1px #f2b705; }
+  .multi label { display: inline-flex; align-items: center; gap: 3px; font-size: 12px; padding: 1px 8px; border-radius: 10px; border: 1px solid var(--line2); cursor: pointer; background: #fff; }
+  .multi label.on { background: var(--or-soft); border-color: var(--or); color: var(--or-d); }
+  .multi input { display: none; }
+
+  /* ② 体检 */
+  .chk { background: #fff; border: 1px solid var(--line); border-radius: 10px; margin-bottom: 10px; overflow: hidden; }
+  .chk-h { display: flex; gap: 10px; align-items: center; padding: 10px 14px; cursor: pointer; user-select: none; }
+  .chk-h:hover { background: #fcf6ef; }
+  .chk-h .n { min-width: 36px; height: 24px; border-radius: 12px; text-align: center; font-weight: 700; line-height: 24px; font-variant-numeric: tabular-nums; background: var(--red-soft); color: var(--red); }
+  .chk-h .n.z { background: var(--green-soft); color: var(--green); }
+  .chk-h .n.w { background: var(--yel-soft); color: var(--yel); }
+  .chk-h b { font-size: 13.5px; }
+  .chk-h .meta { flex: 1; }
+  .chk-h .ar { color: var(--or); }
+  .chk.fold .chk-b { display: none; }
+  .chk.fold .chk-h .ar { transform: rotate(-90deg); display: inline-block; }
+  .itbl { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  .itbl td, .itbl th { padding: 6px 10px; border-top: 1px solid var(--line); text-align: left; vertical-align: middle; }
+  .itbl th { background: #fcf6ef; color: var(--sub); font-weight: 600; font-size: 12px; }
+  .itbl tr.rw { cursor: pointer; }
+  .itbl tr.rw:hover td { background: var(--or-soft); }
+  .itbl .why { color: var(--red); }
+  .vis { font-family: Consolas, monospace; font-size: 12px; background: var(--red-soft); border-radius: 4px; padding: 0 4px; }
+
+  /* ③ 下游开关 */
+  .sw-note { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 8px; margin-bottom: 12px; }
+  .sw-note div { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; font-size: 12px; color: var(--sub); }
+  .sw-note b { color: var(--ink); }
+  .swt { width: 100%; border-collapse: separate; border-spacing: 0; background: #fff; border: 1px solid var(--line); border-radius: 10px; font-size: 12.5px; }
+  .swt th { background: var(--or-soft); color: var(--or-d); font-weight: 600; padding: 8px 6px; text-align: center; position: sticky; top: var(--stickyH, 0px); z-index: 5;
+            border-bottom: 1px solid var(--or-soft2); font-size: 12px; line-height: 1.3; }
+  .swt th.l { text-align: left; padding-left: 10px; }
+  .swt th small { display: block; font-weight: 400; color: var(--sub); font-size: 10.5px; }
+  .swt th.auto small { color: var(--or-d); }
+  .swt td { padding: 5px 6px; border-top: 1px solid var(--line); text-align: center; vertical-align: middle; }
+  .swt td.l { text-align: left; padding-left: 10px; }
+  .swt tr.g td { background: #fcf6ef; font-weight: 700; text-align: left; padding: 7px 10px; }
+  .swt tr.conf td.l { box-shadow: inset 3px 0 0 var(--red); }
+  .swt .pn { display: flex; gap: 8px; align-items: center; min-width: 0; }
+  .swt .pn .t { min-width: 0; }
+  .swt .pn .t div:first-child { font-weight: 600; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .swt .pn .t div:last-child { font-size: 11px; color: var(--sub); }
+  .tg { width: 34px; height: 20px; border-radius: 10px; background: #e3dad1; position: relative; cursor: pointer; display: inline-block; border: 0; padding: 0; transition: background .12s; }
+  .tg::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: left .12s; box-shadow: 0 1px 2px rgba(0,0,0,.2); }
+  .tg.on { background: var(--green); }
+  .tg.on::after { left: 16px; }
+  .tg.pend { box-shadow: 0 0 0 2px #fff, 0 0 0 4px #f2b705; }
+  .swbar { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); background: #2b2118; color: #fff; border-radius: 12px; padding: 8px 10px 8px 16px;
+           display: none; gap: 10px; align-items: center; z-index: 30; box-shadow: 0 6px 20px rgba(0,0,0,.25); }
+  .swbar.show { display: flex; }
+
+  /* 弹窗 */
+  .modal { position: fixed; inset: 0; z-index: 60; display: none; align-items: center; justify-content: center; background: rgba(43,33,24,.35); padding: 16px; }
+  .modal.show { display: flex; }
+  .mbox { background: #fff; border-radius: 12px; width: min(620px, 100%); max-height: 86vh; display: flex; flex-direction: column; box-shadow: 0 12px 40px rgba(0,0,0,.25); }
+  .mbox .mh { padding: 12px 16px; border-bottom: 1px solid var(--line); font-weight: 700; font-size: 14.5px; }
+  .mbox .mb { padding: 10px 16px; overflow-y: auto; }
+  .mbox .mf { padding: 10px 16px; border-top: 1px solid var(--line); display: flex; gap: 8px; justify-content: flex-end; align-items: center; }
+  .mbox .mf .meta { flex: 1; }
+  .dif { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  .dif td, .dif th { padding: 6px 8px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+  .dif th { color: var(--sub); font-weight: 600; font-size: 12px; }
+  .dif .o { color: var(--sub); text-decoration: line-through; word-break: break-word; }
+  .dif .n { color: var(--ink); font-weight: 600; word-break: break-word; }
+  .dif tr.h td { background: #fcf6ef; font-weight: 700; }
+  .warnbox { background: var(--yel-soft); color: var(--yel); border-radius: 8px; padding: 7px 10px; font-size: 12px; margin: 8px 0; }
+  .warnbox.red { background: var(--red-soft); color: var(--red); }
+
+  .savebar { display: none; align-items: center; gap: 10px; background: #fff; border: 1px solid var(--or-soft2); border-radius: 10px; padding: 8px 12px; margin-bottom: 12px; }
+  .savebar.show { display: flex; }
+  .toast { position: fixed; left: 50%; bottom: 70px; transform: translateX(-50%); background: #2b2118; color: #fff; padding: 8px 16px; border-radius: 8px; font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 70; }
+  .toast.show { opacity: 1; }
+
+  @media (max-width: 900px) {
+    .kpis { grid-template-columns: repeat(2, 1fr); }
+    .fg { grid-template-columns: 1fr; }
+    .hero-f input { width: 100%; }
+    .swt { display: block; overflow-x: auto; }
+    .lib { grid-template-columns: 1fr; }
+    .pc-top { grid-template-columns: 72px 1fr; }
+    .pc-top .img.l { width: 72px; height: 72px; }
+    .pc-kv, .pc-act { grid-column: 1 / -1; }
+    .pc-kv { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .pc-act { flex-direction: row; justify-content: flex-start; }
+    .ln { grid-template-columns: 40px 1fr 80px; }
+    .ln.hd, .ln .c3, .ln .c4, .ln .c5, .ln .c5b, .ln .c7 { display: none; }
+    .ln .c8 { grid-column: 1 / -1; }
+    .side { position: static; max-height: none; display: flex; overflow-x: auto; gap: 4px; }
+    .side-h { display: none; }
+    .kseg { flex: none; position: static; margin: 0 6px 0 0; box-shadow: none; }
+    .si { width: auto; flex: none; max-width: 220px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="savebar" id="savebar"><button class="btn pri" id="saveBtn">保存到页面</button><span class="meta" id="saveMsg"></span></div>
+  <div class="sticky" id="sticky">
+    <div class="hero">
+      <h2>产品主表</h2>
+      <div class="seg" id="mode"><button data-m="lib">产品库</button><button data-m="chk">数据体检</button><button data-m="sw">下游开关</button></div>
+      <span class="meta" id="meta">数据加载中…</span>
+    </div>
+    <div class="hero-f" id="filters"></div>
+  </div>
+  <div id="main"><div class="loading">正在读取多维表数据…</div></div>
+</div>
+<div class="mask" id="mask"></div>
+<aside class="drawer" id="drawer"></aside>
+<div class="modal" id="modal"><div class="mbox" id="mbox"></div></div>
+<div class="swbar" id="swbar"></div>
+<div class="toast" id="toast"></div>
+
+<script type="module">
+// ===== ① 页面配置 =====
+// SDK 依次尝试：同目录自带副本 → jsdelivr → unpkg（10-13 实测飞书客户端拉 jsdelivr 偶发失败）
+const SDK_URLS = [new URL('./sdk/index.mjs', location.href).href,
+  'https://cdn.jsdelivr.net/npm/@lark-base-open/js-sdk@1.0.2/dist/index.mjs',
+  'https://unpkg.com/@lark-base-open/js-sdk@1.0.2/dist/index.mjs'];
+async function loadSdk() {
+  const errs = [];
+  for (const u of SDK_URLS) {
+    try {
+      $('meta').textContent = '正在加载飞书 SDK… ' + new URL(u).host;
+      return await Promise.race([import(u), new Promise((_, rej) => setTimeout(() => rej(new Error('超时 12s')), 12000))]);
+    } catch (e) { errs.push(`${u}\n   → ${e && e.message ? e.message : e}`); }
+  }
+  const err = new Error('飞书 SDK 三个来源都没加载上：\n' + errs.join('\n'));
+  err.sdk = true;
+  throw err;
+}
+const BASE_TOKEN = 'JGvebyaAYapWtOslxc9cuKYXnwd';   // 灯具组-全流程
+const OWNER = '负责人 (人员 )';
+// 详情 5 区。lock=身份键（要解锁才能改）；sync=同 SKU 的其他国家行一般相同，保存时可一起写
+const SECTIONS = [
+  { k: 'id', t: '身份键', lock: true, fields: ['领星SKU', 'ASIN', 'MSKU', 'FNSKU'] },
+  { k: 'own', t: '归属', fields: ['品名', 'SPU', '品牌', '店铺', '国家', '产品线', '销售季分类', OWNER] },
+  { k: 'cost', t: '成本参数', fields: ['采购成本不含税', '头程费用', 'FBA配送费', 'FBA配送费（旺季）', '佣金比例', '汇率'] },
+  { k: 'phy', t: '物理与箱规', sync: true, fields: ['长CM', '宽CM', '高CM', '重量kg', '产品尺寸', '外箱长CM', '外箱宽CM', '外箱高CM', '单箱毛重kg', '单箱数量', '单箱体积'] },
+  { k: 'cmp', t: '合规与内容', sync: true, fields: ['带电情况', '纽扣电池审核', '危险品审核', '检测报告型号', '是否有样品', '颜色', '材质', '产品内容', '盒子内容', '备注'] },
+];
+const WIDE = ['品名', '产品内容', '盒子内容', '备注', '带电情况', '店铺'];
+const AREA = ['产品内容', '盒子内容', '备注'];
+const LABEL = { [OWNER]: '负责人', '采购成本不含税': '采购成本（不含税）' };
+// 单位：CNY / 本国币（美国 $，加拿大 C$）
+const UNIT = { '采购成本不含税': 'cny', '头程费用': 'cny', 'FBA配送费': 'loc', 'FBA配送费（旺季）': 'loc', '佣金比例': '%', '汇率': 'rate',
+               '单箱体积': 'm³', '重量kg': 'kg', '单箱毛重kg': 'kg' };
+const SWITCHES = [
+  ['进季节品追踪', '季节品追踪', '自动建行', true],
+  ['进备货表', '备货表', '自动建行', true], ['进定价利润表', '定价利润表', '自动建行', true], ['进Listing审核', 'Listing审核', '自动建行', true],
+  ['进每日数据表', '每日数据表', '脚本读取', false], ['进产品表现', '产品表现', '脚本读取', false], ['进四季品经营表', '四季品经营表', '脚本读取', false],
+];
+const READONLY = ['国家文本', 'Listing审核键', '图片'];
+const ALL_FIELDS = [...SECTIONS.flatMap((s) => s.fields), ...SWITCHES.map((s) => s[0]), ...READONLY];
+const TABLES = { pm: { id: 'tblqksywqgYvywOT', name: '产品主表-灯类+精铺' } };
+
+// ===== ② 通用工具 =====
+const $ = (id) => document.getElementById(id);
+const num = (v) => (v == null || v === '' || isNaN(v)) ? null : Number(v);
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const store = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
+const toast = (m) => { const t = $('toast'); t.textContent = m; t.classList.add('show'); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('show'), 2400); };
+const DIRTY_RE = /^\s|\s$|[​-‍﻿ \r\n\t]/;
+const clean = (s) => String(s ?? '').replace(/[​-‍﻿]/g, '').replace(/[ \r\n\t]/g, ' ').trim();
+const visible = (s) => esc(String(s ?? '')).replace(/\n/g, '⏎').replace(/\r/g, '␍').replace(/\t/g, '⇥').replace(/[​-‍﻿]/g, '◌').replace(/ /g, '⍽').replace(/^ | $/g, '␣');
+const fmt = (v, d = 2) => num(v) == null ? null : (Math.round(Number(v) * 10 ** d) / 10 ** d).toString();
+const isCA = (r) => (r['国家'] || []).includes('加拿大') || r['国家文本'] === '加拿大';
+const cur = (r) => isCA(r) ? 'C$' : '$';
+const ctryShort = (r) => { const c = (r['国家'] || []).join('/') || r['国家文本'] || ''; return c === '美国' ? 'US' : c === '加拿大' ? 'CA' : (c || '无国家'); };
+const ctryTag = (r) => { const s = ctryShort(r); return `<span class="tag ${s === 'US' ? 'us' : s === 'CA' ? 'ca' : 'bad'}">${esc(s)}</span>`; };
+const owners = (r) => (r[OWNER] || []).map((u) => u.name).join('、');
+const key = (r) => clean(r['领星SKU']) || ('(无SKU)' + r._id);
+
+// 字段元数据：META[字段名] = { id, type: text|number|select|multi|checkbox|user|attachment|formula, options:[{id,name}] }
+let META = {};
+const FT = { 1: 'text', 2: 'number', 3: 'select', 4: 'multi', 7: 'checkbox', 11: 'user', 17: 'attachment', 19: 'formula', 20: 'formula', 13: 'text', 15: 'text' };
+
+function cell(v) {
+  if (v == null) return null;
+  if (typeof v === 'number' || typeof v === 'string' || typeof v === 'boolean') return v;
+  if (Array.isArray(v)) {
+    if (!v.length) return null;
+    if (v.every((x) => x && typeof x === 'object' && 'text' in x && !('id' in x))) return v.map((x) => x.text ?? '').join('');
+    if (v.length === 1) return cell(v[0]);
+    return v.map(cell).join('、');
+  }
+  if (typeof v === 'object') { if ('text' in v) return v.text; if ('name' in v) return v.name; if ('value' in v) return cell(v.value); }
+  return String(v);
+}
+// SDK 单元格 → 页面值（快照里已是页面值）
+function fromSdk(name, v) {
+  const t = (META[name] || {}).type;
+  if (t === 'multi') return (v || []).map((x) => x.text ?? x.name ?? String(x));
+  if (t === 'select') return v ? (v.text ?? v.name ?? cell(v)) : null;
+  if (t === 'checkbox') return !!v;
+  if (t === 'user') return (v || []).map((u) => ({ id: u.id, name: u.name || u.enName || u.id }));
+  if (t === 'attachment') return Array.isArray(v) ? v.filter((x) => x && x.token) : [];
+  if (t === 'number') return num(cell(v));
+  return cell(v);
+}
+// 页面值 → SDK 写入值
+function toSdk(name, v) {
+  const m = META[name];
+  const opt = (s) => { const o = (m.options || []).find((x) => x.name === s); if (!o) throw new Error(`「${name}」没有选项「${s}」`); return { id: o.id, text: o.name }; };
+  if (m.type === 'multi') return v && v.length ? v.map(opt) : null;
+  if (m.type === 'select') return v ? opt(v) : null;
+  if (m.type === 'checkbox') return !!v;
+  if (m.type === 'user') return v && v.length ? v.map((u) => ({ id: u.id })) : null;
+  if (m.type === 'number') return v == null ? null : Number(v);
+  return v == null || v === '' ? null : String(v);
+}
+const sameV = (a, b) => {
+  const e = (x) => x == null || x === '' || (Array.isArray(x) && !x.length);
+  if (e(a) && e(b)) return true;
+  if (typeof a === 'number' && typeof b === 'number') return Math.abs(a - b) < 1e-9;
+  if (Array.isArray(a) && Array.isArray(b)) return JSON.stringify(a.map((x) => x.id || x)) === JSON.stringify(b.map((x) => x.id || x));
+  if (typeof a === 'boolean' || typeof b === 'boolean') return !!a === !!b;
+  return a === b;
+};
+const showV = (name, v, r) => {
+  if (v == null || v === '' || (Array.isArray(v) && !v.length)) return null;
+  if ((META[name] || {}).type === 'user') return v.map((u) => u.name).join('、');
+  if (Array.isArray(v)) return v.join('、');
+  if (typeof v === 'boolean') return v ? '✔ 勾选' : '不勾';
+  if (name === '佣金比例') return fmt(v * 100, 2) + '%';
+  if (typeof v === 'number') return fmt(v, 4);
+  return String(v);
+};
+
+let SDK = null, TBL = null;
+const DIAG = { missing: [], read: 0 };
+async function readTable() {
+  TBL = await SDK.bitable.base.getTableById(TABLES.pm.id);
+  const fields = await TBL.getFieldMetaList();
+  META = {};
+  for (const f of fields) META[f.name] = { id: f.id, type: FT[f.type] || 'text', options: (f.property && f.property.options || []).map((o) => ({ id: o.id, name: o.name })) };
+  DIAG.missing = ALL_FIELDS.filter((w) => !META[w]);
+  const rows = [];
+  let pageToken;
+  for (let guard = 0; guard < 100; guard++) {
+    const res = await TBL.getRecordsByPage({ pageSize: 200, pageToken });
+    for (const r of res.records) rows.push(rowFromSdk(r.recordId, r.fields));
+    DIAG.read = rows.length;
+    $('meta').textContent = `正在读取产品主表… 已读 ${rows.length} 行`;
+    if (!res.hasMore) break;
+    pageToken = res.pageToken;
+  }
+  return rows;
+}
+function rowFromSdk(rid, fields) {
+  const o = { _id: rid };
+  for (const w of ALL_FIELDS) if (META[w]) o[w] = fromSdk(w, fields[META[w].id]);
+  return o;
+}
+
+// ===== ③ 数据整理 =====
+let ROWS = [], SNAP = false, USERS = [];
+const byId = (rid) => ROWS.find((r) => r._id === rid);
+const siblings = (r) => ROWS.filter((x) => x._id !== r._id && key(x) === key(r));
+
+function landed(r) {   // 单件到岸成本（人民币）= 采购成本不含税 + 头程费用；不加 FBA 和佣金（用户 10-13 定）
+  const p = num(r['采购成本不含税']), h = num(r['头程费用']);
+  if (p == null || h == null) return null;
+  return p + h;
+}
+// 体检规则：每条返回 [key, 名称, 说明, level, fn(r) → 原因文字 | null]
+const CHECKS = [
+  ['cost', '缺成本', '采购成本 / 头程费用 / FBA配送费 / 汇率 任一为空 → 经营表、利润表显示「缺成本」', 'bad',
+    (r) => { const m = ['采购成本不含税', '头程费用', 'FBA配送费', '汇率'].filter((f) => num(r[f]) == null); return m.length ? '缺 ' + m.join('、') : null; }],
+  ['box', '缺单箱数量', '备货表按单箱数量取整，空了算不出建议量', 'bad', (r) => num(r['单箱数量']) == null ? (r['进备货表'] ? '已进备货表' : '未进备货表') : null],
+  ['ctry', '国家为空', '追踪表按 领星SKU + 国家 关联，国家空就带不出数据', 'bad', (r) => (r['国家'] || []).length ? null : '国家未填'],
+  ['dirty', 'SKU / ASIN 有脏字符', '首尾空格、换行、零宽字符 → 下游匹配静默失败（之前 2 个四季品被跳过）', 'bad',
+    (r) => { const m = SECTIONS[0].fields.filter((f) => r[f] && DIRTY_RE.test(r[f])); return m.length ? m.map((f) => `${f}：<span class="vis">${visible(r[f])}</span>`).join('　') : null; }],
+  ['dup', '同 SKU + 同国家重复', '同一个 SKU 在同一国家出现多行，下游按 SKU+国家 取值会取到其中一行', 'warn', null],
+  ['conf', '勾选和分类冲突', '勾错了会把非四季品带进四季品备货，或把四季品带进季节品追踪', 'warn',
+    (r) => {
+      const s = r['销售季分类'] || '', w = [];
+      if (r['进季节品追踪'] && s === '四季品') w.push('进季节品追踪，但分类是四季品');
+      if (r['进备货表'] && s && s !== '四季品') w.push(`进备货表（四季品备货），但分类是「${s}」`);
+      return w.length ? w.join('；') : null;
+    }],
+  ['season', '销售季分类为空', '季节品节奏、备货口径都靠它', 'warn', (r) => r['销售季分类'] ? null : '未填'],
+  ['spu', 'SPU 为空', '全库 SPU 一律取主表手填值，空了汇总会掉行', 'warn', (r) => clean(r['SPU']) ? null : '未填'],
+  ['owner', '负责人为空', '追踪表/经营表的负责人从这里取', 'warn', (r) => (r[OWNER] || []).length ? null : '未填'],
+  ['img', '缺图', '页面卡片、复盘表都从这里取主图', 'warn', (r) => (r['图片'] || []).length ? null : '无图片'],
+];
+function runChecks(rows) {
+  const out = {};
+  const cnt = {};
+  for (const r of ROWS) { const k = key(r) + '|' + ctryShort(r); cnt[k] = (cnt[k] || 0) + 1; }
+  for (const [k, , , , fn] of CHECKS) {
+    out[k] = rows.map((r) => {
+      const why = k === 'dup' ? (cnt[key(r) + '|' + ctryShort(r)] > 1 ? `共 ${cnt[key(r) + '|' + ctryShort(r)]} 行` : null) : fn(r);
+      return why ? { r, why } : null;
+    }).filter(Boolean);
+  }
+  return out;
+}
+const issuesOf = (r) => { const all = runChecks([r]); return CHECKS.filter((c) => all[c[0]].length).map((c) => ({ k: c[0], t: c[1], lv: c[3] })); };
+
+// ===== ④ 筛选 =====
+const state = { mode: ['lib', 'chk', 'sw'].includes(store.get('pmp.mode')) ? store.get('pmp.mode') : 'lib',
+                line: 'all', shop: 'all', ctry: 'all', season: 'all', owner: 'all', q: '', bad: false, spu: store.get('pmp.spu') || '',
+                kind: ['all4', 'season'].includes(store.get('pmp.kind')) ? store.get('pmp.kind') : 'all' };
+const foldChk = new Set(CHECKS.map((c) => c[0]));
+function pass(r) {
+  if (state.line !== 'all' && (r['产品线'] || '') !== state.line) return false;
+  if (state.shop !== 'all' && (r['店铺'] || '') !== state.shop) return false;
+  if (state.ctry !== 'all' && ctryShort(r) !== state.ctry) return false;
+  if (state.season !== 'all' && (r['销售季分类'] || '') !== state.season) return false;
+  if (state.owner !== 'all' && !(r[OWNER] || []).some((u) => u.id === state.owner)) return false;
+  if (state.q) {
+    const q = state.q.toLowerCase();
+    if (!['领星SKU', 'ASIN', 'MSKU', 'FNSKU', '品名', 'SPU'].some((f) => String(r[f] || '').toLowerCase().includes(q))) return false;
+  }
+  return true;
+}
+const opts = (f) => [...new Set(ROWS.map((r) => r[f]).filter(Boolean))].sort();
+function renderFilters() {
+  const sel = (id, label, list, cur) => `<select id="${id}" class="${cur !== 'all' ? 'on' : ''}"><option value="all">${label}：全部</option>${
+    list.map(([v, t]) => `<option value="${esc(v)}"${v === cur ? ' selected' : ''}>${esc(t)}</option>`).join('')}</select>`;
+  const seasons = (META['销售季分类'] && META['销售季分类'].options.length ? META['销售季分类'].options.map((o) => o.name) : opts('销售季分类')).filter((s) => ROWS.some((r) => r['销售季分类'] === s));
+  $('filters').innerHTML =
+    sel('f-line', '产品线', opts('产品线').map((v) => [v, v]), state.line) +
+    sel('f-shop', '店铺', opts('店铺').map((v) => [v, v]), state.shop) +
+    sel('f-ctry', '国家', [...new Set(ROWS.map(ctryShort))].sort().map((v) => [v, v === 'US' ? '美国' : v === 'CA' ? '加拿大' : v]), state.ctry) +
+    sel('f-season', '销售季', seasons.map((v) => [v, v]), state.season) +
+    sel('f-owner', '负责人', USERS.map((u) => [u.id, u.name]), state.owner) +
+    `<input id="f-q" placeholder="搜 SKU / ASIN / 品名 / SPU" value="${esc(state.q)}">` +
+    (state.mode === 'lib' ? `<button class="chip${state.bad ? ' on' : ''}" id="f-bad">只看有问题</button>` : '') +
+    `<button class="chip clr" id="f-clr">清空筛选</button>`;
+  for (const [id, k] of [['f-line', 'line'], ['f-shop', 'shop'], ['f-ctry', 'ctry'], ['f-season', 'season'], ['f-owner', 'owner']]) $(id).onchange = (e) => { state[k] = e.target.value; render(); };
+  let h; $('f-q').oninput = (e) => { clearTimeout(h); h = setTimeout(() => { state.q = e.target.value.trim(); renderMain(); }, 200); };
+  if ($('f-bad')) $('f-bad').onclick = () => { state.bad = !state.bad; render(); };
+  $('f-clr').onclick = () => { Object.assign(state, { line: 'all', shop: 'all', ctry: 'all', season: 'all', owner: 'all', q: '', bad: false }); render(); };
+}
+
+// ===== ⑤ 视图① 产品库 =====
+const asinKey = (r) => clean(r['ASIN']) || ('(无ASIN)' + key(r));
+function groupSpu(rows, by = key) {   // SPU → 卡片（默认按 SKU，产品库按 ASIN）→ 国家行
+  const g = new Map();
+  for (const r of rows) {
+    const s = clean(r['SPU']) || '（未填 SPU）';
+    if (!g.has(s)) g.set(s, new Map());
+    const m = g.get(s), k = by(r);
+    if (!m.has(k)) m.set(k, []);
+    m.get(k).push(r);
+  }
+  for (const m of g.values()) for (const list of m.values()) list.sort((a, b) => ctryShort(b).localeCompare(ctryShort(a)) || String(a['领星SKU'] || '').length - String(b['领星SKU'] || '').length);
+  return [...g.entries()].sort((a, b) => (a[0].startsWith('（') - b[0].startsWith('（')) || b[1].size - a[1].size || a[0].localeCompare(b[0], 'zh'));
+}
+function imgBox(r, cls = '') { return `<div class="img ${cls}" data-img="${r._id}">${(r['图片'] || []).length ? '…' : '无图'}</div>`; }
+// 产品库大横卡：1 张 = 1 个 ASIN；上半是共用属性，下半每行 = 国家 × SKU（含 -8.5 副款）
+const kv = (k, v, cls = '') => `<div class="kv ${cls}"><div class="k">${k}</div><div class="v${v == null || v === '' ? ' nil' : ''}">${v == null || v === '' ? '—' : v}</div></div>`;
+function pcard(list) {
+  const r0 = list[0], ri = list.find((r) => (r['图片'] || []).length) || r0;
+  const asin = clean(r0['ASIN']);
+  const iss = new Map();
+  list.forEach((r) => issuesOf(r).forEach((i) => iss.set(i.k, i)));
+  const L = num(r0['外箱长CM']), W = num(r0['外箱宽CM']), H = num(r0['外箱高CM']);
+  const box = L && W && H ? `${fmt(L, 1)}×${fmt(W, 1)}×${fmt(H, 1)}` : null;
+  const pl = (r0['带电情况'] || []).join('、');
+  const lines = list.map((r) => {
+    const l = landed(r), n = SWITCHES.filter((s) => r[s[0]]).length;
+    const bad = issuesOf(r);
+    return `<div class="ln${r._id === openRid ? ' sel' : ''}" data-open="${r._id}">
+      <span class="c1">${ctryTag(r)}</span>
+      <span class="c2 mono" title="领星SKU">${esc(r['领星SKU'] || '（无 SKU）')}</span>
+      <span class="c3" title="店铺">${esc(r['店铺'] || '—')}</span>
+      <span class="c4 mono" title="MSKU / FNSKU">${esc(r['MSKU'] || '—')}<br><small>${esc(r['FNSKU'] || '—')}</small></span>
+      <span class="c5 num" title="FBA配送费">${num(r['FBA配送费']) == null ? '<em>缺FBA</em>' : cur(r) + fmt(r['FBA配送费'])}</span>
+      <span class="c5b num" title="FBA配送费（旺季）">${num(r['FBA配送费（旺季）']) == null ? '<em class="nil">—</em>' : cur(r) + fmt(r['FBA配送费（旺季）'])}</span>
+      <span class="c6 num" title="单件到岸成本 = 采购成本 + 头程（人民币）">${l == null ? '<em>—</em>' : '<b>¥' + l.toFixed(2) + '</b>'}</span>
+      <span class="c7" title="${esc(SWITCHES.filter((s) => r[s[0]]).map((s) => s[1]).join('、') || '一张都没进')}">${SWITCHES.map((s) => `<i class="${r[s[0]] ? 'on' : ''}${s[3] ? ' a' : ''}"></i>`).join('')}<small>${n}/${SWITCHES.length}</small></span>
+      <span class="c8">${bad.map((i) => `<span class="tag ${i.lv}">${esc(i.t)}</span>`).join('')}</span>
+    </div>`;
+  }).join('');
+  return `<div class="pc${list.some((r) => r._id === openRid) ? ' sel' : ''}">
+    <div class="pc-top" data-open="${r0._id}">
+      ${imgBox(ri, 'l')}
+      <div class="pc-id">
+        <div class="nm" title="${esc(r0['品名'])}">${esc(r0['品名'] || '（无品名）')}</div>
+        <div class="ids"><span class="asin">${esc(asin || '无 ASIN')}</span>${r0['品牌'] ? `<span class="tag">${esc(r0['品牌'])}</span>` : ''}
+          ${r0['销售季分类'] ? `<span class="tag or">${esc(r0['销售季分类'])}</span>` : '<span class="tag bad">无分类</span>'}
+          ${r0['产品线'] ? `<span class="tag">${esc(r0['产品线'])}</span>` : ''}
+          ${owners(r0) ? `<span class="tag">👤 ${esc(owners(r0))}</span>` : '<span class="tag warn">无负责人</span>'}</div>
+        <div class="meta pc-sub">${esc([r0['颜色'], r0['材质'], r0['产品尺寸']].filter(Boolean).join(' · '))}</div>
+      </div>
+      <div class="pc-kv">
+        ${kv('采购成本', num(r0['采购成本不含税']) == null ? null : '¥' + fmt(r0['采购成本不含税']), num(r0['采购成本不含税']) == null ? 'miss' : '')}
+        ${kv('头程', num(r0['头程费用']) == null ? null : '¥' + fmt(r0['头程费用']), num(r0['头程费用']) == null ? 'miss' : '')}
+        ${kv('佣金', num(r0['佣金比例']) == null ? null : fmt(r0['佣金比例'] * 100) + '%')}
+        ${kv('单箱数量', fmt(r0['单箱数量'], 0), num(r0['单箱数量']) == null ? 'miss' : '')}
+        ${kv('外箱 cm', box)}
+        ${kv('重量', num(r0['重量kg']) == null ? null : fmt(r0['重量kg'], 3) + 'kg')}
+        ${kv('带电', esc(pl) || null, 'w2')}
+      </div>
+      <div class="pc-act"><button class="btn sm pri" data-open="${r0._id}" data-edit="1">编辑</button>${iss.size ? `<span class="tag bad">${iss.size} 项问题</span>` : '<span class="tag ok">✔ 齐全</span>'}</div>
+    </div>
+    <div class="lns"><div class="ln hd"><span class="c1">国家</span><span class="c2">领星SKU</span><span class="c3">店铺</span><span class="c4">MSKU / FNSKU</span><span class="c5">FBA</span><span class="c5b">FBA旺季</span><span class="c6">到岸成本 ¥</span><span class="c7">下游开关</span><span class="c8">问题</span></div>${lines}</div>
+  </div>`;
+}
+// 四季品 / 季节品：销售季分类 = 四季品 才算四季品，其余（含空）都算季节品（用户 10-13 定）
+const kindOf = (r) => r['销售季分类'] === '四季品' ? 'all4' : 'season';
+function renderLib(rows) {
+  if (state.bad) rows = rows.filter((r) => issuesOf(r).length);
+  const kcnt = { all: rows.length, all4: rows.filter((r) => kindOf(r) === 'all4').length };
+  kcnt.season = kcnt.all - kcnt.all4;
+  if (state.kind !== 'all') rows = rows.filter((r) => kindOf(r) === state.kind);
+  const kindSeg = `<div class="kseg">${[['all', '全部'], ['all4', '四季品'], ['season', '季节品']].map(([k, t]) =>
+    `<button data-kind="${k}" class="${state.kind === k ? 'on' : ''}">${t}<small>${kcnt[k]}</small></button>`).join('')}</div>`;
+  const chk = runChecks(rows.filter(() => true));
+  const skus = new Set(rows.map(key));
+  const nCost = new Set(chk.cost.map((x) => x.r._id)).size, nAny = rows.filter((r) => issuesOf(r).length).length;
+  const groups = groupSpu(rows, asinKey);
+  const kpi = `<div class="kpis">
+    <div class="kpi"><div class="k">SPU</div><div class="v">${groups.length}</div></div>
+    <div class="kpi"><div class="k">SKU</div><div class="v">${skus.size}</div></div>
+    <div class="kpi"><div class="k">行（SKU × 国家）</div><div class="v">${rows.length}</div></div>
+    <div class="kpi"><div class="k">缺成本</div><div class="v ${nCost ? 'bad' : ''}">${nCost} <small>行</small></div></div>
+    <div class="kpi"><div class="k">有问题的行</div><div class="v ${nAny ? 'bad' : ''}">${nAny} <small>行 · 看「数据体检」</small></div></div></div>`;
+  if (!groups.length) return kpi + `<div class="lib"><nav class="side" id="side">${kindSeg}</nav><div class="empty">没有符合筛选的产品</div></div>`;
+  // 左侧 SPU 栏：只展开点中的那一个 SPU，其余收起（用户 10-13 定）
+  if (!groups.some(([s]) => s === state.spu)) state.spu = groups[0][0];
+  const side = groups.map(([spu, m]) => {
+    const all = [...m.values()].flat();
+    const nb = all.filter((r) => issuesOf(r).some((i) => i.lv === 'bad')).length;
+    const r0 = all.find((r) => (r['图片'] || []).length) || all[0];
+    return `<button class="si${spu === state.spu ? ' on' : ''}" data-spu="${esc(spu)}" title="${esc(spu)}">${imgBox(r0, 's')}
+      <span class="sn">${esc(spu)}<small>${m.size} ASIN · ${all.length} 行</small></span>${nb ? `<i>${nb}</i>` : ''}</button>`;
+  }).join('');
+  const [spu, m] = groups.find(([s]) => s === state.spu);
+  const all = [...m.values()].flat();
+  const seasons = [...new Set(all.map((r) => r['销售季分类']).filter(Boolean))];
+  return kpi + `<div class="lib"><nav class="side" id="side">${kindSeg}<div class="side-h">SPU <span>${groups.length}</span></div>${side}</nav>
+    <section class="spu" data-spu="${esc(spu)}">
+      <div class="spu-h"><b>${esc(spu)}</b><span class="meta">${m.size} 个 ASIN · ${new Set(all.map(key)).size} 个 SKU · ${all.length} 行${seasons.length ? ' · ' + esc(seasons.join('、')) : ''}</span></div>
+      <div class="grid">${[...m.values()].map(pcard).join('')}</div></section></div>`;
+}
+
+// ===== ⑥ 详情抽屉（查看 / 编辑）=====
+let openRid = null, editMode = false, unlocked = false;
+function openDrawer(rid, edit = false) {
+  openRid = rid; editMode = edit; unlocked = false;
+  renderDrawer();
+  $('drawer').classList.add('show'); $('mask').classList.add('show');
+  document.querySelectorAll('.pc.sel').forEach((e) => e.classList.remove('sel'));
+}
+function closeDrawer(force) {
+  if (!force && editMode && $('drawer').querySelector('.dirty') && !confirm('有未保存的修改，确定关闭？')) return;
+  openRid = null; editMode = false;
+  $('drawer').classList.remove('show'); $('mask').classList.remove('show');
+}
+function unitTag(f, r) {
+  const u = UNIT[f];
+  if (!u) return '';
+  if (u === 'cny') return '<span class="u cny">¥ 人民币/件</span>';
+  if (u === 'loc') return `<span class="u usd">${isCA(r) ? 'C$ 加元' : '$ 美元'}/件</span>`;
+  if (u === 'rate') return `<span class="u">¥ / ${isCA(r) ? 'C$' : '$'}</span>`;
+  if (u === '%') return `<span class="u">${editMode ? '% 填 15 = 15%' : '%'}</span>`;
+  return `<span class="u">${u}</span>`;
+}
+function editor(f, r) {
+  const m = META[f] || { type: 'text', options: [] }, v = r[f];
+  const base = `data-f="${esc(f)}" data-kind="${m.type}"`;
+  if (m.type === 'select') {
+    const list = m.options.map((o) => o.name);
+    return `<select class="in" ${base}><option value="">（空）</option>${list.map((o) => `<option${o === v ? ' selected' : ''}>${esc(o)}</option>`).join('')}${v && !list.includes(v) ? `<option selected>${esc(v)}</option>` : ''}</select>`;
+  }
+  if (m.type === 'multi') {
+    const list = [...new Set([...m.options.map((o) => o.name), ...(v || [])])];
+    return `<div class="multi" ${base}>${list.map((o) => `<label class="${(v || []).includes(o) ? 'on' : ''}"><input type="checkbox" value="${esc(o)}"${(v || []).includes(o) ? ' checked' : ''}>${esc(o)}</label>`).join('')}</div>`;
+  }
+  if (m.type === 'user') {
+    const id = (v || [])[0] && v[0].id;
+    const multi = (v || []).length > 1;
+    return `<select class="in" ${base}>${multi ? `<option value="__keep" selected>保持：${esc(owners(r))}</option>` : ''}<option value="">（空）</option>${USERS.map((u) => `<option value="${u.id}"${!multi && u.id === id ? ' selected' : ''}>${esc(u.name)}</option>`).join('')}</select>`;
+  }
+  if (m.type === 'number') {
+    const sv = v == null ? '' : (f === '佣金比例' ? fmt(v * 100, 4) : fmt(v, 6));
+    return `<input class="in" inputmode="decimal" ${base} value="${esc(sv)}">`;
+  }
+  const mono = SECTIONS[0].fields.includes(f) ? ' mono' : '';
+  if (AREA.includes(f)) return `<textarea class="in" ${base}>${esc(v ?? '')}</textarea>`;
+  return `<input class="in${mono}" ${base} value="${esc(v ?? '')}">`;
+}
+function readEditor(el) {
+  const f = el.dataset.f, k = el.dataset.kind;
+  if (k === 'multi') return [...el.querySelectorAll('input:checked')].map((i) => i.value);
+  if (k === 'user') { if (el.value === '__keep') return undefined; const u = USERS.find((x) => x.id === el.value); return u ? [u] : []; }
+  if (k === 'select') return el.value || null;
+  const s = el.value;
+  if (k === 'number') {
+    if (s.trim() === '') return null;
+    const n = Number(s.replace(/[,，%\s]/g, ''));
+    if (isNaN(n)) throw new Error(`「${LABEL[f] || f}」不是数字：${s}`);
+    return f === '佣金比例' ? +(n / 100).toFixed(6) : n;
+  }
+  if (SECTIONS[0].fields.includes(f)) return clean(s) || null;   // 身份键保存时顺手去脏字符
+  return s.trim() === '' ? null : s.replace(/\s+$/, '');
+}
+function section(sec, r) {
+  const locked = sec.lock && !(editMode && unlocked);
+  const editing = editMode && !locked;
+  const sib = siblings(r);
+  const body = sec.fields.map((f) => {
+    if (!META[f]) return `<div class="f"><div class="k">${esc(LABEL[f] || f)}</div><div class="v miss">表里没有这个字段</div></div>`;
+    const sv = showV(f, r[f], r);
+    const dirty = sec.lock && r[f] && DIRTY_RE.test(r[f]);
+    return `<div class="f${WIDE.includes(f) ? ' w' : ''}"><div class="k">${esc(LABEL[f] || f)}${unitTag(f, r)}</div>${
+      editing ? editor(f, r) : `<div class="v${sv == null ? ' nil' : ''}${sec.lock ? ' mono' : ''}">${dirty ? `<span class="vis">${visible(r[f])}</span> ⚠ 有脏字符` : esc(sv ?? '—')}</div>`}</div>`;
+  }).join('');
+  let extra = '';
+  if (sec.k === 'cost') {
+    const l = landed(r);
+    extra = `<div class="calc"><span>单件到岸成本</span><b>${l == null ? '—' : '¥' + l.toFixed(2)}</b><span class="meta">= 采购 ${fmt(r['采购成本不含税']) ?? '?'} + 头程 ${fmt(r['头程费用']) ?? '?'}（人民币，不含 FBA 和佣金）</span></div>`;
+  }
+  if (sec.k === 'phy') {
+    const L = num(r['外箱长CM']), W = num(r['外箱宽CM']), H = num(r['外箱高CM']), V = num(r['单箱体积']);
+    if (L && W && H) {
+      const ref = L * W * H / 1e6;
+      const off = V != null && Math.abs(ref - V) / ref > 0.05;
+      extra = `<div class="${off ? 'hint' : 'calc'}">${off ? '⚠ ' : ''}按外箱尺寸算单箱体积 ${ref.toFixed(3)} m³${V == null ? '（单箱体积未填）' : off ? `，和填写的 ${fmt(V, 3)} 差 ${Math.round(Math.abs(ref - V) / ref * 100)}%` : '，和填写值一致'}</div>`;
+    }
+  }
+  if (sec.lock && editMode && unlocked) extra = `<div class="hint red">身份键已解锁：下游 30+ 处公式按 领星SKU / ASIN 匹配，改了这一行会和追踪表、备货表、利润表断开。确认是录错了再改；保存时会自动去掉首尾空格、换行和零宽字符。</div>`;
+  const syncOp = editing && sec.sync && sib.length ? `<label class="syncop"><input type="checkbox" data-sync="${sec.k}" checked> 同时写到同 SKU 的 ${sib.map(ctryShort).join('、')} 行（${sec.t}一般各国相同）</label>` : '';
+  const head = sec.lock
+    ? (editMode ? `<button class="btn sm" data-unlock>${unlocked ? '重新锁定' : '🔒 解锁修改'}</button>` : `<span class="meta">🔒 锁定 · 编辑时可解锁</span>`)
+    : (sec.sync && sib.length && !editMode ? `<span class="meta">${sib.length ? '同 SKU 其他国家行通常相同' : ''}</span>` : '');
+  return `<div class="sec${sec.lock ? ' lock' : ''}" data-sec="${sec.k}"><div class="sec-h"><b>${sec.t}</b>${head}</div><div class="fg">${body}</div>${extra}${syncOp}</div>`;
+}
+function renderDrawer() {
+  const r = byId(openRid);
+  if (!r) return closeDrawer(true);
+  const group = ROWS.filter((x) => x._id === r._id || key(x) === key(r) || (clean(r['ASIN']) && asinKey(x) === asinKey(r))).sort((a, b) => ctryShort(b).localeCompare(ctryShort(a)));
+  const iss = issuesOf(r);
+  const sw = SWITCHES.filter((s) => r[s[0]]).map((s) => s[1]);
+  $('drawer').innerHTML = `
+    <div class="dh">${imgBox(r, 'l')}
+      <div style="min-width:0;flex:1"><div class="nm">${esc(r['品名'] || '（无品名）')}</div>
+        <div class="meta mono" style="margin-top:3px">${esc(r['领星SKU'] || '')}　${esc(clean(r['SPU']) || '')}</div>
+        <div class="meta" style="margin-top:3px">下游：${sw.length ? esc(sw.join('、')) : '一张都没进'}</div></div>
+      <button class="x" id="d-x" title="关闭">×</button></div>
+    <div class="dtabs">${group.map((g) => `<button data-tab="${g._id}" class="${g._id === r._id ? 'on' : ''}">${esc(ctryShort(g))} · ${esc(g['店铺'] || '无店铺')}</button>`).join('')}
+      <span class="sp">${editMode ? '' : '<button class="btn pri sm" id="d-edit">编辑</button>'}</span></div>
+    <div class="db">
+      ${iss.length ? `<div class="issues">${iss.map((i) => `<span class="tag ${i.lv}">${esc(i.t)}</span>`).join('')}</div>` : ''}
+      ${SECTIONS.map((s) => section(s, r)).join('')}
+      <div class="sec"><div class="sec-h"><b>只读</b><span class="meta">图片在表里上传；下面两个是公式</span></div>
+        <div class="fg"><div class="f"><div class="k">国家文本</div><div class="v">${esc(r['国家文本'] ?? '—')}</div></div>
+        <div class="f"><div class="k">Listing审核键</div><div class="v mono">${esc(r['Listing审核键'] ?? '—')}</div></div></div></div>
+    </div>
+    ${editMode ? `<div class="df"><span class="meta" id="d-msg">改过的格子会标黄；保存前先给你看改动清单</span><button class="btn" id="d-cancel">取消</button><button class="btn pri" id="d-save">保存修改</button></div>` : ''}`;
+  $('d-x').onclick = () => closeDrawer();
+  $('drawer').querySelectorAll('[data-tab]').forEach((b) => b.onclick = () => {
+    if (editMode && $('drawer').querySelector('.dirty') && !confirm('切换国家会丢掉未保存的修改，继续？')) return;
+    openRid = b.dataset.tab; unlocked = false; renderDrawer();
+  });
+  if ($('d-edit')) $('d-edit').onclick = () => { editMode = true; renderDrawer(); };
+  if ($('d-cancel')) $('d-cancel').onclick = () => { if ($('drawer').querySelector('.dirty') && !confirm('放弃修改？')) return; editMode = false; unlocked = false; renderDrawer(); };
+  if ($('d-save')) $('d-save').onclick = () => prepareSave();
+  const ub = $('drawer').querySelector('[data-unlock]');
+  if (ub) ub.onclick = () => {
+    if (!unlocked && !confirm('身份键是下游所有表的匹配键，确定要解锁修改？')) return;
+    unlocked = !unlocked; renderDrawer();
+  };
+  $('drawer').querySelectorAll('.in, .multi').forEach((el) => {
+    const mark = () => {
+      el.dataset.touched = '1';
+      let d = true; try { const v = readEditor(el); d = v !== undefined && !sameV(v, r[el.dataset.f]); } catch (e) {}
+      el.classList.toggle('dirty', d);
+      if (el.classList.contains('multi')) el.querySelectorAll('label').forEach((l) => l.classList.toggle('on', l.querySelector('input').checked));
+    };
+    el.addEventListener('input', mark); el.addEventListener('change', mark);
+  });
+  loadImages([r]);
+}
+// 收集改动 → 清单弹窗 → 写回
+function prepareSave() {
+  const r = byId(openRid), msg = $('d-msg');
+  const own = {}, sync = {};
+  try {
+    $('drawer').querySelectorAll('.in[data-touched], .multi[data-touched]').forEach((el) => {
+      const f = el.dataset.f, v = readEditor(el);
+      if (v === undefined || sameV(v, r[f])) return;
+      own[f] = v;
+      const secK = el.closest('[data-sec]').dataset.sec, cb = $('drawer').querySelector(`[data-sync="${secK}"]`);
+      if (cb && cb.checked) sync[f] = v;
+    });
+  } catch (e) { msg.textContent = e.message; msg.style.color = 'var(--red)'; return; }
+  if (!Object.keys(own).length) { editMode = false; renderDrawer(); toast('没有改动'); return; }
+  const changes = [{ r, fs: own }];
+  if (Object.keys(sync).length) for (const s of siblings(r)) {
+    const fs = {}; for (const [f, v] of Object.entries(sync)) if (!sameV(v, s[f])) fs[f] = v;
+    if (Object.keys(fs).length) changes.push({ r: s, fs });
+  }
+  const idChanged = Object.keys(own).some((f) => SECTIONS[0].fields.includes(f));
+  const costChanged = Object.keys(own).some((f) => SECTIONS[2].fields.includes(f));
+  confirmChanges(changes, [
+    idChanged ? '<div class="warnbox red">改了身份键：追踪表、备货表、利润表等按旧值匹配的行会断开，需要去下游核对。</div>' : '',
+    costChanged ? '<div class="warnbox">改了成本参数：每日数据、经营表、利润表、备货页的毛利会跟着变（下次重算生效）。</div>' : '',
+  ].join(''), async () => { await writeChanges(changes); editMode = false; unlocked = false; renderDrawer(); renderMain(); });
+}
+function diffRows(changes) {
+  return changes.map(({ r, fs }) => `<tr class="h"><td colspan="3">${ctryTag(r)} ${esc(r['领星SKU'] || '')} · ${esc(r['店铺'] || '')}</td></tr>` +
+    Object.entries(fs).map(([f, v]) => `<tr><td>${esc(LABEL[f] || f)}</td><td class="o">${SECTIONS[0].fields.includes(f) && r[f] ? visible(r[f]) : esc(showV(f, r[f], r) ?? '（空）')}</td><td class="n">${esc(showV(f, v, r) ?? '（清空）')}</td></tr>`).join('')).join('');
+}
+function confirmChanges(changes, warn, onOk) {
+  const n = changes.reduce((s, c) => s + Object.keys(c.fs).length, 0);
+  $('mbox').innerHTML = `<div class="mh">确认改动：${changes.length} 行 · ${n} 个格子</div>
+    <div class="mb">${warn}<table class="dif"><thead><tr><th style="width:30%">字段</th><th>旧值</th><th>新值</th></tr></thead><tbody>${diffRows(changes)}</tbody></table></div>
+    <div class="mf"><span class="meta" id="m-msg">${SNAP ? '本地预览：只改页面，不写回多维表' : '写前会重读这几行，别人刚改过会停下'}</span><button class="btn" id="m-no">返回修改</button><button class="btn pri" id="m-ok">确认保存</button></div>`;
+  $('modal').classList.add('show');
+  $('m-no').onclick = () => $('modal').classList.remove('show');
+  $('m-ok').onclick = async () => {
+    $('m-ok').disabled = true; $('m-msg').textContent = '保存中…'; $('m-msg').style.color = '';
+    try { await onOk(); $('modal').classList.remove('show'); }
+    catch (e) { $('m-ok').disabled = false; $('m-msg').style.color = 'var(--red)'; $('m-msg').innerHTML = esc(e && e.message ? e.message : e); }
+  };
+}
+async function writeChanges(changes) {
+  if (!SNAP) {
+    // 冲突检查：重读每行，被改动的字段如果和打开时不一样就停
+    const conflicts = [];
+    for (const { r, fs } of changes) {
+      const rec = await TBL.getRecordById(r._id);
+      const fresh = rowFromSdk(r._id, rec.fields || {});
+      for (const f of Object.keys(fs)) if (!sameV(fresh[f], r[f])) conflicts.push(`${r['领星SKU']} ${ctryShort(r)}「${LABEL[f] || f}」已被改成「${showV(f, fresh[f], fresh) ?? '空'}」`);
+      r._fresh = fresh;
+    }
+    if (conflicts.length) {
+      for (const { r } of changes) { Object.assign(r, r._fresh); delete r._fresh; }
+      throw new Error('别人刚改过，已停下没写：\n' + conflicts.join('\n') + '\n页面已刷新成最新值，请重新编辑。');
+    }
+    for (const { r, fs } of changes) {
+      const fields = {};
+      for (const [f, v] of Object.entries(fs)) { if (!META[f]) throw new Error(`产品主表缺字段「${f}」`); fields[META[f].id] = toSdk(f, v); }
+      await TBL.setRecord(r._id, { fields });
+      delete r._fresh;
+    }
+  }
+  for (const { r, fs } of changes) Object.assign(r, fs);
+  toast(SNAP ? `本地预览：已改 ${changes.length} 行（未写回）` : `已写回产品主表 ${changes.length} 行`);
+}
+
+// ===== ⑦ 视图② 数据体检 =====
+function renderChk(rows) {
+  const res = runChecks(rows);
+  return `<div class="meta" style="margin-bottom:10px">按当前筛选检查 ${rows.length} 行。点一行打开详情去改；脏字符可以直接一键清理。</div>` + CHECKS.map(([k, t, d, lv]) => {
+    const list = res[k];
+    const n = list.length;
+    return `<div class="chk${foldChk.has(k) ? ' fold' : ''}" data-chk="${k}">
+      <div class="chk-h"><span class="n ${n ? (lv === 'warn' ? 'w' : '') : 'z'}">${n}</span><b>${esc(t)}</b><span class="meta">${esc(d)}</span>
+        ${k === 'dirty' && n ? `<button class="btn sm" data-cleanall>一键清理 ${n} 行</button>` : ''}<span class="ar">▾</span></div>
+      <div class="chk-b">${n ? `<table class="itbl"><thead><tr><th style="width:48px"></th><th>产品</th><th style="width:70px">国家</th><th>店铺</th><th>原因</th></tr></thead><tbody>${
+        list.map(({ r, why }) => `<tr class="rw" data-open="${r._id}"><td>${imgBox(r, 's')}</td><td><b>${esc(r['品名'] || '（无品名）')}</b><div class="meta mono">${esc(r['领星SKU'] || '')}</div></td><td>${ctryTag(r)}</td><td>${esc(r['店铺'] || '—')}</td><td class="why">${k === 'dirty' ? why : esc(why)}</td></tr>`).join('')
+      }</tbody></table>` : '<div class="meta" style="padding:8px 14px 12px">✔ 没有问题</div>'}</div></div>`;
+  }).join('');
+}
+function cleanDirty(rows) {
+  const changes = rows.map((r) => {
+    const fs = {}; for (const f of SECTIONS[0].fields) if (r[f] && DIRTY_RE.test(r[f])) fs[f] = clean(r[f]);
+    return Object.keys(fs).length ? { r, fs } : null;
+  }).filter(Boolean);
+  confirmChanges(changes, '<div class="warnbox">只去掉首尾空格、换行和零宽字符，内容本身不变。清理后下游按这个值匹配会恢复正常。</div>', async () => { await writeChanges(changes); renderMain(); });
+}
+
+// ===== ⑧ 视图③ 下游开关 =====
+const pend = new Map();   // rid → {字段: 新值}
+function renderSw(rows) {
+  const groups = groupSpu(rows);
+  const head = `<tr><th class="l">产品（SKU × 国家）</th>${SWITCHES.map(([f, t, how, auto]) => `<th class="${auto ? 'auto' : ''}">${esc(t)}<small>${how}</small></th>`).join('')}</tr>`;
+  const conf = runChecks(rows).conf, confIds = new Map(conf.map((x) => [x.r._id, x.why]));
+  const body = groups.map(([spu, m]) => `<tr class="g"><td colspan="${SWITCHES.length + 1}">${esc(spu)} <span class="meta">${[...m.values()].flat().length} 行</span></td></tr>` +
+    [...m.values()].flat().map((r) => `<tr class="${confIds.has(r._id) ? 'conf' : ''}"><td class="l"><div class="pn">${imgBox(r, 's')}<div class="t"><div title="${esc(r['品名'])}">${esc(r['品名'] || '（无品名）')}</div><div>${ctryShort(r)} · ${esc(r['领星SKU'] || '')} · ${esc(r['销售季分类'] || '无分类')}${confIds.has(r._id) ? ` · <span style="color:var(--red)">${esc(confIds.get(r._id))}</span>` : ''}</div></div></div></td>${
+      SWITCHES.map(([f]) => { const p = pend.get(r._id) || {}; const on = f in p ? p[f] : !!r[f]; return `<td><button class="tg${on ? ' on' : ''}${f in p ? ' pend' : ''}" data-rid="${r._id}" data-sw="${esc(f)}" title="${esc(f)}"></button></td>`; }).join('')}</tr>`).join('')).join('');
+  return `<div class="sw-note">
+      <div><b>自动建行（橙色表头）</b>：勾上后自动化去下游查重，没有这一行就新建；<b>取消勾选不删行</b>，有「启用XX」的表会把行隐藏。</div>
+      <div><b>脚本读取</b>：每日数据表 / 产品表现 / 四季品经营表 的行由拉数脚本生成，勾选只决定拉不拉这个产品，当晚生效。</div>
+      <div><b>拨开关不会立刻写</b>：改动先标黄，底部点「保存」看清单确认后统一写回。左侧红条 = 勾选和销售季分类冲突。</div></div>
+    ${groups.length ? `<table class="swt"><thead>${head}</thead><tbody>${body}</tbody></table>` : '<div class="empty">没有符合筛选的产品</div>'}`;
+}
+function renderSwBar() {
+  const n = [...pend.values()].reduce((s, p) => s + Object.keys(p).length, 0);
+  $('swbar').classList.toggle('show', state.mode === 'sw' && n > 0);
+  $('swbar').innerHTML = `<span>${n} 处开关改动未保存</span><button class="btn sm" id="sw-undo">撤销</button><button class="btn pri sm" id="sw-save">保存</button>`;
+  if (!n) return;
+  $('sw-undo').onclick = () => { pend.clear(); renderMain(); };
+  $('sw-save').onclick = () => {
+    const changes = [...pend.entries()].map(([rid, fs]) => ({ r: byId(rid), fs }));
+    const ons = changes.flatMap((c) => Object.entries(c.fs).filter(([f, v]) => v && SWITCHES.find((s) => s[0] === f)[3]).map(([f]) => f));
+    confirmChanges(changes, ons.length ? `<div class="warnbox">有 ${ons.length} 个「自动建行」开关被勾上：保存后自动化会去下游建行（已有的跳过）。取消勾选的只隐藏不删行。</div>` : '',
+      async () => { await writeChanges(changes); pend.clear(); renderMain(); });
+  };
+}
+
+// ===== ⑨ 渲染 =====
+function setStickyH() { document.documentElement.style.setProperty('--stickyH', $('sticky').offsetHeight + 'px'); }
+function render() {
+  store.set('pmp.mode', state.mode);
+  const nIss = ROWS.filter(pass).filter((r) => issuesOf(r).some((i) => i.lv === 'bad')).length;
+  document.querySelectorAll('#mode button').forEach((b) => {
+    b.classList.toggle('on', b.dataset.m === state.mode);
+    if (b.dataset.m === 'chk') b.innerHTML = '数据体检' + (nIss ? `<i>${nIss}</i>` : '');
+  });
+  renderFilters();
+  renderMain();
+}
+function renderMain() {
+  const rows = ROWS.filter(pass);
+  $('main').innerHTML = state.mode === 'lib' ? renderLib(rows) : state.mode === 'chk' ? renderChk(rows) : renderSw(rows);
+  bindMain();
+  renderSwBar();
+  setStickyH();
+  observeImages();
+}
+function bindMain() {
+  const m = $('main');
+  m.querySelectorAll('[data-open]').forEach((e) => e.onclick = (ev) => { ev.stopPropagation(); openDrawer(e.dataset.open, !!e.dataset.edit); });
+  m.querySelectorAll('.kseg button').forEach((e) => e.onclick = () => { state.kind = e.dataset.kind; store.set('pmp.kind', state.kind); renderMain(); });
+  m.querySelectorAll('.si').forEach((e) => e.onclick = () => {
+    state.spu = e.dataset.spu; store.set('pmp.spu', state.spu);
+    const st = $('side').scrollTop; renderMain(); $('side').scrollTop = st;
+    const top = m.querySelector('.lib').getBoundingClientRect().top + window.scrollY - $('sticky').offsetHeight - 8;
+    if (window.scrollY > top) window.scrollTo({ top });
+  });
+  m.querySelectorAll('.chk-h').forEach((e) => e.onclick = (ev) => { if (ev.target.closest('[data-cleanall]')) return; const k = e.parentElement.dataset.chk; foldChk.has(k) ? foldChk.delete(k) : foldChk.add(k); e.parentElement.classList.toggle('fold'); });
+  const ca = m.querySelector('[data-cleanall]');
+  if (ca) ca.onclick = () => cleanDirty(runChecks(ROWS.filter(pass)).dirty.map((x) => x.r));
+  m.querySelectorAll('.tg').forEach((b) => b.onclick = () => {
+    const r = byId(b.dataset.rid), f = b.dataset.sw, p = pend.get(r._id) || {};
+    const now = f in p ? p[f] : !!r[f];
+    if (!now === !!r[f]) delete p[f]; else p[f] = !now;
+    Object.keys(p).length ? pend.set(r._id, p) : pend.delete(r._id);
+    b.classList.toggle('on', !now); b.classList.toggle('pend', f in p);
+    renderSwBar();
+  });
+}
+
+// 图片：快照自带缩略图；插件里按需取附件临时地址（进入视口才取）
+const imgUrl = {};
+let io = null;
+function paint(box, url) { box.innerHTML = `<img src="${esc(url)}" alt="" loading="lazy">`; }
+async function fetchImg(rid) {
+  const r = byId(rid);
+  if (!r || !(r['图片'] || []).length) return null;
+  if (imgUrl[rid]) return imgUrl[rid];
+  if (r._imgData) return (imgUrl[rid] = r._imgData);
+  if (!TBL || !META['图片']) return null;
+  try { const u = await TBL.getCellAttachmentUrls([r['图片'][0].token], META['图片'].id, rid); return (imgUrl[rid] = u && u[0]); }
+  catch (e) { return null; }
+}
+function observeImages() {
+  if (io) io.disconnect();
+  io = new IntersectionObserver((ents) => ents.forEach(async (en) => {
+    if (!en.isIntersecting) return;
+    io.unobserve(en.target);
+    const u = await fetchImg(en.target.dataset.img);
+    if (u) paint(en.target, u); else if (en.target.textContent === '…') en.target.textContent = '图未取到';
+  }), { rootMargin: '300px' });
+  document.querySelectorAll('#main [data-img]').forEach((b) => io.observe(b));
+}
+async function loadImages(list) {
+  for (const r of list) { const u = await fetchImg(r._id); if (u) document.querySelectorAll(`#drawer [data-img="${r._id}"]`).forEach((b) => paint(b, u)); }
+}
+
+// ===== ⑩ 保存插件配置（硬规矩①②）=====
+function setupSave() {
+  const dash = SDK && SDK.dashboard;
+  let st = '';
+  try { st = dash && dash.state; } catch (e) { st = '读取失败'; }
+  $('saveMsg').textContent = `（插件状态：${st || '未知'}）`;
+  if (dash && typeof dash.saveConfig === 'function' && st !== 'View' && st !== 'FullScreen') {
+    $('savebar').classList.add('show');
+    $('saveBtn').onclick = async () => {
+      $('saveBtn').disabled = true; $('saveMsg').textContent = '保存中…';
+      try {
+        const ok = await dash.saveConfig({
+          dataConditions: Object.values(TABLES).map((t) => ({ tableId: t.id, baseToken: BASE_TOKEN, dataRange: { type: 'ALL' }, series: 'COUNTA' })),
+          customConfig: { page: document.title, version: 1 },
+        });
+        $('saveMsg').textContent = ok === false ? '保存失败，请重试' : '已保存 ✔';
+      } catch (e) { $('saveMsg').textContent = '保存失败：' + (e && e.message ? e.message : e); }
+      finally { $('saveBtn').disabled = false; }
+    };
+  } else if (dash && dash.setRendered) {
+    dash.setRendered().catch(() => {});
+  }
+}
+async function diagnose() {
+  const res = [];
+  const t = async (name, fn) => {
+    try {
+      const v = await Promise.race([fn(), new Promise((_, rej) => setTimeout(() => rej(new Error('超时 8s')), 8000))]);
+      let shown; try { shown = typeof v === 'string' ? v : JSON.stringify(v); } catch (x) { shown = String(v); }
+      res.push(['✔', name, String(shown).slice(0, 300)]); return v;
+    } catch (e) { res.push(['✘', name, e && e.message ? e.message : String(e)]); return undefined; }
+  };
+  const { bitable, dashboard } = SDK;
+  await t('dashboard.state', async () => dashboard.state);
+  await t('dashboard.getConfig', () => dashboard.getConfig());
+  const tb = await t(`getTableById ${TABLES.pm.name}`, () => bitable.base.getTableById(TABLES.pm.id));
+  if (tb) await t(`getRecordsByPage ${TABLES.pm.name}`, () => tb.getRecordsByPage({ pageSize: 2 }));
+  return `<div class="card0"><b>接口诊断</b> <span class="meta">请把这块整体截图发回</span><table class="tbl"><tbody>${res.map((r) =>
+    `<tr><td style="width:24px">${r[0]}</td><td>${esc(r[1])}</td><td style="color:var(--sub)">${esc(r[2])}</td></tr>`).join('')}</tbody></table></div>`;
+}
+
+{ const st = $('sticky'); const onScroll = () => st.classList.toggle('stuck', st.getBoundingClientRect().top <= 0 && window.scrollY > 0);
+  window.addEventListener('scroll', onScroll, { passive: true });
+  new ResizeObserver(setStickyH).observe(st); }
+document.querySelectorAll('#mode button').forEach((b) => b.onclick = () => { state.mode = b.dataset.m; render(); });
+$('mask').onclick = () => closeDrawer();
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { if ($('modal').classList.contains('show')) $('modal').classList.remove('show'); else if (openRid) closeDrawer(); } });
+window.addEventListener('beforeunload', (e) => { if (pend.size || (editMode && $('drawer').querySelector('.dirty'))) { e.preventDefault(); e.returnValue = ''; } });
+
+// ===== 启动 =====
+function finish(rows, src) {
+  ROWS = rows;
+  const u = new Map();
+  for (const r of ROWS) for (const x of r[OWNER] || []) u.set(x.id, x);
+  USERS = [...u.values()].sort((a, b) => a.name.localeCompare(b.name, 'zh'));
+  $('meta').textContent = `${ROWS.length} 行 · ${src}`;
+  render();
+  if (!ROWS.length || DIAG.missing.length) $('main').insertAdjacentHTML('afterbegin', `<div class="card0"><b>${ROWS.length ? '有字段没读到' : '没有读到数据'}</b> <span class="meta">读取 ${DIAG.read} 行；缺失字段 ${esc(DIAG.missing.join('、') || '无')}</span></div>`);
+}
+try {
+  if (window.__SNAPSHOT__) {
+    SNAP = true;
+    META = window.__SNAPSHOT__.meta;
+    DIAG.missing = ALL_FIELDS.filter((w) => !META[w]); DIAG.read = window.__SNAPSHOT__.rows.length;
+    finish(window.__SNAPSHOT__.rows, `本地快照 ${window.__SNAPSHOT__.at}（预览，编辑不写回）`);
+  } else {
+    SDK = await loadSdk();
+    setupSave();
+    finish(await readTable(), '取数：产品主表-灯类+精铺');
+  }
+} catch (e) {
+  const msg = esc(e && e.message ? e.message : e);
+  $('meta').textContent = '';
+  $('main').innerHTML = `<div class="card0 err">加载失败：${msg}</div>` + (SDK ? '<div class="card0">正在诊断…</div>' :
+    `<div class="card0"><b>没拿到飞书 SDK，所以也没有「保存到页面」按钮。</b><div class="meta" style="margin-top:6px">
+      请把这块截图发回。可以先试：插件 ⋮ → 刷新；或把网址末尾的 ?v=数字 加 1 再保存。</div></div>`);
+  if (SDK) { try { $('main').innerHTML = `<div class="card0 err">加载失败：${msg}</div>` + await diagnose(); } catch (e2) { /* 保留报错 */ } }
+}
+</script>
+</body>
+</html>
