@@ -170,6 +170,34 @@
   details.log summary { cursor: pointer; color: var(--sub); font-size: 12px; }
   details.log pre { white-space: pre-wrap; font: 12px/1.6 ui-monospace, Consolas, monospace; color: var(--sub); margin: 6px 0 0; max-height: 220px; overflow: auto; }
 
+  /* 详情：文案审核 / 图片审核 两张大卡 */
+  .bigc { background: #fff; border: 1px solid var(--line); border-radius: 12px; margin-bottom: 14px; overflow: clip; }
+  .bigc .ch { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 14px; background: #fcf6ef; border-bottom: 1px solid var(--line2); }
+  .bigc .ch h3 { margin: 0; font-size: 15px; }
+  .bigc .sp { flex: 1; }
+  .cgrid { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 0; }
+  .mods { padding: 6px 14px 12px; border-right: 1px solid var(--line); min-width: 0; }
+  .mod { border-top: 1px dashed var(--line2); padding: 10px 0; }
+  .mod:first-child { border-top: 0; }
+  .mod .fh { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--sub); margin-bottom: 4px; }
+  .mod .fh b { color: var(--ink); font-size: 13px; }
+  .mod .len { margin-left: auto; font-variant-numeric: tabular-nums; }
+  .mod .len.over { color: var(--red); font-weight: 700; }
+  .mod .tx { white-space: pre-wrap; word-break: break-word; line-height: 1.6; }
+  .mod .tx.nil { color: #c9bfb5; }
+  .mod mark { background: #ffd2d2; color: var(--red); border-radius: 2px; padding: 0 1px; }
+  .mod .atts { margin: 4px 0 6px; }
+  textarea.note { min-height: 34px; margin-top: 6px; font-size: 12.5px; background: #fffef9; border-style: dashed; }
+  .mod.noted textarea.note { border: 1px solid var(--or); background: var(--or-soft); }
+  .cside { padding: 10px 14px; min-width: 0; position: sticky; top: 118px; align-self: start; max-height: calc(100vh - 128px); overflow: auto; }
+  .cside .sec { margin-bottom: 14px; }
+  .cside h4 { margin: 0 0 6px; font-size: 13px; }
+  .cside .ai { max-height: 46vh; }
+  .lb2 { font-size: 12px; color: var(--sub); margin: 6px 0 3px; }
+  .ck { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border: 1px solid var(--line2); border-radius: 13px; cursor: pointer; font-size: 12px; background: #fff; }
+  .ck.on { background: var(--green-soft); border-color: #bfe6cb; color: var(--green); font-weight: 700; }
+  .ck input { accent-color: var(--green); margin: 0; }
+  @media (max-width: 1100px) { .cside { position: static; max-height: none; } .cgrid { grid-template-columns: 1fr; } .mods { border-right: 0; border-bottom: 1px solid var(--line); } }
   .savebar { display: none; align-items: center; gap: 10px; background: #fff; border: 1px solid var(--or-soft2); border-radius: 10px; padding: 8px 12px; margin-bottom: 12px; }
   .savebar.show { display: flex; }
   .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: #2b2118; color: #fff; padding: 8px 16px; border-radius: 8px; font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 50; }
@@ -204,14 +232,18 @@ const SDK_URL = 'https://cdn.jsdelivr.net/npm/@lark-base-open/js-sdk@1.0.2/dist/
 const BASE_TOKEN = 'JGvebyaAYapWtOslxc9cuKYXnwd';   // 灯具组-全流程
 const COPY = ['标题', '亮点', '卖点1', '卖点2', '卖点3', '卖点4', '卖点5', 'ST'];
 const DONE = ['文案完成', '图片完成', 'A+完成', '视频完成', '品牌故事完成', '旗舰店完成'];
-const ATT = ['主副图', 'A+', '品牌故事', '旗舰店'];                          // 审核表自己的附件字段（图片审核看这些）
+const ATT = ['主副图', 'A+', '品牌故事', '旗舰店'];
+const COPY_MOD = ['标题', '亮点', '卖点1', '卖点2', '卖点3', '卖点4', '卖点5'];   // 每个模块有「备注-xx」列（10-13 建）
+const IMG_MOD = [['主副图', '图片完成'], ['A+', 'A+完成'], ['视频', '视频完成'], ['品牌故事', '品牌故事完成'], ['旗舰店', '旗舰店完成']];
+const NOTE_F = [...COPY_MOD, ...IMG_MOD.map((m) => m[0])].map((m) => '备注-' + m);
+const COPY_KEYS = new Set(['文案审核状态', '运营审核文案', '主管审核文案', '文案完成', ...COPY_MOD.map((m) => '备注-' + m)]);                          // 审核表自己的附件字段（图片审核看这些）
 const NOTES = ['运营审核文案', '主管审核文案', '运营审核图片', '主管审核图片'];
 const COPY_ST = ['待审核', '通过', '未通过'];
 const IMG_ST = ['待审核', '待审核-主管', '通过', '未通过'];
 const TABLES = {
   lr: { id: 'tblF7uOotHeqdnTz', name: 'Listing审核表', fields: [
     '审核键', 'ASIN', '店铺', '产品线', 'SPU', 'SKU', '品名', '负责人', ...COPY, '开售时间', 'AI 规范分析', '更新日志',
-    ...NOTES, '文案审核状态', '图片审核状态', ...DONE, 'listing最晚完成时间', ...ATT] },
+    ...NOTES, '文案审核状态', '图片审核状态', ...DONE, 'listing最晚完成时间', ...ATT, ...NOTE_F] },
   pm: { id: 'tblqksywqgYvywOT', name: '产品主表-灯类+精铺', fields: ['ASIN', '图片'] },
 };
 
@@ -524,31 +556,52 @@ function renderOne(list) {
     <div><span class="asin">${esc(y.asin)}</span> <span class="sub2">${esc(y.shop)}</span></div>
     <div class="sub2">${pill(y.cst)} ${pill(y.ist)} ${y.hidden ? '<span class="pill p-hide">不可见</span>' : `<b style="color:var(--red)">🔴${y.red}</b>`}</div></div></div>`).join('');
   const site = /-CA/.test(x.shop) ? 'https://www.amazon.ca/dp/' : 'https://www.amazon.com/dp/';
-  // 左：前台文案
-  let copy = '';
-  if (x.hidden) copy = `<div class="banner hide">前台不可见（标题为空：售罄后被合并变体隐藏，或页面不存在），本次没有文案可审。详情见下方更新日志。</div>`;
-  for (const f of COPY) {
+  const d = DRAFT[r._id] = DRAFT[r._id] || {};
+  const val = (f) => f in d ? d[f] : r[f];
+  const opts = (f, vals) => `<span class="opts" data-f="${f}">${vals.map((v) => `<button class="opt ${pillCls(v)}${val(f) === v ? ' on' : ''}" data-v="${esc(v)}">${esc(v)}</button>`).join('')}</span>`;
+  const ta = (f, ph, cls = '') => `<textarea class="${cls}" data-f="${f}" placeholder="${esc(ph)}">${esc(val(f) || '')}</textarea>`;
+  const ck = (f, label) => `<label class="ck${val(f) ? ' on' : ''}"><input type="checkbox" data-f="${f}"${val(f) ? ' checked' : ''}>${label}</label>`;
+  const flag = (c) => c.hits.some((h) => h[0] === 'r') ? '🔴' : c.hits.some((h) => h[0] === 'o') ? '🟠' : c.hits.length ? '🟡' : '';
+
+  // ===== 文案审核卡 =====
+  let mods = x.hidden ? `<div class="banner hide">前台不可见（标题为空：售罄后被合并变体隐藏，或页面不存在），本次没有文案可审。详情见右侧更新日志。</div>` : '';
+  for (const f of [...COPY_MOD, 'ST']) {
     const v = txt(r[f]);
     const len = f === 'ST' ? new TextEncoder().encode(v).length : (f.startsWith('卖点') ? v.split('\n\n')[0].length : v.length);
     const c = x.res ? x.res[f] : { hits: [], marks: [] };
-    copy += `<div class="fld"><div class="fh"><b>${f}</b>${c.hits.length ? `<span>${c.hits.filter((h) => h[0] === 'r').length ? '🔴' : c.hits.some((h) => h[0] === 'o') ? '🟠' : '🟡'}</span>` : ''}
-      <span class="len${len > LIMIT[f] ? ' over' : ''}">${len} / ${LIMIT[f]}${f === 'ST' ? ' 字节' : ''}</span></div>${hl(v, c.marks)}
-      ${c.hits.length ? `<ul class="hits">${c.hits.map((h) => `<li class="${h[0]}">${h[0] === 'r' ? '🔴' : h[0] === 'o' ? '🟠' : '🟡'} ${esc(h[1])}</li>`).join('')}</ul>` : ''}</div>`;
+    const nf = '备注-' + f, hasNote = FIDS_OK(nf);
+    mods += `<div class="mod${txt(val(nf)) ? ' noted' : ''}"><div class="fh"><b>${f}</b><span>${flag(c)}</span>
+        <span class="len${len > LIMIT[f] ? ' over' : ''}">${len} / ${LIMIT[f]}${f === 'ST' ? ' 字节' : ''}</span></div>
+      ${hl(v, c.marks)}
+      ${c.hits.length ? `<ul class="hits">${c.hits.map((h) => `<li class="${h[0]}">${h[0] === 'r' ? '🔴' : h[0] === 'o' ? '🟠' : '🟡'} ${esc(h[1])}</li>`).join('')}</ul>` : ''}
+      ${f === 'ST' ? '' : hasNote ? ta(nf, `备注：${f}（要怎么改）`, 'note') : `<div class="meta">表里缺「${nf}」列</div>`}</div>`;
   }
-  // 右：AI 分析 + 审核
   const ai = x.ai;
   const aiBox = ai ? `<div class="score">${ai.score ? `<span class="big">${ai.score}</span><span>${esc(ai.grade || '')} 级</span>` : ''}<span>${esc(ai.concl || '')}</span>
       <span class="cnt"><b class="r">🔴${ai.red}</b> <b class="o">🟠${ai.orange}</b> 🟡${ai.yellow}</span><span class="meta">${esc(ai.at || '')}</span></div>
       <div class="ai">${ai.text.split('\n').map((l) => `<div class="${/^🔴/.test(l) ? 'r' : /^🟠/.test(l) ? 'o' : /^🟡/.test(l) ? 'y' : /^【/.test(l) ? 'h' : ''}">${esc(l)}</div>`).join('')}</div>`
     : '<div class="meta">还没有 AI 规范分析（在表里点「AI抓文案」后生成）</div>';
-  const opts = (f, vals) => `<span class="opts" data-f="${f}">${vals.map((v) => `<button class="opt ${pillCls(v)}${r[f] === v ? ' on' : ''}" data-v="${esc(v)}">${esc(v)}</button>`).join('')}</span>`;
-  const ta = (f) => `<textarea data-f="${f}" placeholder="写审核意见…">${esc(r[f] || '')}</textarea>`;
-  const review = `<div class="rv"><span class="lb">文案状态</span><div>${opts('文案审核状态', COPY_ST)}</div>
-      <span class="lb">运营审文案</span>${ta('运营审核文案')}<span class="lb">主管审文案</span>${ta('主管审核文案')}
-      <span class="lb">图片状态</span><div>${opts('图片审核状态', IMG_ST)}</div>
-      <span class="lb">运营审图片</span>${ta('运营审核图片')}<span class="lb">主管审图片</span>${ta('主管审核图片')}
-      <span class="lb">完成项</span><div class="chk">${DONE.map((f) => `<label class="${r[f] ? 'on' : ''}"><input type="checkbox" data-f="${f}"${r[f] ? ' checked' : ''}>${f.replace('完成', '')}</label>`).join('')}</div></div>
-    <div class="sbar"><span class="meta" id="smsg"></span><button class="btn pri" id="sbtn">保存审核</button></div>`;
+  const copyCard = `<div class="bigc" data-card="copy"><div class="ch"><h3>📝 文案审核</h3>${opts('文案审核状态', COPY_ST)}${ck('文案完成', '文案完成')}
+      <span class="meta">规则检查 🔴${x.red} 🟠${x.orange}</span><span class="sp"></span><span class="meta smsg"></span><button class="btn pri sbtn">保存文案审核</button></div>
+    <div class="cgrid"><div class="mods">${mods}</div>
+      <div class="cside"><div class="sec"><h4>AI 规范分析</h4>${aiBox}</div>
+        <div class="sec"><h4>整体意见</h4><div class="lb2">运营</div>${ta('运营审核文案', '运营对文案的整体意见…')}<div class="lb2">主管</div>${ta('主管审核文案', '主管对文案的整体意见…')}</div>
+        <div class="sec"><details class="log"><summary>更新日志</summary><pre>${esc(r['更新日志'] || '（无）')}</pre></details></div></div></div></div>`;
+
+  // ===== 图片审核卡 =====
+  const imods = IMG_MOD.map(([m, doneF]) => {
+    const a = ATT.includes(m) ? (r[m] || []) : null, nf = '备注-' + m;
+    const gallery = a == null ? '<div class="meta">表里没有视频附件列，按备注和「视频完成」勾选审核</div>'
+      : a.length ? `<div class="atts">${a.map((t, k) => `<a class="att" data-f="${m}" data-k="${k}" title="${esc(t.name)}"><div class="ph">${SNAP ? '本地预览不显示<br>飞书里显示' : '加载中…'}</div><div class="n">${esc(t.name)}</div></a>`).join('')}</div>`
+      : '<div class="meta">还没有上传</div>';
+    return `<div class="mod${txt(val(nf)) ? ' noted' : ''}"><div class="fh"><b>${m}</b>${a ? `<span class="meta">${a.length} 个</span>` : ''}<span class="sp"></span>${ck(doneF, '完成')}</div>
+      ${gallery}${FIDS_OK(nf) ? ta(nf, `备注：${m}（要怎么改）`, 'note') : `<div class="meta">表里缺「${nf}」列</div>`}</div>`;
+  }).join('');
+  const imgCard = `<div class="bigc" data-card="img"><div class="ch"><h3>🖼 图片审核</h3>${opts('图片审核状态', IMG_ST)}
+      <span class="sp"></span><span class="meta smsg"></span><button class="btn pri sbtn">保存图片审核</button></div>
+    <div class="cgrid"><div class="mods">${imods}</div>
+      <div class="cside"><div class="sec"><h4>整体意见</h4><div class="lb2">运营</div>${ta('运营审核图片', '运营对图片的整体意见…')}<div class="lb2">主管</div>${ta('主管审核图片', '主管对图片的整体意见…')}</div></div></div></div>`;
+
   const sold = r['开售时间'] ? ymd(dn(r['开售时间'])) : '—', dl = r['listing最晚完成时间'];
   $('main').innerHTML = `<div class="split"><div class="list" id="list">${nav}</div><div class="det">
     <div class="dh">${imgBox(x, 'mini')}<div class="info"><div><span class="asin">${esc(x.asin)}</span> · ${esc(x.shop)}
@@ -556,30 +609,21 @@ function renderOne(list) {
       <div class="sub2">${esc(x.spu)} · ${esc(x.line)} · 负责人 ${esc(x.owners.join('、'))} · 开售 ${sold} · 最晚完成 <span class="${x.late ? 'late' : ''}">${dl ? ymd(dn(dl)) : '—'}</span></div>
       <div class="sub2" title="${esc(r['品名'])}" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r['SKU'] || '')} · ${esc(r['品名'] || '')}</div></div>
       <div class="nav"><button class="btn" id="prev"${i ? '' : ' disabled'}>← 上一条</button><span class="meta" style="align-self:center">${i + 1}/${list.length}</span><button class="btn" id="next"${i < list.length - 1 ? '' : ' disabled'}>下一条 →</button></div></div>
-    <div class="cols"><div><div class="box"><h3>前台文案 <span class="meta">只读 · 来自 AI抓文案 · 页面现场规则检查 🔴${x.red} 🟠${x.orange}</span></h3>${copy}</div></div>
-    <div><div class="box"><h3>审核</h3>${review}</div>
-      <div class="box"><h3>素材 <span class="meta">审核表附件 · 点图看大图</span></h3>${ATT.map((f) => {
-        const a = r[f] || [];
-        return `<div class="ah"><b>${f}</b> ${a.length} 个</div>` + (a.length ? `<div class="atts">${a.map((t, k) =>
-          `<a class="att" data-f="${f}" data-k="${k}" title="${esc(t.name)}"><div class="ph" data-tok="${esc(t.token)}">${SNAP ? '本地预览不显示<br>飞书里显示' : '加载中…'}</div><div class="n">${esc(t.name)}</div></a>`).join('')}</div>` : '');
-      }).join('')}</div>
-      <div class="box"><h3>AI 规范分析</h3>${aiBox}</div>
-      <div class="box"><details class="log"><summary>更新日志</summary><pre>${esc(r['更新日志'] || '（无）')}</pre></details></div></div></div></div></div>`;
-  $('main').querySelectorAll('.li').forEach((d) => d.onclick = () => { state.cur = d.dataset.id; render(); });
+    ${copyCard}${imgCard}</div></div>`;
+  $('main').querySelectorAll('.li').forEach((el) => el.onclick = () => { state.cur = el.dataset.id; render(); });
   $('prev').onclick = () => { state.cur = list[i - 1].r._id; render(); };
   $('next').onclick = () => { state.cur = list[i + 1].r._id; render(); };
   const on = $('list').querySelector('.li.on'); if (on) on.scrollIntoView({ block: 'nearest' });
-  // 编辑态：选项切换只改界面，点「保存审核」才写回
-  const draft = {};
+  // 编辑只进草稿（按记录存在内存里，切走再回来还在），点各卡片的「保存」才写回该卡片的字段
   $('main').querySelectorAll('.opts').forEach((g) => g.querySelectorAll('.opt').forEach((b) => b.onclick = () => {
     const now = b.classList.contains('on');
     g.querySelectorAll('.opt').forEach((o) => o.classList.remove('on'));
     if (!now) b.classList.add('on');
-    draft[g.dataset.f] = now ? null : b.dataset.v;
+    d[g.dataset.f] = now ? null : b.dataset.v;
   }));
-  $('main').querySelectorAll('.chk input').forEach((c) => c.onchange = () => { c.parentElement.classList.toggle('on', c.checked); draft[c.dataset.f] = c.checked; });
-  $('main').querySelectorAll('textarea').forEach((t) => t.oninput = () => { draft[t.dataset.f] = t.value; });
-  $('sbtn').onclick = () => save(x, draft);
+  $('main').querySelectorAll('.ck input').forEach((c) => c.onchange = () => { c.parentElement.classList.toggle('on', c.checked); d[c.dataset.f] = c.checked; });
+  $('main').querySelectorAll('textarea').forEach((t) => t.oninput = () => { d[t.dataset.f] = t.value; t.closest('.mod')?.classList.toggle('noted', !!txt(t.value)); });
+  $('main').querySelectorAll('.bigc').forEach((card) => card.querySelector('.sbtn').onclick = () => save(x, card));
   loadAtts(r);
 }
 
@@ -622,25 +666,36 @@ function toCell(key, f, v) {
   }
   return txt(v) ? [{ type: 'text', text: String(v) }] : null;             // 文本
 }
-async function save(x, draft) {
-  const r = x.r, ch = {};
-  for (const [f, v] of Object.entries(draft)) if ((v ?? '') !== (r[f] ?? '') && !(DONE.includes(f) && !!v === !!r[f])) ch[f] = v;
-  const n = Object.keys(ch).length;
+const DRAFT = {};                                                         // 记录ID → 未保存的修改
+function FIDS_OK(f) { return SNAP || !!(FIDS.lr && FIDS.lr[f]); }
+// 每张卡片只保存自己的字段：文案卡 = COPY_KEYS，图片卡 = 其余
+async function save(x, card) {
+  const r = x.r, d = DRAFT[r._id] || {}, isCopy = card.dataset.card === 'copy', ch = {};
+  for (const [f, v] of Object.entries(d)) {
+    if (COPY_KEYS.has(f) !== isCopy) continue;
+    const same = DONE.includes(f) ? !!v === !!r[f] : (txt(v) || null) === (txt(r[f]) || null);
+    if (!same) ch[f] = v;
+  }
+  const n = Object.keys(ch).length, btn = card.querySelector('.sbtn'), msg = card.querySelector('.smsg');
   if (!n) { toast('没有改动'); return; }
-  $('sbtn').disabled = true; $('smsg').textContent = '保存中…'; $('smsg').style.color = '';
+  btn.disabled = true; msg.textContent = '保存中…'; msg.style.color = '';
   try {
     if (!SNAP) {
       const fields = {};
-      for (const [f, v] of Object.entries(ch)) fields[FIDS.lr[f]] = toCell('lr', f, v);
+      for (const [f, v] of Object.entries(ch)) {
+        if (!FIDS.lr[f]) throw new Error(`审核表缺字段「${f}」`);
+        fields[FIDS.lr[f]] = toCell('lr', f, v);
+      }
       await TBLS.lr.setRecord(r._id, { fields });
     }
-    for (const [f, v] of Object.entries(ch)) r[f] = DONE.includes(f) ? !!v : (txt(v) ? v : null);
+    for (const [f, v] of Object.entries(ch)) { r[f] = DONE.includes(f) ? !!v : (txt(v) ? v : null); delete d[f]; }
+    for (const f of Object.keys(d)) if (COPY_KEYS.has(f) === isCopy) delete d[f];   // 和原值相同的草稿也清掉
     x.cst = r['文案审核状态'] || '（未审）'; x.ist = r['图片审核状态'] || '（未审）';
     toast(SNAP ? `本地预览：改了 ${n} 项（未写回）` : `已写回 ${n} 项`);
     render();
   } catch (e) {
-    $('sbtn').disabled = false; $('smsg').style.color = 'var(--red)';
-    $('smsg').textContent = '保存失败：' + (e && e.message ? e.message : e) + '（应用数据权限要对 Listing审核表 开「可编辑」）';
+    btn.disabled = false; msg.style.color = 'var(--red)';
+    msg.textContent = '保存失败：' + (e && e.message ? e.message : e) + '（应用数据权限要对 Listing审核表 开「可编辑」，新加的备注列查字段权限）';
   }
 }
 
