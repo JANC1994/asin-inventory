@@ -111,8 +111,6 @@
   .li .t div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .li .mini { width: 44px; height: 44px; }
   .li .ls { font-weight: 700; font-size: 12.5px; }
-  .lg { position: sticky; top: 0; z-index: 1; background: #fcf6ef; padding: 5px 10px; font-size: 12px; font-weight: 700; color: var(--or-d); border-bottom: 1px solid var(--line2); }
-  .lg span { color: var(--sub); font-weight: 400; margin-left: 4px; }
   .atts { display: flex; flex-wrap: wrap; gap: 8px; }
   .att { width: 108px; cursor: pointer; text-decoration: none; color: var(--sub); font-size: 11px; }
   .att .ph { width: 108px; height: 108px; border-radius: 8px; overflow: hidden; background: var(--grey-soft); border: 1px solid var(--line); display: flex; align-items: center; justify-content: center; color: var(--grey); font-size: 11px; text-align: center; padding: 4px; }
@@ -198,12 +196,21 @@
   .ck.on { background: var(--green-soft); border-color: #bfe6cb; color: var(--green); font-weight: 700; }
   .ck input { accent-color: var(--green); margin: 0; }
   @media (max-width: 1100px) { .cside { position: static; max-height: none; } .cgrid { grid-template-columns: 1fr; } .mods { border-right: 0; border-bottom: 1px solid var(--line); } }
-  .lg { cursor: pointer; user-select: none; display: flex; gap: 6px; align-items: center; }
-  .lg .gt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .lg .gt::before { content: '▾'; display: inline-block; width: 14px; transition: transform .12s; }
-  .lg.fold .gt::before { transform: rotate(-90deg); }
-  .lg.fold { position: static; background: #fff; color: var(--ink); font-weight: 600; }
+  .lg { display: flex; gap: 10px; align-items: center; padding: 8px 10px; margin: 4px 6px; border-radius: 10px; cursor: pointer; user-select: none; }
   .lg:hover { background: var(--or-soft); }
+  .lg .gimg { width: 40px; height: 40px; border-radius: 8px; }
+  .lg .gt { flex: 1; min-width: 0; }
+  .lg .gt b { display: block; font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lg .gm { font-size: 11.5px; color: var(--sub); }
+  .lg .badge { min-width: 22px; height: 20px; padding: 0 6px; border-radius: 10px; background: var(--red); color: #fff; font-size: 11.5px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; flex: none; }
+  .lg .badge.ok { background: var(--green-soft); color: var(--green); }
+  .lg.cur { background: var(--or); color: #fff; }
+  .lg.cur .gm { color: rgba(255,255,255,.88); }
+  .lg.cur .badge { background: #fff; color: var(--or-d); }
+  .lg.open { margin-bottom: 0; border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+  .lg.open:not(.cur) { background: var(--or-soft); }
+  .lg.open + .li, .li + .li { margin: 0 6px; }
+  .li { padding-left: 22px; }
   .seg2 { display: inline-flex; background: var(--grey-soft); border-radius: 10px; padding: 3px; gap: 3px; margin: 0 12px; flex: none; }
   .seg2 button { height: 34px; padding: 0 14px; border: 0; border-radius: 8px; background: transparent; color: var(--sub); font-size: 13.5px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
   .seg2 button.on { background: #fff; color: var(--or-d); font-weight: 700; box-shadow: 0 1px 3px rgba(0,0,0,.12); }
@@ -566,13 +573,21 @@ function renderOne(list) {
   const i = list.findIndex((x) => x.r._id === state.cur), x = list[i], r = x.r;
   // 左侧清单：按 SPU 分组，默认折叠，只展开当前记录所在的组；点组头展开/收起
   if (!navOpen.has(x.spu) && !navShut.has(x.spu)) navOpen.add(x.spu);
-  const gcount = {};
-  for (const y of list) gcount[y.spu] = (gcount[y.spu] || 0) + 1;
+  // 组头 = SPU 卡片：图（组内第一个有图的 ASIN）+ 名称 + N ASIN · M 行 + 待审条数角标
+  const G = {};
+  for (const y of list) {
+    const g = G[y.spu] = G[y.spu] || { n: 0, asins: new Set(), todo: 0, img: null };
+    g.n++; g.asins.add(y.asin);
+    if (!(y.cst === '通过' && y.ist === '通过')) g.todo++;
+    if (!g.img && PMBY[y.asin]) g.img = y;
+  }
   const nav = list.map((y, j) => {
     const head = j === 0 || list[j - 1].spu !== y.spu, open = navOpen.has(y.spu);
-    return (head ? `<div class="lg${open ? '' : ' fold'}" data-g="${esc(y.spu)}"><span class="gt">${esc(y.spu)}</span><span>${gcount[y.spu]}</span></div>` : '') + (!open ? '' :
+    const g = G[y.spu];
+    return (head ? `<div class="lg${open ? ' open' : ''}${y.spu === x.spu ? ' cur' : ''}" data-g="${esc(y.spu)}">${g.img ? imgBox(g.img, 'mini gimg') : '<span class="mini gimg">无图</span>'}
+      <div class="gt"><b>${esc(y.spu)}</b><div class="gm">${g.asins.size} ASIN · ${g.n} 行</div></div>
+      <span class="badge${g.todo ? '' : ' ok'}" title="${g.todo ? `还有 ${g.todo} 条文案或图片未通过` : '全部通过'}">${g.todo || '✓'}</span></div>` : '') + (!open ? '' :
     `<div class="li${y.r._id === state.cur ? ' on' : ''}" data-id="${y.r._id}">${imgBox(y)}<div class="t">
-    <div class="ls" title="${esc(y.spu)}">${esc(y.spu)}</div>
     <div><span class="asin">${esc(y.asin)}</span> <span class="sub2">${esc(y.shop)}</span></div>
     <div class="sub2">${pill(y.cst)} ${pill(y.ist)} ${y.hidden ? '<span class="pill p-hide">不可见</span>' : `<b style="color:var(--red)">🔴${y.red}</b>`}</div></div></div>`);
   }).join('');
