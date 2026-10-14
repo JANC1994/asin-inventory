@@ -198,6 +198,19 @@
   .ck.on { background: var(--green-soft); border-color: #bfe6cb; color: var(--green); font-weight: 700; }
   .ck input { accent-color: var(--green); margin: 0; }
   @media (max-width: 1100px) { .cside { position: static; max-height: none; } .cgrid { grid-template-columns: 1fr; } .mods { border-right: 0; border-bottom: 1px solid var(--line); } }
+  .lg { cursor: pointer; user-select: none; display: flex; gap: 6px; align-items: center; }
+  .lg .gt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lg .gt::before { content: '▾'; display: inline-block; width: 14px; transition: transform .12s; }
+  .lg.fold .gt::before { transform: rotate(-90deg); }
+  .lg.fold { position: static; background: #fff; color: var(--ink); font-weight: 600; }
+  .lg:hover { background: var(--or-soft); }
+  .seg2 { display: inline-flex; background: var(--grey-soft); border-radius: 10px; padding: 3px; gap: 3px; margin: 0 12px; flex: none; }
+  .seg2 button { height: 34px; padding: 0 14px; border: 0; border-radius: 8px; background: transparent; color: var(--sub); font-size: 13.5px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+  .seg2 button.on { background: #fff; color: var(--or-d); font-weight: 700; box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+  .nbtn { height: 24px; padding: 0 10px; border-radius: 12px; border: 1px dashed var(--line2); background: #fff; color: var(--sub); font-size: 12px; cursor: pointer; flex: none; }
+  .nbtn:hover { border-color: var(--or); color: var(--or-d); }
+  .nbtn.has { border-style: solid; border-color: var(--or-soft2); color: var(--or-d); background: var(--or-soft); }
+  .ntx { margin-top: 6px; padding: 6px 10px; border-left: 3px solid var(--or); background: var(--or-soft); border-radius: 0 6px 6px 0; white-space: pre-wrap; word-break: break-word; font-size: 12.5px; }
   .savebar { display: none; align-items: center; gap: 10px; background: #fff; border: 1px solid var(--or-soft2); border-radius: 10px; padding: 8px 12px; margin-bottom: 12px; }
   .savebar.show { display: flex; }
   .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: #2b2118; color: #fff; padding: 8px 16px; border-radius: 8px; font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 50; }
@@ -416,8 +429,10 @@ async function readTable(key) {
 // ===== ⑤ 数据整理 =====
 let ITEMS = [], PMBY = {};
 const state = { mode: store.get('lrp.mode') === 'one' ? 'one' : 'ov', line: 'all', shop: 'all', owner: store.get('lrp.owner') || 'all',
-                cst: 'all', ist: 'all', q: '', cur: null };
+                cst: 'all', ist: 'all', q: '', cur: null, tab: store.get('lrp.tab') === 'img' ? 'img' : 'copy' };
 const folded = new Set();
+const navOpen = new Set(), navShut = new Set(), noteEdit = new Set();   // 侧栏展开的组 / 手动收起的组 / 正在编辑的备注
+let keepNav = false;
 
 function build(rows, pm) {
   PMBY = {};
@@ -549,18 +564,29 @@ function hl(text, marks) {
 function renderOne(list) {
   if (!list.some((x) => x.r._id === state.cur)) state.cur = list[0].r._id;
   const i = list.findIndex((x) => x.r._id === state.cur), x = list[i], r = x.r;
-  // 左侧清单：按 SPU 分组（组头吸顶），每条第一行是 SPU
-  const nav = list.map((y, j) => (j === 0 || list[j - 1].spu !== y.spu ? `<div class="lg">${esc(y.spu)} <span>${list.filter((z) => z.spu === y.spu).length}</span></div>` : '') +
+  // 左侧清单：按 SPU 分组，默认折叠，只展开当前记录所在的组；点组头展开/收起
+  if (!navOpen.has(x.spu) && !navShut.has(x.spu)) navOpen.add(x.spu);
+  const gcount = {};
+  for (const y of list) gcount[y.spu] = (gcount[y.spu] || 0) + 1;
+  const nav = list.map((y, j) => {
+    const head = j === 0 || list[j - 1].spu !== y.spu, open = navOpen.has(y.spu);
+    return (head ? `<div class="lg${open ? '' : ' fold'}" data-g="${esc(y.spu)}"><span class="gt">${esc(y.spu)}</span><span>${gcount[y.spu]}</span></div>` : '') + (!open ? '' :
     `<div class="li${y.r._id === state.cur ? ' on' : ''}" data-id="${y.r._id}">${imgBox(y)}<div class="t">
     <div class="ls" title="${esc(y.spu)}">${esc(y.spu)}</div>
     <div><span class="asin">${esc(y.asin)}</span> <span class="sub2">${esc(y.shop)}</span></div>
-    <div class="sub2">${pill(y.cst)} ${pill(y.ist)} ${y.hidden ? '<span class="pill p-hide">不可见</span>' : `<b style="color:var(--red)">🔴${y.red}</b>`}</div></div></div>`).join('');
+    <div class="sub2">${pill(y.cst)} ${pill(y.ist)} ${y.hidden ? '<span class="pill p-hide">不可见</span>' : `<b style="color:var(--red)">🔴${y.red}</b>`}</div></div></div>`);
+  }).join('');
   const site = /-CA/.test(x.shop) ? 'https://www.amazon.ca/dp/' : 'https://www.amazon.com/dp/';
   const d = DRAFT[r._id] = DRAFT[r._id] || {};
   const val = (f) => f in d ? d[f] : r[f];
   const opts = (f, vals) => `<span class="opts" data-f="${f}">${vals.map((v) => `<button class="opt ${pillCls(v)}${val(f) === v ? ' on' : ''}" data-v="${esc(v)}">${esc(v)}</button>`).join('')}</span>`;
   const ta = (f, ph, cls = '') => `<textarea class="${cls}" data-f="${f}" placeholder="${esc(ph)}">${esc(val(f) || '')}</textarea>`;
   const ck = (f, label) => `<label class="ck${val(f) ? ' on' : ''}"><input type="checkbox" data-f="${f}"${val(f) ? ' checked' : ''}>${label}</label>`;
+  // 备注块：有内容显示内容（点「改备注」再出输入框）；没内容只有按钮
+  const noteBtn = (nf) => FIDS_OK(nf) ? `<button class="nbtn${txt(val(nf)) ? ' has' : ''}" data-n="${esc(nf)}">${noteEdit.has(r._id + nf) ? '收起' : txt(val(nf)) ? '✎ 改备注' : '＋ 备注'}</button>` : `<span class="meta">缺「${esc(nf)}」列</span>`;
+  const noteBody = (nf, m) => !FIDS_OK(nf) ? '' : (noteEdit.has(r._id + nf)
+    ? ta(nf, `备注：${m}（要怎么改）`, 'note')
+    : txt(val(nf)) ? `<div class="ntx">${esc(val(nf))}</div>` : '');
   const flag = (c) => c.hits.some((h) => h[0] === 'r') ? '🔴' : c.hits.some((h) => h[0] === 'o') ? '🟠' : c.hits.length ? '🟡' : '';
 
   // ===== 文案审核卡 =====
@@ -569,12 +595,12 @@ function renderOne(list) {
     const v = txt(r[f]);
     const len = f === 'ST' ? new TextEncoder().encode(v).length : (f.startsWith('卖点') ? v.split('\n\n')[0].length : v.length);
     const c = x.res ? x.res[f] : { hits: [], marks: [] };
-    const nf = '备注-' + f, hasNote = FIDS_OK(nf);
-    mods += `<div class="mod${txt(val(nf)) ? ' noted' : ''}"><div class="fh"><b>${f}</b><span>${flag(c)}</span>
-        <span class="len${len > LIMIT[f] ? ' over' : ''}">${len} / ${LIMIT[f]}${f === 'ST' ? ' 字节' : ''}</span></div>
+    const nf = '备注-' + f;
+    mods += `<div class="mod"><div class="fh"><b>${f}</b><span>${flag(c)}</span>
+        <span class="len${len > LIMIT[f] ? ' over' : ''}">${len} / ${LIMIT[f]}${f === 'ST' ? ' 字节' : ''}</span>${f === 'ST' ? '' : noteBtn(nf)}</div>
       ${hl(v, c.marks)}
       ${c.hits.length ? `<ul class="hits">${c.hits.map((h) => `<li class="${h[0]}">${h[0] === 'r' ? '🔴' : h[0] === 'o' ? '🟠' : '🟡'} ${esc(h[1])}</li>`).join('')}</ul>` : ''}
-      ${f === 'ST' ? '' : hasNote ? ta(nf, `备注：${f}（要怎么改）`, 'note') : `<div class="meta">表里缺「${nf}」列</div>`}</div>`;
+      ${f === 'ST' ? '' : noteBody(nf, f)}</div>`;
   }
   const ai = x.ai;
   const aiBox = ai ? `<div class="score">${ai.score ? `<span class="big">${ai.score}</span><span>${esc(ai.grade || '')} 级</span>` : ''}<span>${esc(ai.concl || '')}</span>
@@ -594,8 +620,8 @@ function renderOne(list) {
     const gallery = a == null ? '<div class="meta">表里没有视频附件列，按备注和「视频完成」勾选审核</div>'
       : a.length ? `<div class="atts">${a.map((t, k) => `<a class="att" data-f="${m}" data-k="${k}" title="${esc(t.name)}"><div class="ph">${SNAP ? '本地预览不显示<br>飞书里显示' : '加载中…'}</div><div class="n">${esc(t.name)}</div></a>`).join('')}</div>`
       : '<div class="meta">还没有上传</div>';
-    return `<div class="mod${txt(val(nf)) ? ' noted' : ''}"><div class="fh"><b>${m}</b>${a ? `<span class="meta">${a.length} 个</span>` : ''}<span class="sp"></span>${ck(doneF, '完成')}</div>
-      ${gallery}${FIDS_OK(nf) ? ta(nf, `备注：${m}（要怎么改）`, 'note') : `<div class="meta">表里缺「${nf}」列</div>`}</div>`;
+    return `<div class="mod"><div class="fh"><b>${m}</b>${a ? `<span class="meta">${a.length} 个</span>` : ''}<span class="sp"></span>${ck(doneF, '完成')}${noteBtn(nf)}</div>
+      ${gallery}${noteBody(nf, m)}</div>`;
   }).join('');
   const imgCard = `<div class="bigc" data-card="img"><div class="ch"><h3>🖼 图片审核</h3>${opts('图片审核状态', IMG_ST)}
       <span class="sp"></span><span class="meta smsg"></span><button class="btn pri sbtn">保存图片审核</button></div>
@@ -608,12 +634,27 @@ function renderOne(list) {
       <a href="${site}${esc(x.asin)}" target="_blank" rel="noopener">打开前台 ↗</a></div>
       <div class="sub2">${esc(x.spu)} · ${esc(x.line)} · 负责人 ${esc(x.owners.join('、'))} · 开售 ${sold} · 最晚完成 <span class="${x.late ? 'late' : ''}">${dl ? ymd(dn(dl)) : '—'}</span></div>
       <div class="sub2" title="${esc(r['品名'])}" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r['SKU'] || '')} · ${esc(r['品名'] || '')}</div></div>
+      <div class="seg2" id="tab"><button data-t="copy"${state.tab === 'copy' ? ' class="on"' : ''}>📝 文案审核 ${pill(x.cst)}</button><button data-t="img"${state.tab === 'img' ? ' class="on"' : ''}>🖼 图片审核 ${pill(x.ist)}</button></div>
       <div class="nav"><button class="btn" id="prev"${i ? '' : ' disabled'}>← 上一条</button><span class="meta" style="align-self:center">${i + 1}/${list.length}</span><button class="btn" id="next"${i < list.length - 1 ? '' : ' disabled'}>下一条 →</button></div></div>
-    ${copyCard}${imgCard}</div></div>`;
-  $('main').querySelectorAll('.li').forEach((el) => el.onclick = () => { state.cur = el.dataset.id; render(); });
+    ${state.tab === 'img' ? imgCard : copyCard}</div></div>`;
+  $('main').querySelectorAll('.li').forEach((el) => el.onclick = () => { state.cur = el.dataset.id; keepNav = true; const top = $('list').scrollTop; render(); $('list').scrollTop = top; });
+  $('main').querySelectorAll('.lg').forEach((el) => el.onclick = () => {
+    const g = el.dataset.g;
+    if (navOpen.has(g)) { navOpen.delete(g); navShut.add(g); } else { navOpen.add(g); navShut.delete(g); }
+    keepNav = true; const top = $('list').scrollTop; render(); $('list').scrollTop = top;
+  });
+  $('tab').querySelectorAll('button').forEach((b) => b.onclick = () => { state.tab = b.dataset.t; store.set('lrp.tab', state.tab); keepNav = true; const top = $('list').scrollTop; render(); $('list').scrollTop = top; });
+  $('main').querySelectorAll('.nbtn').forEach((b) => b.onclick = () => {
+    const k = r._id + b.dataset.n, y = window.scrollY;
+    noteEdit.has(k) ? noteEdit.delete(k) : noteEdit.add(k);
+    keepNav = true; const top = $('list').scrollTop; render(); $('list').scrollTop = top; window.scrollTo(0, y);
+    const t = $('main').querySelector(`textarea[data-f="${CSS.escape(b.dataset.n)}"]`);
+    if (t) { t.focus({ preventScroll: true }); t.setSelectionRange(t.value.length, t.value.length); }
+  });
   $('prev').onclick = () => { state.cur = list[i - 1].r._id; render(); };
   $('next').onclick = () => { state.cur = list[i + 1].r._id; render(); };
-  const on = $('list').querySelector('.li.on'); if (on) on.scrollIntoView({ block: 'nearest' });
+  const on = $('list').querySelector('.li.on'); if (on && !keepNav) on.scrollIntoView({ block: 'nearest' });
+  keepNav = false;
   // 编辑只进草稿（按记录存在内存里，切走再回来还在），点各卡片的「保存」才写回该卡片的字段
   $('main').querySelectorAll('.opts').forEach((g) => g.querySelectorAll('.opt').forEach((b) => b.onclick = () => {
     const now = b.classList.contains('on');
@@ -622,9 +663,9 @@ function renderOne(list) {
     d[g.dataset.f] = now ? null : b.dataset.v;
   }));
   $('main').querySelectorAll('.ck input').forEach((c) => c.onchange = () => { c.parentElement.classList.toggle('on', c.checked); d[c.dataset.f] = c.checked; });
-  $('main').querySelectorAll('textarea').forEach((t) => t.oninput = () => { d[t.dataset.f] = t.value; t.closest('.mod')?.classList.toggle('noted', !!txt(t.value)); });
+  $('main').querySelectorAll('textarea').forEach((t) => t.oninput = () => { d[t.dataset.f] = t.value; });
   $('main').querySelectorAll('.bigc').forEach((card) => card.querySelector('.sbtn').onclick = () => save(x, card));
-  loadAtts(r);
+  if (state.tab === 'img') loadAtts(r);
 }
 
 // 审核表附件：按当前记录取临时地址（地址会过期，不缓存跨记录）
