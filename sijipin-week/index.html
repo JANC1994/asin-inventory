@@ -25,7 +25,12 @@
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--ink);
          font: 13px/1.5 -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; }
-  .wrap { padding: 14px 16px 28px; max-width: 1600px; margin: 0 auto; }
+  html, body { height: 100%; overflow: hidden; }
+  .wrap { padding: 12px 16px 0; max-width: 1600px; margin: 0 auto; height: 100vh; display: flex; flex-direction: column; }
+  #main { flex: 1; min-height: 0; overflow: auto; position: relative; margin: 0 -16px; padding: 0 16px 24px; }
+  .tip { flex: none; background: #fff7e8; color: #b25e00; border-radius: 8px; padding: 6px 12px; font-size: 12.5px; margin-bottom: 8px; }
+  .hero .help { cursor: help; font-size: 12px; background: rgba(255,255,255,.22); border-radius: 10px; padding: 2px 9px; }
+  .hero .ttl { font-size: 16px; letter-spacing: .5px; margin-right: 2px; }
   .meta { color: var(--sub); font-size: 12px; }
   .err { color: var(--red); white-space: pre-wrap; }
   .loading, .empty { padding: 48px 16px; text-align: center; color: var(--sub); background: #fff; border-radius: 12px; border: 1px dashed var(--line2); }
@@ -39,8 +44,8 @@
   .hero h2 { margin: 0; font-size: 18px; letter-spacing: .5px; }
   .hero .desc { margin: 4px 0 0; font-size: 12.5px; line-height: 1.6; color: rgba(255,255,255,.95); max-width: 1150px; }
   .hero.hero-top { border-radius: 12px 12px 0 0; box-shadow: none; }
-  .sticky { position: sticky; top: 0; z-index: 20; background: var(--bg); margin: 0 -16px; padding: 0 16px 2px; }
-  .hero.hero-f { padding: 10px 18px; border-radius: 0 0 12px 12px; border-top: 1px solid rgba(255,255,255,.3); margin-bottom: 12px; }
+  .sticky { flex: none; z-index: 20; background: var(--bg); margin: 0 -16px; padding: 0 16px 2px; }
+  .hero.hero-f { padding: 10px 18px; border-radius: 12px; margin-bottom: 12px; }
   .sticky.stuck { box-shadow: 0 6px 12px -8px rgba(80,50,20,.35); }
   .sticky.stuck .hero.hero-f { border-radius: 0 0 10px 10px; border-top: 0; }
   .seg { display: inline-flex; background: rgba(255,255,255,.22); border-radius: 9px; padding: 3px; gap: 2px; }
@@ -81,6 +86,46 @@
 
   /* 卡片 */
   .grid { display: flex; flex-direction: column; gap: 14px; }
+  /* 左侧 SPU 栏（同产品主表页） */
+  .lib { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 14px; align-items: start; }
+  .side { position: sticky; top: 0; max-height: calc(100vh - var(--stickyH, 180px) - 30px); overflow-y: auto;
+          background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 6px; }
+  .side-h { font-size: 12px; color: var(--sub); padding: 8px 8px 4px; display: flex; justify-content: space-between; gap: 6px; }
+  .side-h:first-child { padding-top: 4px; }
+  .si { display: flex; align-items: center; gap: 8px; width: 100%; border: 0; background: none; border-radius: 8px; padding: 5px 8px; cursor: pointer; text-align: left; color: var(--ink); font: inherit; }
+  .si:hover { background: var(--or-soft); }
+  .si.on { background: var(--or); color: #fff; }
+  .si-img { width: 34px; height: 34px; border-radius: 7px; overflow: hidden; flex: none; background: var(--grey-soft); font-size: 10px; color: var(--grey); display: flex; align-items: center; justify-content: center; }
+  .si-img img { width: 100%; height: 100%; object-fit: cover; }
+  .si .sn { flex: 1; min-width: 0; font-size: 13px; font-weight: 600; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .si .sn small { display: block; font-size: 11px; font-weight: 400; color: var(--sub); }
+  .si.on .sn small { color: rgba(255,255,255,.85); }
+  .ldot { width: 10px; height: 10px; border-radius: 50%; flex: none; background: #d5cbc0; display: inline-block; }
+  .ldot.red { background: #e5483f; } .ldot.yellow { background: #f5c518; } .ldot.green { background: #34c759; }
+  .si.on .ldot { box-shadow: 0 0 0 2px #fff; }
+  .one { min-width: 0; }
+  @media (max-width: 900px) { .lib { grid-template-columns: 1fr; } .side { position: static; max-height: 220px; } }
+  /* 判灯依据 */
+  .basis { flex: 1 1 320px; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+  .basis-t { font-size: 11.5px; color: var(--sub); cursor: help; border-bottom: 1px dashed #cdbfb0; }
+  .bchip { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; padding: 3px 9px; border-radius: 12px; background: var(--grey-soft); color: var(--sub); cursor: help; white-space: nowrap; }
+  .bchip b { font-weight: 700; } .bchip i { width: 8px; height: 8px; border-radius: 50%; background: #c9c1b8; }
+  .bchip.red { background: var(--red-soft); color: #a8262d; } .bchip.red i { background: #e5483f; }
+  .bchip.yellow { background: var(--yellow-soft); color: #7d5a00; } .bchip.yellow i { background: #f5c518; }
+  .bchip.green { background: var(--green-soft); color: #1d6e35; } .bchip.green i { background: #34c759; }
+  .bnote { font-size: 12px; color: var(--sub); }
+  /* 月销量目标 */
+  .mbar { border: 1px solid var(--or-soft2); background: #fffaf4; border-radius: 10px; padding: 8px 10px; }
+  .mbar-h { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 12px; color: var(--sub); }
+  .mbar-h > b { font-size: 13.5px; color: var(--ink); }
+  .pbar.big { position: relative; height: 10px; border-radius: 5px; margin: 6px 0 4px; overflow: visible; }
+  .pbar.big i { border-radius: 5px; } .pbar.big i.behind { background: #e5483f; }
+  .pbar.big s { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--ink); opacity: .55; border-radius: 1px; }
+  .mbar-f { display: flex; justify-content: space-between; gap: 8px; font-size: 11px; color: var(--sub); flex-wrap: wrap; }
+  .at td:first-child small.why { display: block; font-size: 10.5px; line-height: 1.3; color: var(--sub); white-space: normal; }
+  .at td:first-child small.why.red { color: #b3262d; } .at td:first-child small.why.yellow { color: #8a6400; }
+  .at td:first-child { white-space: normal; }
+  .at td:first-child a { font-family: inherit; font-size: 12px; font-weight: 600; }
   .pc { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px 16px 22px; display: flex; flex-direction: column; gap: 12px;
         position: relative; overflow: hidden; box-shadow: 0 1px 3px rgba(80,50,20,.05); min-width: 0; }
   .pc::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--grey); }
@@ -90,11 +135,33 @@
   .pc-head .reason { flex: 1 1 260px; min-width: 0; }
   .pc-act { display: flex; align-items: center; gap: 8px; margin-left: auto; }
   .pc-act [data-msg] { font-size: 11.5px; color: var(--sub); white-space: nowrap; }
-  .pc-body { display: grid; grid-template-columns: minmax(300px, .95fr) minmax(300px, 1.05fr) minmax(340px, 1.35fr); gap: 18px; align-items: start; }
+  .pc-body { display: grid; grid-template-columns: minmax(250px, .9fr) minmax(300px, 1.1fr) minmax(300px, 1.2fr); gap: 16px; align-items: stretch; }
+  .pc-col.left .w8 { flex: 1; display: flex; flex-direction: column; } .pc-col.left .w8-bars { flex: 1; min-height: 96px; }
+  .pc-col.fill .sec:not(.boss) { flex: 1; display: flex; flex-direction: column; }
+  .pc-col.fill .sec:not(.boss) .fld { flex: 1; } .pc-col.fill .sec:not(.boss) .fld textarea { align-self: stretch; }
   .pc-col { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
   .pc-col.fill { border-left: 1px dashed var(--line2); padding-left: 18px; }
-  .col-t { font-size: 12px; color: var(--sub); margin-bottom: -4px; }
-  @media (max-width: 1240px) { .pc-body { grid-template-columns: 1fr 1fr; } .pc-col.fill { grid-column: 1 / -1; border-left: 0; padding-left: 0; border-top: 1px dashed var(--line2); padding-top: 10px; } }
+  .col-t { font-size: 12.5px; font-weight: 700; color: var(--or-d); margin-bottom: -4px; }
+  .goals { display: grid; grid-template-columns: minmax(170px, .8fr) repeat(3, minmax(180px, 1fr)); gap: 10px; }
+  .goal { position: relative; background: linear-gradient(135deg, #fff6ec, #fff1e2); border: 1px solid var(--or-soft2); border-radius: 10px; padding: 8px 12px 10px; min-width: 0; }
+  .goal.dirty { border-color: #f2b705; background: #fffbea; }
+  .goal-h { display: flex; align-items: center; justify-content: space-between; font-size: 12px; color: var(--or-d); font-weight: 600; }
+  .gedit { border: 1px solid transparent; background: transparent; color: var(--or-d); width: 26px; height: 24px; border-radius: 6px; cursor: pointer; font-size: 14px; }
+  .gedit:hover { background: #fff; border-color: var(--or-soft2); }
+  .goal-v { font-size: 16px; font-weight: 700; line-height: 1.5; color: var(--ink); white-space: pre-wrap; word-break: break-word; margin-top: 2px; }
+  .goal.gnum .goal-v { font-size: 22px; font-variant-numeric: tabular-nums; }
+  .goal-v.none, .goal.gnum .goal-v.none { font-size: 13px; font-weight: normal; color: #c3a98e; }
+  .grate { font-size: 12px; font-weight: normal; color: var(--sub); margin-top: 4px; display: flex; align-items: center; gap: 8px; }
+  .grate b { color: var(--or-d); }
+  .goal-e { display: none; margin-top: 4px; }
+  .goal.editing .goal-e { display: block; } .goal.editing .goal-v, .goal.editing .gedit { display: none; }
+  .goal-e textarea, .goal-e input { width: 100%; box-sizing: border-box; border: 1px solid var(--or); border-radius: 6px; padding: 5px 8px; font: 14px/1.5 inherit; font-family: inherit;
+    color: var(--ink); background: #fff; resize: none; overflow: hidden; outline: none; box-shadow: 0 0 0 2px rgba(240,122,18,.12); }
+  .goal-e input { font-size: 18px; font-variant-numeric: tabular-nums; }
+  .goal-b { display: flex; gap: 6px; margin-top: 6px; }
+  @media (max-width: 1000px) { .goals { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 560px) { .goals { grid-template-columns: 1fr; } }
+  @media (max-width: 1380px) { .pc-body { grid-template-columns: 1fr 1fr; } .pc-col.fill { grid-column: 1 / -1; border-left: 0; padding-left: 0; border-top: 1px dashed var(--line2); padding-top: 10px; } }
   @media (max-width: 700px) { .pc-body { grid-template-columns: 1fr; } }
   .pc-img { width: 76px; height: 76px; border-radius: 10px; background: var(--grey-soft); flex: none; overflow: hidden;
             display: flex; align-items: center; justify-content: center; color: var(--grey); font-size: 11px; border: 1px solid var(--line); }
@@ -123,10 +190,10 @@
   .mt td:nth-child(3) { color: var(--sub); }
   .up { color: var(--green); } .down { color: var(--red); } .flat { color: var(--sub); }
 
-  .inv4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+  .inv4 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
   .inv4 > div { border: 1px solid var(--line); border-radius: 8px; background: #fcfaf7; padding: 5px 8px; min-width: 0; }
   .inv4 span, .inv4 i { display: block; font-size: 11px; color: var(--sub); font-style: normal; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .inv4 b { display: block; font-size: 16px; font-variant-numeric: tabular-nums; }
+  .inv4 b { display: block; font-size: 18px; font-variant-numeric: tabular-nums; }
   .inv4 .warn { background: var(--yellow-soft); border-color: #f3dc8a; } .inv4 .warn b { color: var(--yellow); }
   .inv4 .bad { background: var(--red-soft); border-color: #f4c0c3; } .inv4 .bad b { color: var(--red); }
   .w8 { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px 6px; background: #fcfaf7; }
@@ -159,6 +226,8 @@
   .fld .dirty { border-color: #f2b705 !important; background: #fffbea !important; }
   .fld textarea::placeholder, .fld input::placeholder { color: #cdc3b8; }
   .fld .hint { font-size: 11.5px; color: var(--sub); padding-top: 5px; }
+  .pc-col.fill .fld textarea { min-height: 58px; }
+  .pc-col.fill .fld { margin-top: 6px; }
 
   .btn { height: 28px; padding: 0 12px; border: 1px solid var(--or); border-radius: 7px; background: #fff; color: var(--or-d); cursor: pointer; font-size: 12.5px; white-space: nowrap; }
   .btn.primary { background: var(--or); color: #fff; }
@@ -170,7 +239,7 @@
   .at { width: 100%; table-layout: fixed; font-size: 11.5px; font-variant-numeric: tabular-nums; }
   .at th, .at td { padding: 3px 2px; text-align: right; border-top: 1px solid var(--line); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .at th { color: var(--sub); font-weight: normal; }
-  .at th:first-child, .at td:first-child { text-align: left; width: 29%; }
+  .at th:first-child, .at td:first-child { text-align: left; width: 36%; }
   .at th:last-child, .at td:last-child { width: 9%; text-align: center; }
   .at td:first-child a { color: var(--or-d); cursor: pointer; text-decoration: none; font-family: ui-monospace, Consolas, monospace; font-size: 11px; }
   .at td:first-child a:hover { text-decoration: underline; }
@@ -231,16 +300,13 @@
     <button id="saveBtn">保存到页面</button>
     <span class="meta" id="saveMsg"></span>
   </div>
-  <div class="hero hero-top">
-    <div>
-      <h2>四季品经营复盘</h2>
-      <p class="desc">每张卡 = 一个 SPU × 国家在所选那一周的经营数据，红灯排前。数字和红黄绿灯由系统每天按「四季品经营表」算好；
-        卡片下半部分直接填：目标与策略（新周自动沿用上周，有变化再改）、本周复盘（竞品动态 / 问题和归因 / 计划操作）、主管建议，点「保存」写回多维表的这一周。
-        「产品表现」看单个 SPU 或 ASIN 的每日趋势（产品、广告可切近 7/14/30 天并对比上一周期，库存看未来 120 天预测）。</p>
-    </div>
-  </div>
+  <div class="tip" id="tallTip" style="display:none">插件框比屏幕还高，往下滑时顶部筛选栏会被滚走。请在应用编辑模式里把这个插件组件的高度拖到一屏以内，页面会改成内部滚动、顶栏固定。</div>
+  <template id="helpText">每张卡 = 一个 SPU × 国家在所选那一周的经营数据，红灯排前。数字和红黄绿灯由系统每天按「四季品经营表」算好；
+        卡片顶部是本周目标与策略（新周自动沿用上周，点 ✎ 修改），右侧填本周复盘（竞品动态 / 问题和归因 / 计划操作）和主管建议，点「保存」写回多维表的这一周。
+        「产品表现」看单个 SPU 或 ASIN 的每日趋势（产品、广告可切近 7/14/30 天并对比上一周期，库存看未来 120 天预测）。</template>
   <div class="sticky" id="sticky">
     <div class="hero hero-f">
+      <b class="ttl">四季品经营复盘</b><span class="help" id="help">说明</span>
       <div class="seg" id="mode"><button data-mode="review">经营复盘</button><button data-mode="progress">填写进度</button><button data-mode="perf">📈 产品表现</button></div>
       <select id="owner"></select>
       <select id="week"></select>
@@ -284,6 +350,8 @@ const TABLES = {
   bh: { id: 'tblBymnJvmClZQdy', name: '销量预估-备货表', fields: ['领星SKU', '国家', 'ASIN', '本地仓可用', '采购在途', '生产天数', '头程天数', '安全天数', '发货备货天数', '采购备货天数',
     '单箱数量', '头程渠道', ...Array.from({ length: 12 }, (_, i) => `${i + 1}月日均`)] },
   sv: { id: 'tblXt1ki1ZvR2o8U', name: '备货计划-页面存档', fields: ['记录键', '方案数据', '更新时间'] },
+  // 月销量目标：四季品-月度子行，目标键 = SPU|国家|YYYYMM，「当月销量」= 该月目标销量（运营手填）
+  tg: { id: 'tblE3XbKD8PUEX7Y', name: '产品目标总表-灯', fields: ['目标键', '当月销量'] },
   ch: { id: 'tblxl08WV9pLwxdi', name: '头程渠道时效', fields: ['物流渠道', '国家', '运输方式', '标准时效天数', '历史样本数', '启用'] },
 };
 const CAL_DAYS = 120;   // 库存趋势看未来 120 天
@@ -586,7 +654,7 @@ function model(o, opt = {}) {
 }
 // ===== 备货计划模型 END =====
 const n0 = (v) => num(cell(v)) ?? 0;
-let INV = { ov: {}, ships: {}, o: {} }, BH = null;
+let INV = { ov: {}, ships: {}, o: {} }, BH = null, MTG = {};
 const first = (v) => String(cell(v) ?? '').split('、')[0];
 const msDay = (v) => { if (v == null || v === '') return ''; const n = dn(typeof v === 'number' ? v : Date.parse(v)); const d = ud(n);
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`; };
@@ -707,7 +775,7 @@ function buildDay(day) {
 
 let state = {
   mode: ['review', 'progress', 'perf'].includes(store.get('swp.mode')) ? store.get('swp.mode') : 'review',
-  owner: store.get('swp.owner') || '', week: null, country: '', pick: '', light: 'all', fill: 'all',
+  owner: store.get('swp.owner') || '', week: null, country: '', pick: '', sel: '', light: 'all', fill: 'all',
   ent: store.get('swp.ent') || '',
   pmSel: loadSel('swp.pmSel', ['销量']), adSel: loadSel('swp.adSel', ['广告花费']),
   pmR: Number(store.get('swp.pmR')) || 30, adR: Number(store.get('swp.adR')) || 30,
@@ -740,7 +808,7 @@ const asinRows = (spuEnt) => Object.values(ENT).filter((e) => e.layer === 'ASIN'
 function renderTop() {
   $('mode').querySelectorAll('[data-mode]').forEach((b) => {
     b.classList.toggle('on', b.dataset.mode === state.mode);
-    b.onclick = () => { if (state.mode === b.dataset.mode) return; state.mode = b.dataset.mode; store.set('swp.mode', state.mode); renderTop(); render(); window.scrollTo(0, 0); };
+    b.onclick = () => { if (state.mode === b.dataset.mode) return; state.mode = b.dataset.mode; store.set('swp.mode', state.mode); renderTop(); render(); $('main').scrollTop = 0; };
   });
   // 负责人（带所选周的灯数）
   const cnt = {};
@@ -851,6 +919,79 @@ function fldHtml(r, f, ph, isNum) {
   return `<div class="fld"><label>${f}</label><textarea rows="1" data-f="${f}" class="${dirty}" placeholder="${esc(ph)}">${esc(v)}</textarea></div>`;
 }
 
+// 判灯依据：与四季品经营表的公式一致（_判定 / _销量灯 / _广告灯 / _转化灯）
+function basisOf(e, r) {
+  const prev = e.weeks.get(state.week - 7) || null;
+  let o4 = 0, c4 = 0;
+  for (let k = 1; k <= 4; k++) { const w = e.weeks.get(state.week - 7 * k); if (w) { o4 += w['订单量'] || 0; c4 += w['总点击数'] || 0; } }
+  const cvr4 = c4 > 0 ? o4 / c4 : 0, cvr = r['CVR'];
+  const sales = r['销量'] || 0, tgt = num(r['周目标销量']), last = prev ? prev['销量'] || 0 : 0;
+  const lv = (x) => ['green', 'yellow', 'red'][x];
+  const items = [];
+  if (tgt > 0) { const q = sales / tgt; items.push({ k: '销量', c: lv(q >= 1 ? 0 : q >= 0.8 ? 1 : 2), v: `达成 ${pct(q, 0)}`, rule: '周目标达成 ≥100% 绿 · ≥80% 黄 · 否则红' }); }
+  else if (last > 0) { const q = sales / last; items.push({ k: '销量', c: lv(q >= 0.9 ? 0 : q >= 0.7 ? 1 : 2), v: `环比 ${q >= 1 ? '+' : ''}${pct(q - 1, 0)}`, rule: '未填周目标时比上周：≥-10% 绿 · ≥-30% 黄 · 否则红' }); }
+  else items.push({ k: '销量', c: 'green', v: '无参照', rule: '没有周目标也没有上周销量，不判' });
+  const tac = r['TACOS'];
+  items.push({ k: '广告', c: lv(!(r['广告花费'] > 0) || tac == null ? 0 : tac <= 0.15 ? 0 : tac <= 0.2 ? 1 : 2), v: `TACOS ${pct(tac)}`, rule: 'TACOS ≤15% 绿 · ≤20% 黄 · 否则红' });
+  if (cvr4 > 0 && cvr != null) { const q = cvr / cvr4; items.push({ k: '转化', c: lv(q >= 0.9 ? 0 : q >= 0.75 ? 1 : 2), v: `CVR ${pct(cvr)} · 较前4周 ${q >= 1 ? '+' : ''}${pct(q - 1, 0)}`, rule: 'CVR 对比前 4 周平均：≥-10% 绿 · ≥-25% 黄 · 否则红' }); }
+  else items.push({ k: '转化', c: 'green', v: '前4周无数据', rule: '前 4 周没有点击，不判' });
+  let note = '';
+  if (r['周状态'] !== '完整') note = '本周未结束，暂不判灯';
+  else if (sales < 10 || (r['总点击数'] || 0) < 100) note = '样本少（销量<10 或 点击<100），不判灯';
+  return { items, note };
+}
+function basisHtml(e, r) {
+  const b = basisOf(e, r);
+  return `<div class="basis"><span class="basis-t" title="三项里最差的那一项决定整张卡的灯色">判灯依据</span>
+    ${b.items.map((x) => `<span class="bchip ${b.note ? 'off' : x.c}" title="${esc(x.rule)}"><i></i><b>${x.k}</b>${esc(x.v)}</span>`).join('')}
+    ${b.note ? `<span class="bnote">${esc(b.note)}</span>` : ''}</div>`;
+}
+// 月销量目标进度：产品目标总表 SPU|国家|YYYYMM 的「当月销量」；已卖 = 每日数据表当月合计（日表读完才有）
+function monthOf(e) {
+  const end = Math.min(state.week + 6, DAYS.length ? DAYS[DAYS.length - 1] : state.week + 6);
+  const d = ud(state.week + 6), y = d.getUTCFullYear(), m = d.getUTCMonth();
+  const first = Math.floor(Date.UTC(y, m, 1) / DAY), last = Math.floor(Date.UTC(y, m + 1, 0) / DAY);
+  return { y, m, first, last, ym: `${y}${String(m + 1).padStart(2, '0')}`, end };
+}
+function monthBarHtml(e) {
+  const mo = monthOf(e), tgt = MTG[`${e.spu}|${e.country}|${mo.ym}`];
+  const label = `${mo.m + 1}月销量目标`;
+  if (tgt == null) return `<div class="mbar" data-mbar="${esc(e.key)}"><div class="mbar-h"><b>${label}</b><span class="meta">未填（产品目标总表）</span></div></div>`;
+  if (!DAY_READY) return `<div class="mbar" data-mbar="${esc(e.key)}"><div class="mbar-h"><b>${label} ${fmtN(tgt)}</b><span class="meta">每日数据读取中…</span></div><div class="pbar"><i style="width:0"></i></div></div>`;
+  const latest = DAYS[DAYS.length - 1], upto = Math.min(mo.last, latest);
+  const keys = Object.values(ENT).filter((a) => a.layer === 'ASIN' && a.spu === e.spu && a.country === e.country).map((a) => `${a.asin}|${a.country}`);
+  let sold = 0;
+  for (const k of keys) for (let d = mo.first; d <= upto; d++) sold += (DAYAGG[k] && DAYAGG[k][d] && DAYAGG[k][d].sales) || 0;
+  const days = mo.last - mo.first + 1, gone = Math.max(0, Math.min(days, upto - mo.first + 1));
+  const q = sold / tgt, tq = gone / days, behind = q < tq - 0.05;
+  return `<div class="mbar" data-mbar="${esc(e.key)}"><div class="mbar-h"><b>${label} ${fmtN(tgt)}</b>
+      <span>已卖 <b class="${behind ? 'down' : 'up'}">${fmtN(sold)}</b>（${pct(q, 0)}）</span></div>
+    <div class="pbar big"><i style="width:${Math.min(100, q * 100)}%" class="${behind ? 'behind' : ''}"></i><s style="left:${tq * 100}%" title="时间进度 ${pct(tq, 0)}（截至 ${fmtD(upto)}）"></s></div>
+    <div class="mbar-f"><span>时间进度 ${pct(tq, 0)}（${fmtD(upto)}）</span><span>${q >= 1 ? '已达成' : `还差 ${fmtN(tgt - sold)} · 剩 ${days - gone} 天需日均 ${days - gone > 0 ? fmtN((tgt - sold) / (days - gone), 1) : '—'}`}</span></div></div>`;
+}
+function refreshMonthBars() {
+  document.querySelectorAll('[data-mbar]').forEach((el) => { const e = ENT[el.dataset.mbar]; if (e) el.outerHTML = monthBarHtml(e); });
+}
+
+// 目标带：大字展示，✎ 才出输入框（改动进 DRAFT，卡片「保存」统一写回）
+const GOALS = [
+  { f: '周目标销量', ph: '未填 · 按环比判灯', num: true },
+  { f: '产品目标', ph: '如：月销 2K+，毛利 20%' },
+  { f: '经营策略', ph: '如：拓展变体、拓展泛词' },
+  { f: '关键指标', ph: '如：销量、利润率' },
+];
+function goalHtml(r, g, extra = '') {
+  const v = val(r, g.f), dirty = `${r._id}|${g.f}` in DRAFT;
+  const shown = g.num ? (num(v) != null ? fmtN(num(v)) : '') : String(v || '');
+  return `<div class="goal${dirty ? ' dirty' : ''}${g.num ? ' gnum' : ''}" data-goal="${g.f}">
+    <div class="goal-h"><span>${g.f}</span><button class="gedit" data-gedit title="编辑">✎</button></div>
+    <div class="goal-v${shown ? '' : ' none'}">${shown ? esc(shown) : esc(g.ph)}${extra}</div>
+    <div class="goal-e">${g.num ? `<input type="number" min="0" step="1" data-f="${g.f}" value="${esc(v)}" placeholder="未填">`
+      : `<textarea rows="2" data-f="${g.f}" placeholder="${esc(g.ph)}">${esc(v)}</textarea>`}
+      <div class="goal-b"><button class="btn primary" data-gok>完成</button><button class="btn ghost" data-gcancel>取消</button></div></div>
+  </div>`;
+}
+
 function cardHtml(x) {
   const { e, r, prev } = x, c = e.country;
   const lt = r['红绿灯'] || '⚪ 未判';
@@ -858,6 +999,7 @@ function cardHtml(x) {
   const rate = tgt ? (r['销量'] || 0) / tgt : null;
   const asins = asinRows(e);
   const pending = [...NUM_EDIT, ...TEXT_FIELDS].filter((f) => `${r._id}|${f}` in DRAFT).length;
+  const rateHtml = rate != null ? `<div class="grate"><div class="pbar"><i style="width:${Math.min(100, rate * 100)}%"></i></div>本周 ${fmtN(r['销量'])} · 达成 <b>${pct(rate, 0)}</b></div>` : '';
   return `<div class="pc ${x.light}" data-id="${r._id}" data-key="${esc(e.key)}">
     <div class="pc-head">
       <div class="pc-img" data-img="${esc(e.key)}">${imgTag(e)}</div>
@@ -866,28 +1008,27 @@ function cardHtml(x) {
           <span class="tag g">${fmtD(state.week)}~${fmtD(state.week + 6)} ${esc(r['周状态'] || '')}${r['有效天数'] != null && r['有效天数'] < 7 ? ` ${r['有效天数']}天` : ''}</span>
           <span class="tag ${x.fill === 'done' ? 'ok' : x.fill === 'part' ? 'part' : ''}">复盘${FILL_LABEL[x.fill]}</span></div></div>
       <span class="light ${x.light}">${esc(lt)}</span>
-      ${r['亮灯原因'] ? `<div class="reason ${x.light}">${esc(r['亮灯原因'])}</div>` : '<div class="reason" style="visibility:hidden">—</div>'}
+      ${basisHtml(e, r)}
       <div class="pc-act"><button class="btn ghost" data-trend>📈 看趋势</button><span data-msg>${pending ? `${pending} 项未保存` : ''}</span>
         <button class="btn primary" data-save${pending ? '' : ' disabled'}>保存</button></div>
     </div>
+    <div class="goals">${GOALS.map((g) => goalHtml(r, g, g.num ? rateHtml : '')).join('')}</div>
     <div class="pc-body">
+      <div class="pc-col left">
+        ${monthBarHtml(e)}
+        <div class="col-t">库存</div>
+        ${invStripHtml(e)}
+        ${w8Html(e)}
+      </div>
       <div class="pc-col">
-        <div class="tgt">周目标 <b>${tgt ? fmtN(tgt) : '未填'}</b>${rate != null ? `<div class="pbar"><i style="width:${Math.min(100, rate * 100)}%"></i></div><b>达成 ${pct(rate, 0)}</b>` : '<span class="meta">未填时按环比判灯</span>'}</div>
+        <div class="col-t">数据变化</div>
         <table class="mt"><thead><tr><th>指标</th><th>本周</th><th>上周</th><th>变化</th></tr></thead><tbody>
           ${METRICS.map((m) => { const a = r[m.f], b = prev ? prev[m.f] : null;
             return `<tr><td>${m.k}</td><td>${m.fmt(a, c)}</td><td>${prev ? m.fmt(b, c) : '—'}</td><td>${chgHtml(m, a, b)}</td></tr>`; }).join('')}
         </tbody></table>
-      </div>
-      <div class="pc-col">
-        ${invStripHtml(e)}
-        ${w8Html(e)}
-        ${asins.length ? `<div class="col-t">ASIN 明细（${asins.length} 个，点 ASIN 看趋势）</div>${asinTblHtml(asins, c)}` : ''}
+        ${asins.length ? `<div class="col-t">ASIN 明细（${asins.length} 个，点品名看趋势）</div>${asinTblHtml(asins, c, e.spu)}` : ''}
       </div>
       <div class="pc-col fill">
-        <div class="sec"><div class="sec-t">目标与策略 <span class="meta">新周自动沿用上周，有变化再改</span></div>
-          ${fldHtml(r, '周目标销量', '', true)}
-          ${fldHtml(r, '产品目标', '如：月销 2K+，毛利 20%')}${fldHtml(r, '经营策略', '如：拓展变体、拓展泛词')}${fldHtml(r, '关键指标', '如：销量、利润率')}
-        </div>
         <div class="sec"><div class="sec-t">本周复盘 <span class="meta">3 项都填 = 已填</span></div>
           ${fldHtml(r, '竞品动态', '竞品降价/上新/排名变化…')}${fldHtml(r, '问题和归因', '本周哪里不对、为什么')}${fldHtml(r, '计划操作', '下周具体做什么')}
         </div>
@@ -916,11 +1057,31 @@ function invStripHtml(e) {
   </div>`;
 }
 
-function asinTblHtml(asins, c) {
-  return `<table class="at"><thead><tr><th>ASIN</th><th>销量</th><th>环比</th><th>CVR</th><th>ACOS</th><th>TACOS</th><th>灯</th></tr></thead><tbody>
-    ${asins.map(({ e, r, prev }) => `<tr class="${e.key === state.pick ? 'hl' : ''}"><td><a data-goent="${esc(e.key)}" title="${esc(pname(e) || e.asin)}（点击看趋势）">${esc(e.asin)}</a></td><td>${fmtN(r['销量'])}</td>
-      <td>${chgHtml(METRICS[0], r['销量'], prev && prev['销量'], true)}</td><td>${pctS(r['CVR'])}</td><td>${pctS(r['ACOS'])}</td><td>${pctS(r['TACOS'])}</td>
-      <td title="${esc(r['亮灯原因'] || '')}">${esc(String(r['红绿灯'] || '').slice(0, 2) || '⚪')}</td></tr>`).join('')}
+// 品名只留同 SPU 各 ASIN 不一样的部分：先去掉大家共有的前缀（截到分隔符），否则去掉 SPU 名前缀；全名和 ASIN 放提示里
+const SEP = /[\s\-—_·:：/、，,]/;
+function nameLabels(ents, spu) {
+  const names = ents.map((a) => pname(a) || '');
+  let pre = '';
+  if (names.length > 1 && names.every(Boolean)) {
+    pre = names.reduce((a, b) => { let k = 0; while (k < a.length && k < b.length && a[k] === b[k]) k++; return a.slice(0, k); });
+    let cut = -1; for (let k = pre.length - 1; k >= 0; k--) if (SEP.test(pre[k])) { cut = k; break; }
+    pre = cut >= 0 ? pre.slice(0, cut + 1) : '';
+  }
+  return ents.map((a, i) => {
+    const n = names[i]; if (!n) return a.asin;
+    let t = pre && n.length > pre.length ? n.slice(pre.length) : n;
+    if (t === n && spu && n.startsWith(spu)) t = n.slice(spu.length);
+    t = t.replace(/^[\s\-—_·:：/]+/, '');
+    return t || n;
+  });
+}
+function asinTblHtml(asins, c, spu) {
+  const labels = nameLabels(asins.map((x) => x.e), spu);
+  return `<table class="at"><thead><tr><th>品名</th><th>销量</th><th>环比</th><th>CVR</th><th>ACOS</th><th>TACOS</th><th>灯</th></tr></thead><tbody>
+    ${asins.map(({ e, r, prev }, i) => `<tr class="${e.key === state.pick ? 'hl' : ''}"><td><a data-goent="${esc(e.key)}" title="${esc((pname(e) || '') + '\n' + e.asin + '（点击看趋势）')}">${esc(labels[i])}</a>
+        ${r['亮灯原因'] ? `<small class="why ${lightOf(r['红绿灯'])}">${esc(String(r['亮灯原因']).replace(/；$/, '').replace(/；/g, ' · '))}</small>` : ''}</td>
+      <td>${fmtN(r['销量'])}</td><td>${chgHtml(METRICS[0], r['销量'], prev && prev['销量'], true)}</td><td>${pctS(r['CVR'])}</td><td>${pctS(r['ACOS'])}</td><td>${pctS(r['TACOS'])}</td>
+      <td title="${esc(r['亮灯原因'] || r['红绿灯'] || '')}"><span class="ldot ${lightOf(r['红绿灯'])}"></span></td></tr>`).join('')}
   </tbody></table>`;
 }
 
@@ -930,21 +1091,32 @@ function renderReview(main) {
   let list = all.filter((x) => (state.light === 'all' || x.light === state.light) && (state.fill === 'all' || x.fill === state.fill));
   if (!list.length) { main.innerHTML = summaryHtml(all) + `<div class="empty">这一周没有符合条件的 SPU</div>`; return; }
   sortCards(list);
-  let html = summaryHtml(list);
-  if (state.owner) html += `<div class="grid">${list.map(cardHtml).join('')}</div>`;
-  else {
-    const g = {};
-    list.forEach((x) => { const o = owners(x.r)[0] || '（未填负责人）'; (g[o] = g[o] || []).push(x); });
-    for (const [o, xs] of Object.entries(g).sort((a, b) => b[1].length - a[1].length)) {
-      const n = (k) => xs.filter((x) => x.light === k).length;
-      html += `<div class="grp"><b>${esc(o)}</b><span class="meta">${xs.length} 个 SPU · 🔴${n('red')} 🟡${n('yellow')} 🟢${n('green')} · 复盘已填 ${xs.filter((x) => x.fill === 'done').length}/${xs.length}</span>
-        <div class="lbar">${LIGHTS.map((l) => n(l.key) ? `<i style="flex:${n(l.key)};background:${l.color}"></i>` : '').join('')}</div></div>
-        <div class="grid">${xs.map(cardHtml).join('')}</div>`;
-    }
-  }
-  main.innerHTML = html;
-  list.forEach(bindCard);
-  loadImages(list.map((x) => x.e));
+  // 负责人分组（选了负责人就只有一组）；组内红灯排前
+  const g = {};
+  list.forEach((x) => { const o = owners(x.r)[0] || '（未填负责人）'; (g[o] = g[o] || []).push(x); });
+  const groups = Object.entries(g).sort((a, b) => b[1].length - a[1].length);
+  const flat = groups.flatMap(([, xs]) => xs);
+  const pk = ENT[state.pick];
+  if (pk) { const hit = flat.find((x) => x.e.spu === pk.spu && x.e.country === pk.country); if (hit) state.sel = hit.e.key; }
+  if (!flat.some((x) => x.e.key === state.sel)) state.sel = flat[0].e.key;
+  const selX = flat.find((x) => x.e.key === state.sel);
+  const side = groups.map(([o, xs]) => {
+    const n = (k) => xs.filter((x) => x.light === k).length;
+    return `<div class="side-h"><span>${esc(o)}</span><span>🔴${n('red')} 🟡${n('yellow')} · 已填 ${xs.filter((x) => x.fill === 'done').length}/${xs.length}</span></div>`
+      + xs.map((x) => `<button class="si${x.e.key === state.sel ? ' on' : ''}" data-sel="${esc(x.e.key)}" title="${esc(x.e.spu + ' · ' + x.e.country)}">
+          <span class="si-img" data-img="${esc(x.e.key)}">${imgTag(x.e)}</span>
+          <span class="sn">${esc(x.e.spu)}<small>${esc(x.e.country)} · 复盘${FILL_LABEL[x.fill]}${Object.keys(DRAFT).some((k) => k.startsWith(x.r._id + '|')) ? ' · 未保存' : ''}</small></span>
+          <span class="ldot ${x.light}"></span></button>`).join('');
+  }).join('');
+  main.innerHTML = summaryHtml(list) + `<div class="lib"><nav class="side" id="side"><div class="side-h"><span>SPU</span><span>${flat.length}</span></div>${side}</nav>
+    <section class="one">${cardHtml(selX)}</section></div>`;
+  bindCard(selX);
+  main.querySelectorAll('.si').forEach((b) => b.onclick = () => {
+    state.sel = b.dataset.sel; state.pick = '';
+    const st = $('side').scrollTop; render(); $('side').scrollTop = st;
+    const lib = main.querySelector('.lib'); if (lib && main.scrollTop > lib.offsetTop - 8) main.scrollTop = lib.offsetTop - 8;
+  });
+  loadImages(flat.map((x) => x.e));
 }
 
 function bindCard(x) {
@@ -955,14 +1127,36 @@ function bindCard(x) {
     const n = [...el.querySelectorAll('[data-f]')].filter((i) => `${r._id}|${i.dataset.f}` in DRAFT).length;
     saveBtn.disabled = !n; msg.textContent = n ? `${n} 项未保存` : '';
   };
-  el.querySelectorAll('textarea').forEach(grow);
+  requestAnimationFrame(() => el.querySelectorAll('.fld textarea').forEach((t) => { if (!t.closest('.pc-col.fill .sec:not(.boss)')) grow(t); }));   // 等排版完再量；右栏复盘框靠 flex 撑满
   el.querySelectorAll('[data-f]').forEach((inp) => inp.oninput = () => {
+    if (inp.closest('.pc-col.fill .sec:not(.boss)')) inp.dataset.nogrow = '1';
     const f = inp.dataset.f, k = `${r._id}|${f}`;
     const orig = r[f] == null ? '' : String(r[f]);
     if (inp.value === orig) delete DRAFT[k]; else DRAFT[k] = inp.value;
     inp.classList.toggle('dirty', k in DRAFT);
-    if (inp.tagName === 'TEXTAREA') grow(inp);
+    if (inp.tagName === 'TEXTAREA' && !inp.dataset.nogrow) grow(inp);
     refresh();
+    const si = document.querySelector(`.si[data-sel="${CSS.escape(x.e.key)}"] small`);
+    if (si && !/未保存/.test(si.textContent) && dirtyCount()) si.textContent += ' · 未保存';
+  });
+  el.querySelectorAll('.goal').forEach((g) => {
+    const inp = g.querySelector('[data-f]'), f = g.dataset.goal;
+    const open = () => { el.querySelectorAll('.goal.editing').forEach((o) => o !== g && o.querySelector('[data-gok]').click()); g.classList.add('editing'); if (inp.tagName === 'TEXTAREA') grow(inp); inp.focus(); };
+    g.querySelector('[data-gedit]').onclick = open;
+    g.querySelector('.goal-v').ondblclick = open;
+    g.querySelector('[data-gok]').onclick = () => {   // 完成：只收起，改动留在 DRAFT 等「保存」
+      g.classList.remove('editing');
+      const def = GOALS.find((x2) => x2.f === f), v = inp.value, shown = def.num ? (num(v) != null ? fmtN(num(v)) : '') : v.trim();
+      const vEl = g.querySelector('.goal-v'), keep = vEl.querySelector('.grate');
+      vEl.textContent = shown || def.ph; vEl.classList.toggle('none', !shown);
+      if (keep && !(`${r._id}|${f}` in DRAFT)) vEl.appendChild(keep);
+      g.classList.toggle('dirty', `${r._id}|${f}` in DRAFT);
+    };
+    g.querySelector('[data-gcancel]').onclick = () => {   // 取消：退回到打开前（已保存的值）
+      inp.value = r[f] == null ? '' : String(r[f]); delete DRAFT[`${r._id}|${f}`];
+      g.querySelector('[data-gok]').click(); refresh();
+    };
+    inp.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') g.querySelector('[data-gcancel]').click(); if (ev.key === 'Enter' && (ev.ctrlKey || inp.tagName === 'INPUT')) g.querySelector('[data-gok]').click(); });
   });
   el.querySelector('[data-trend]').onclick = () => gotoPerf(x.e.key);
   el.querySelectorAll('[data-goent]').forEach((a) => a.onclick = () => gotoPerf(a.dataset.goent));
@@ -992,7 +1186,11 @@ function bindCard(x) {
     }
   };
 }
-function grow(t) { t.style.height = 'auto'; t.style.height = t.scrollHeight + 2 + 'px'; }
+function grow(t) { if (!t.offsetWidth) return; t.style.height = 'auto'; t.style.height = t.scrollHeight + 2 + 'px'; }   // 看不见（宽 0）时不量，免得量出巨高
+// 宽度变了（窗口/插件框缩放）要重新量输入框高度
+let growT; window.addEventListener('resize', () => { clearTimeout(growT); growT = setTimeout(() => { setStickyH(); document.querySelectorAll('.fld textarea, .goal.editing textarea').forEach((t) => { if (!t.closest('.pc-col.fill .sec:not(.boss)')) grow(t); }); }, 150); });
+// 侧栏高度 = 屏高 − 顶栏高
+function setStickyH() { document.documentElement.style.setProperty('--stickyH', ($('sticky').offsetHeight + 24) + 'px'); }
 
 // ===== ⑥ 填写进度 =====
 function renderProgress(main) {
@@ -1012,14 +1210,12 @@ function renderProgress(main) {
     <table class="pt"><thead><tr><th>SPU</th><th>国家</th><th>灯</th>${cols.map((f) => `<th class="${BOSS_FIELDS.includes(f) ? 'boss' : ''}">${f}${BOSS_FIELDS.includes(f) ? '（主管）' : ''}</th>`).join('')}</tr></thead><tbody>${body}</tbody></table></div>`
     : `<div class="empty">这一周没有符合条件的 SPU</div>`;
   main.querySelectorAll('[data-go]').forEach((tr) => tr.onclick = () => {
-    state.mode = 'review'; store.set('swp.mode', 'review'); state.light = 'all'; state.fill = 'all'; renderTop(); render();
-    const el = document.querySelector(`.pc[data-key="${CSS.escape(tr.dataset.go)}"]`);
-    if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.classList.add('flash'); setTimeout(() => el.classList.remove('flash'), 1600); }
+    state.mode = 'review'; store.set('swp.mode', 'review'); state.light = 'all'; state.fill = 'all'; state.sel = tr.dataset.go; state.pick = ''; renderTop(); render();
   });
 }
 
 // ===== ⑦ 产品表现 =====
-function gotoPerf(key) { state.ent = key; store.set('swp.ent', key); state.mode = 'perf'; store.set('swp.mode', 'perf'); renderTop(); render(); window.scrollTo(0, 0); }
+function gotoPerf(key) { state.ent = key; store.set('swp.ent', key); state.mode = 'perf'; store.set('swp.mode', 'perf'); renderTop(); render(); $('main').scrollTop = 0; }
 
 function perfEntities() {
   const spus = Object.values(ENT).filter((e) => e.layer === 'SPU' && (!state.country || e.country === state.country)
@@ -1301,12 +1497,12 @@ async function loadImages(ents) {
   if (!TBLS.pm || !FIDS.pm['图片']) return;
   for (const e of ents) {
     const p = PM[`${e.imgAsin || e.asin}|${e.country}`];
-    const box = document.querySelector(`[data-img="${CSS.escape(e.key)}"]`);
-    if (!box || !p || !(p['图片'] || []).length) continue;
+    const boxes = document.querySelectorAll(`[data-img="${CSS.escape(e.key)}"]`);
+    if (!boxes.length || !p || !(p['图片'] || []).length) continue;
     try {
       if (!IMG[e.key]) { const urls = await TBLS.pm.getCellAttachmentUrls([p['图片'][0].token], FIDS.pm['图片'], p._id); IMG[e.key] = urls && urls[0]; }
-      if (IMG[e.key]) box.innerHTML = `<img src="${esc(IMG[e.key])}" alt="">`;
-    } catch (err) { box.textContent = '图未取到'; }
+      if (IMG[e.key]) boxes.forEach((box) => { box.innerHTML = `<img src="${esc(IMG[e.key])}" alt="">`; });
+    } catch (err) { boxes.forEach((box) => { box.textContent = '无图'; }); }
   }
 }
 
@@ -1359,16 +1555,21 @@ async function diagnose() {
     `<tr><td style="width:24px">${r[0]}</td><td>${esc(r[1])}</td><td style="color:var(--sub)">${esc(r[2])}</td></tr>`).join('')}</tbody></table></div>`;
 }
 
-{ const st = $('sticky'); window.addEventListener('scroll', () => st.classList.toggle('stuck', st.getBoundingClientRect().top <= 0 && window.scrollY > 0), { passive: true }); }
+$('main').addEventListener('scroll', () => $('sticky').classList.toggle('stuck', $('main').scrollTop > 0), { passive: true });
+$('help').title = $('helpText').innerHTML.replace(/\s+/g, ' ').trim();
+// 插件框比屏幕还高时外层会滚、顶栏跟着走 → 提示把组件高度拖到一屏内（同 feishu-page-kit 模板）
+function layoutCheck() { $('tallTip').style.display = innerHeight > (screen.availHeight || screen.height || 1080) + 40 ? '' : 'none'; }
+window.addEventListener('resize', layoutCheck); layoutCheck();
 
 // ===== 启动 =====
 function finish(wk, day, pm, src, inv = {}) {
   build(wk.map((r) => normRow('wk', r)), day.map((r) => normRow('day', r)), pm);
   buildInv(inv.ov || [], inv.ship || [], inv.bh || [], inv.sv || [], inv.ch || []);
+  MTG = {}; for (const t of inv.tg || []) { const v = num(cell(t['当月销量'])); if (t['目标键'] && v != null) MTG[cell(t['目标键'])] = v; }
   state.week = DEFAULT_WEEK;
   const nSpu = Object.values(ENT).filter((e) => e.layer === 'SPU').length;
   $('meta').textContent = `${nSpu} 个 SPU×国家 · ${src}`;
-  renderTop(); render();
+  renderTop(); render(); setStickyH();
   if (/debug/.test(location.search)) $('main').insertAdjacentHTML('afterbegin', `<div class="card0"><b>自查（?debug）</b><pre style="white-space:pre-wrap;font-size:11px;margin:6px 0 0">${esc(JSON.stringify({ read: DIAG.read, missing: DIAG.missing, raw: DIAG.raw }, null, 1))}</pre></div>`);
   if (!nSpu) $('main').insertAdjacentHTML('afterbegin', `<div class="card0"><b>没有读到可显示的 SPU —— 自查信息</b> <span class="meta">请截图发回</span>
     <pre style="white-space:pre-wrap;font-size:11px">${esc(JSON.stringify({ read: DIAG.read, missing: DIAG.missing, sample: wk.slice(0, 2) }, null, 1))}</pre></div>`);
@@ -1384,13 +1585,13 @@ try {
     let pm = [];
     try { pm = await readTable('pm'); } catch (e) { console.warn('产品主表读不到，卡片不显示图片和毛利', e); }
     const inv = {};
-    for (const k of ['ov', 'ship', 'bh', 'sv', 'ch']) { try { inv[k] = await readTable(k); } catch (e) { inv[k] = []; console.warn(`${TABLES[k].name} 读不到，库存预测不完整`, e); } }
+    for (const k of ['ov', 'ship', 'bh', 'sv', 'ch', 'tg']) { try { inv[k] = await readTable(k); } catch (e) { inv[k] = []; console.warn(`${TABLES[k].name} 读不到，库存预测不完整`, e); } }
     DAY_LOADING = true;
     finish(wk, [], pm, '取数：四季品经营表 + 产品主表 + 备货计划五表', inv);
     const meta0 = $('meta').textContent;
     // 日表最大，放最后后台读：复盘页先能用，产品表现页读完再出
     readTable('day').then((day) => { buildDay(day.map((r) => normRow('day', r))); DAY_LOADING = false; $('meta').textContent = meta0 + ' + 每日数据表';
-      if (state.mode === 'perf') render(); })
+      if (state.mode === 'perf') render(); else refreshMonthBars(); })
       .catch((e) => { DAY_LOADING = false; DAY_ERR = e && e.message ? e.message : String(e); console.warn('每日数据表读不到', e); $('meta').textContent = meta0; if (state.mode === 'perf') render(); });
   }
 } catch (e) {
