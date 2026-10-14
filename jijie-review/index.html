@@ -26,7 +26,10 @@
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--ink);
          font: 13px/1.5 -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; }
-  .wrap { padding: 14px 16px 28px; max-width: 1600px; margin: 0 auto; }
+  html, body { height: 100%; overflow: hidden; }
+  .wrap { padding: 12px 16px 0; max-width: 1600px; margin: 0 auto; height: 100vh; display: flex; flex-direction: column; }
+  #main { flex: 1; min-height: 0; overflow: auto; position: relative; margin: 0 -16px; padding: 0 16px 24px; }
+  .tip { flex: none; background: #fff7e8; color: #b25e00; border-radius: 8px; padding: 6px 12px; font-size: 12.5px; margin-bottom: 8px; }
   .meta { color: var(--sub); font-size: 12px; }
   .err { color: var(--red); white-space: pre-wrap; }
   .loading, .empty { padding: 48px 16px; text-align: center; color: var(--sub); background: #fff; border-radius: 12px; border: 1px dashed var(--line2); }
@@ -36,7 +39,7 @@
   .num { font-variant-numeric: tabular-nums; }
 
   /* 顶栏 */
-  .sticky { position: sticky; top: 0; z-index: 20; background: var(--bg); margin: 0 -16px; padding: 0 16px 2px; }
+  .sticky { position: relative; flex: none; z-index: 20; background: var(--bg); margin: 0 -16px; padding: 0 16px 2px; }
   .sticky.stuck { box-shadow: 0 6px 12px -8px rgba(80,50,20,.35); }
   .hero { background: linear-gradient(120deg, #f07a12 0%, #f59a3c 60%, #f8b35f 100%); color: #fff; border-radius: 12px 12px 0 0;
           padding: 14px 18px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
@@ -74,8 +77,28 @@
   .own .rw .bar i { display: block; height: 100%; background: var(--or); }
   .own .rw .n { width: 40px; text-align: right; font-variant-numeric: tabular-nums; }
 
+  /* 左侧 SPU 栏（同产品主表、四季品经营复盘页） */
+  .lib { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 14px; align-items: start; }
+  .side { position: sticky; top: 0; max-height: calc(100vh - var(--stickyH, 180px) - 30px); overflow-y: auto;
+          background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 6px; }
+  .side-h { font-size: 12px; color: var(--sub); padding: 8px 8px 4px; display: flex; justify-content: space-between; gap: 6px; }
+  .side-h:first-child { padding-top: 4px; }
+  .si { display: flex; align-items: center; gap: 8px; width: 100%; border: 0; background: none; border-radius: 8px; padding: 5px 8px; cursor: pointer; text-align: left; color: var(--ink); font: inherit; }
+  .si:hover { background: var(--or-soft); }
+  .si.on { background: var(--or); color: #fff; }
+  .si-img { width: 34px; height: 34px; border-radius: 7px; overflow: hidden; flex: none; background: var(--grey-soft); font-size: 10px; color: var(--grey); display: flex; align-items: center; justify-content: center; }
+  .si-img img { width: 100%; height: 100%; object-fit: cover; }
+  .si .sn { flex: 1; min-width: 0; font-size: 13px; font-weight: 600; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .si .sn small { display: block; font-size: 11px; font-weight: 400; color: var(--sub); }
+  .si.on .sn small { color: rgba(255,255,255,.85); }
+  .ldot { width: 10px; height: 10px; border-radius: 50%; flex: none; background: #d5cbc0; display: inline-block; }
+  .ldot.done { background: #34c759; } .ldot.part { background: #f5a623; }
+  .si.on .ldot { box-shadow: 0 0 0 2px #fff; }
+  .one { min-width: 0; }
+  @media (max-width: 900px) { .lib { grid-template-columns: 1fr; } .side { position: static; max-height: 220px; } }
   /* SPU 分组 */
   .spu { margin-bottom: 20px; }
+  .one .spu-h { padding-top: 0; }
   .spu-h { display: flex; align-items: baseline; gap: 10px; padding: 4px 2px 8px; flex-wrap: wrap; }
   .spu-h b { font-size: 15px; padding-left: 8px; border-left: 4px solid var(--or); }
   .spu-h .meta b { font-size: 12px; border: 0; padding: 0; color: var(--ink); }
@@ -194,7 +217,7 @@
   .atbl { width: 100%; border-collapse: separate; border-spacing: 0; background: #fff; font-size: 12.5px; table-layout: fixed;
           border: 1px solid var(--line); border-radius: 10px; }
   .atbl th { background: var(--or-soft); color: var(--or-d); font-weight: 600; text-align: left; padding: 9px 10px; white-space: nowrap;
-             position: sticky; top: var(--stickyH, 0px); z-index: 5; border-bottom: 1px solid var(--or-soft2); }
+             position: sticky; top: 0; z-index: 5; border-bottom: 1px solid var(--or-soft2); }
   .atbl th:first-child { border-top-left-radius: 10px; } .atbl th:last-child { border-top-right-radius: 10px; }
   .atbl td { padding: 8px 10px; border-top: 1px solid var(--line); vertical-align: top; }
   .atbl .c, .atbl th.c { text-align: center; }
@@ -243,6 +266,7 @@
 </head>
 <body>
 <div class="wrap">
+  <div class="tip" id="tallTip" style="display:none">插件框比屏幕还高，往下滑时顶部筛选栏会被滚走。请在应用编辑模式里把这个插件组件的高度拖到一屏以内，页面会改成内部滚动、顶栏固定。</div>
   <div class="savebar" id="savebar"><button class="btn pri" id="saveBtn">保存到页面</button><span class="meta" id="saveMsg"></span></div>
   <div class="sticky" id="sticky">
     <div class="hero">
@@ -259,7 +283,18 @@
 
 <script type="module">
 // ===== ① 页面配置 =====
-const SDK_URL = 'https://cdn.jsdelivr.net/npm/@lark-base-open/js-sdk@1.0.2/dist/index.mjs';
+// SDK 依次尝试：同目录自带副本 → jsdelivr → unpkg（发布时 sdk/ 目录要一起拷；jsdelivr 国内偶发传一半断）
+const SDK_URLS = [new URL('./sdk/index.mjs', location.href).href,
+  'https://cdn.jsdelivr.net/npm/@lark-base-open/js-sdk@1.0.2/dist/index.mjs',
+  'https://unpkg.com/@lark-base-open/js-sdk@1.0.2/dist/index.mjs'];
+async function loadSdk() {
+  const errs = [];
+  for (const u of SDK_URLS) {
+    try { return await Promise.race([import(u), new Promise((_, rej) => setTimeout(() => rej(new Error('超时 12s')), 12000))]); }
+    catch (e) { errs.push(`${u} → ${e && e.message ? e.message : e}`); }
+  }
+  throw new Error('飞书 SDK 三个来源都没加载上（也就没有「保存到页面」按钮），请截图：' + errs.join(' ｜ '));
+}
 const BASE_TOKEN = 'JGvebyaAYapWtOslxc9cuKYXnwd';   // 灯具组-全流程
 const STAGES = ['起量期', '爆发期', '高峰期', '消退期', '清仓期'];
 const PCT = ['转化率', 'TACOS', 'ACOS', '广告单占比', '利润率', '退货率'];               // 表里存小数，页面显示 %
@@ -353,7 +388,7 @@ async function readTable(key) {
 // ===== ③ 数据整理 =====
 let ITEMS = [], SNAP = false;
 const state = { year: store.get('rvp.year') || '', mode: store.get('rvp.mode') === 'plan' ? 'plan' : 'cards',
-                season: 'all', country: 'all', owner: store.get('rvp.owner') || 'all', fill: 'all', asin: '' };
+                season: 'all', country: 'all', owner: store.get('rvp.owner') || 'all', fill: 'all', asin: '', spu: '' };
 const open = new Set(), editing = new Set();
 
 function build(rows, pm) {
@@ -459,18 +494,47 @@ function progress(list) {
 const sv = (k, v, cls = '') => `<div class="st"><div class="k">${k}</div><div class="v ${v === '—' ? 'nil' : cls}">${v}</div></div>`;
 const negc = (v) => v != null && v < 0 ? 'neg' : '';
 
+// 复盘卡视图：左侧 SPU 栏（按季节分组，组内按整季销量），右侧显示选中 SPU 的全部子ASIN×国家卡
+const spuState = (l) => l.every(isDone) ? 'done' : (l.some((x) => sumCnt(x) || hasStrategy(x) || txt(x.p['竞品状况']) || stockSum(x) != null) ? 'part' : 'none');
+const SPU_LABEL = { done: '已复盘', part: '填了一部分', none: '未动笔' };
+const imgOf = (x) => { const u = x && x.pm && (x.pm._imgData || x.imgUrl); return u ? `<img src="${esc(u)}" alt="">` : '无图'; };
 function renderCards(list) {
   if (!list.length) return '<div class="empty">当前筛选下没有产品</div>';
   const groups = {};
   for (const x of list) (groups[x.spu] = groups[x.spu] || []).push(x);
-  const tot = (l) => l.reduce((t, x) => t + (num(x.p['销量']) || 0), 0);
-  const keys = Object.keys(groups).sort((a, b) => tot(groups[b]) - tot(groups[a]) || a.localeCompare(b, 'zh'));
-  return keys.map((k) => {
-    const l = groups[k].sort((a, b) => (num(b.p['销量']) || 0) - (num(a.p['销量']) || 0));
-    const stock = l.reduce((t, x) => t + (stockSum(x) || 0), 0);
-    return `<div class="spu"><div class="spu-h"><b>${esc(k)}</b><span class="meta">${l.length} 个子ASIN · 整季销量 <b>${fmtN(tot(l))}</b> · 明年备货 <b>${stock ? fmtN(stock) : '—'}</b></span></div>
-      ${l.map(card).join('')}</div>`;
+  const vol = (l) => l.reduce((t, x) => t + (num(x.p['销量']) || 0), 0);
+  const S = Object.entries(groups).map(([spu, l]) => {
+    l.sort((a, b) => (num(b.p['销量']) || 0) - (num(a.p['销量']) || 0) || a.country.localeCompare(b.country, 'zh'));
+    const seasons = [...new Set(l.map((x) => x.season))];
+    return { spu, l, vol: vol(l), st: spuState(l), season: seasons.length === 1 ? seasons[0] : '跨季节', rep: l.find((x) => x.pm && x.pm['图片'] && (x.pm['图片'].length || x.pm._imgData)) || l[0] };
+  });
+  if (state.asin) { const hit = S.find((g) => g.l.some((x) => x.p['ASIN'] === state.asin)); if (hit) state.spu = hit.spu; }
+  if (!S.some((g) => g.spu === state.spu)) state.spu = [...S].sort((a, b) => b.vol - a.vol)[0].spu;
+  const bySeason = {};
+  for (const g of S) (bySeason[g.season] = bySeason[g.season] || []).push(g);
+  const order = Object.entries(bySeason).sort((a, b) => b[1].reduce((t, g) => t + g.vol, 0) - a[1].reduce((t, g) => t + g.vol, 0) || a[0].localeCompare(b[0], 'zh'));
+  const side = order.map(([season, gs]) => {
+    gs.sort((a, b) => b.vol - a.vol || a.spu.localeCompare(b.spu, 'zh'));
+    return `<div class="side-h"><span>${esc(season.replace(/^(季节品|节日品)-/, ''))}</span><span>已复盘 ${gs.filter((g) => g.st === 'done').length}/${gs.length}</span></div>`
+      + gs.map((g) => `<button class="si${g.spu === state.spu ? ' on' : ''}" data-spu="${esc(g.spu)}" title="${esc(g.spu)}">
+          <span class="si-img" data-img="${g.rep.p._id}">${imgOf(g.rep)}</span>
+          <span class="sn">${esc(g.spu)}<small>${g.l.length} 个 · ${g.vol ? '销量 ' + fmtN(g.vol) + ' · ' : ''}${SPU_LABEL[g.st]}</small></span>
+          <span class="ldot ${g.st}"></span></button>`).join('');
   }).join('');
+  const sel = S.find((g) => g.spu === state.spu);
+  const stock = sel.l.reduce((t, x) => t + (stockSum(x) || 0), 0);
+  return `<div class="lib"><nav class="side" id="side"><div class="side-h"><span>SPU</span><span>${S.length}</span></div>${side}</nav>
+    <section class="one"><div class="spu"><div class="spu-h"><b>${esc(sel.spu)}</b><span class="meta">${sel.l.length} 个子ASIN×国家 · 整季销量 <b>${fmtN(sel.vol)}</b> · 明年备货 <b>${stock ? fmtN(stock) : '—'}</b> · ${SPU_LABEL[sel.st]}</span></div>
+      ${sel.l.map(card).join('')}</div></section></div>`;
+}
+function bindSide() {
+  const m = $('main'), side = $('side');
+  if (!side) return;
+  side.querySelectorAll('.si').forEach((b) => b.onclick = () => {
+    state.spu = b.dataset.spu; state.asin = '';
+    const st = side.scrollTop; render(); if ($('side')) $('side').scrollTop = st;
+    const lib = m.querySelector('.lib'); if (lib && m.scrollTop > lib.offsetTop - 8) m.scrollTop = lib.offsetTop - 8;
+  });
 }
 
 // 明年时间线：采购日 = 表里公式「采购时间(倒推)」（空时按 起售−海运−生产 现算）；发货日 = 起售 − 首批海运（页面推算，表里没这列）
@@ -613,7 +677,7 @@ function render() {
   const list = scope().filter((x) => pass(x));
   $('main').innerHTML = state.mode === 'plan' ? renderPlan(list) : progress(list) + renderCards(list);
   bindCards();
-  if (state.mode === 'plan') bindPlan();
+  if (state.mode === 'plan') bindPlan(); else bindSide();
   setStickyH();
   loadImages(list);
 }
@@ -760,8 +824,11 @@ async function diagnose() {
     `<tr><td style="width:24px">${r[0]}</td><td>${esc(r[1])}</td><td style="color:var(--sub)">${esc(r[2])}</td></tr>`).join('')}</tbody></table></div>`;
 }
 
-{ const st = $('sticky'); const onScroll = () => st.classList.toggle('stuck', st.getBoundingClientRect().top <= 0 && window.scrollY > 0);
-  window.addEventListener('scroll', onScroll, { passive: true }); }
+$('main').addEventListener('scroll', () => $('sticky').classList.toggle('stuck', $('main').scrollTop > 0), { passive: true });
+// 插件框比屏幕高时外层页面会滚 → 提示把组件高度拖到一屏内
+function layoutCheck() { $('tallTip').style.display = innerHeight > (screen.availHeight || screen.height || 1080) + 40 ? '' : 'none'; }
+window.addEventListener('resize', layoutCheck);
+layoutCheck();
 $('year').onchange = () => { state.year = $('year').value; store.set('rvp.year', state.year); render(); };
 document.querySelectorAll('#mode button').forEach((b) => b.onclick = () => { state.mode = b.dataset.m; store.set('rvp.mode', state.mode); render(); });
 
@@ -777,7 +844,7 @@ try {
     SNAP = true;
     finish(window.__SNAPSHOT__.review, window.__SNAPSHOT__.pm, `本地快照 ${window.__SNAPSHOT__.at}（预览，编辑不写回）`);
   } else {
-    SDK = await import(SDK_URL);
+    SDK = await loadSdk();
     setupSave();
     const rows = await readTable('review');
     let pm = [];
