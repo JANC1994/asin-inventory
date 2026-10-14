@@ -26,7 +26,11 @@
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--ink);
          font: 13px/1.5 -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; }
-  .wrap { padding: 14px 16px 80px; max-width: 1600px; margin: 0 auto; }
+  /* 布局（页面硬规矩，10-14）：页面高度 = 插件框高度，顶栏不动，#main 自己滚。别让飞书外层页面滚动 */
+  html, body { height: 100%; overflow: hidden; }
+  .wrap { padding: 14px 16px 0; max-width: 1600px; margin: 0 auto; height: 100vh; display: flex; flex-direction: column; }
+  #main { flex: 1; min-height: 0; overflow: auto; position: relative; margin: 0 -16px; padding: 0 16px 80px; }
+  .tip { flex: none; background: var(--yel-soft); color: var(--yel); border-radius: 8px; padding: 6px 12px; font-size: 12.5px; margin-bottom: 8px; }
   .meta { color: var(--sub); font-size: 12px; }
   .err { color: var(--red); white-space: pre-wrap; }
   .loading, .empty { padding: 48px 16px; text-align: center; color: var(--sub); background: #fff; border-radius: 12px; border: 1px dashed var(--line2); }
@@ -36,7 +40,7 @@
   .mono { font-family: Consolas, monospace; font-size: 12px; }
 
   /* 顶栏 */
-  .sticky { position: sticky; top: 0; z-index: 20; background: var(--bg); margin: 0 -16px; padding: 0 16px 2px; }
+  .sticky { position: relative; flex: none; z-index: 20; background: var(--bg); margin: 0 -16px; padding: 0 16px 2px; }
   .sticky.stuck { box-shadow: 0 6px 12px -8px rgba(80,50,20,.35); }
   .hero { background: linear-gradient(120deg, #f07a12 0%, #f59a3c 60%, #f8b35f 100%); color: #fff; border-radius: 12px 12px 0 0;
           padding: 12px 18px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
@@ -83,7 +87,7 @@
   .kpi .v small { font-size: 12px; color: var(--sub); font-weight: normal; }
   .kpi .v.bad { color: var(--red); }
   .lib { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 14px; align-items: start; }
-  .side { position: sticky; top: calc(var(--stickyH, 0px) + 8px); max-height: calc(var(--vh, 100vh) - var(--stickyH, 0px) - 20px); overflow-y: auto;
+  .side { position: sticky; top: 8px; max-height: calc(100vh - var(--stickyH, 0px) - 44px); overflow-y: auto;
           background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 6px; }
   .kseg { display: flex; background: var(--grey-soft); border-radius: 9px; padding: 3px; gap: 2px; margin-bottom: 6px; position: sticky; top: -6px; z-index: 1; box-shadow: 0 -6px 0 #fff; }
   .kseg button { flex: 1; height: 30px; border: 0; border-radius: 7px; background: transparent; color: var(--sub); font: inherit; font-size: 13px; cursor: pointer; white-space: nowrap; }
@@ -223,7 +227,7 @@
   .sw-note div { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; font-size: 12px; color: var(--sub); }
   .sw-note b { color: var(--ink); }
   .swt { width: 100%; border-collapse: separate; border-spacing: 0; background: #fff; border: 1px solid var(--line); border-radius: 10px; font-size: 12.5px; }
-  .swt th { background: var(--or-soft); color: var(--or-d); font-weight: 600; padding: 8px 6px; text-align: center; position: sticky; top: var(--stickyH, 0px); z-index: 5;
+  .swt th { background: var(--or-soft); color: var(--or-d); font-weight: 600; padding: 8px 6px; text-align: center; position: sticky; top: 0; z-index: 5;
             border-bottom: 1px solid var(--or-soft2); font-size: 12px; line-height: 1.3; }
   .swt th.l { text-align: left; padding-left: 10px; }
   .swt th small { display: block; font-weight: 400; color: var(--sub); font-size: 10.5px; }
@@ -262,13 +266,10 @@
   .warnbox { background: var(--yel-soft); color: var(--yel); border-radius: 8px; padding: 7px 10px; font-size: 12px; margin: 8px 0; }
   .warnbox.red { background: var(--red-soft); color: var(--red); }
 
-  .savebar { display: none; align-items: center; gap: 10px; background: #fff; border: 1px solid var(--or-soft2); border-radius: 10px; padding: 8px 12px; margin-bottom: 12px; }
+  .savebar { flex: none; display: none; align-items: center; gap: 10px; background: #fff; border: 1px solid var(--or-soft2); border-radius: 10px; padding: 8px 12px; margin-bottom: 12px; }
   .savebar.show { display: flex; }
   .toast { position: fixed; left: 50%; top: calc(var(--vt, 0px) + var(--vh, 100vh) - 110px); transform: translateX(-50%); background: #2b2118; color: #fff; padding: 8px 16px; border-radius: 8px; font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 70; }
   .toast.show { opacity: 1; }
-  /* 吸顶兜底的定位标记（看不见） */
-  .pin-sent { position: absolute; left: 0; top: 0; width: 1px; pointer-events: none; opacity: 0; }
-  .pin-sent i { position: absolute; left: 0; width: 1px; height: 20px; }
 
   @media (max-width: 900px) {
     .kpis { grid-template-columns: repeat(2, 1fr); }
@@ -293,6 +294,7 @@
 </head>
 <body>
 <div class="wrap">
+  <div class="tip" id="tallTip" style="display:none">插件框比屏幕还高，往下滑时顶部筛选栏会被滚走。请在应用编辑模式里把这个插件组件的高度拖到一屏以内，页面会改成内部滚动、顶栏固定。</div>
   <div class="savebar" id="savebar"><button class="btn pri" id="saveBtn">保存到页面</button><span class="meta" id="saveMsg"></span></div>
   <div class="sticky" id="sticky">
     <div class="hero">
@@ -919,7 +921,6 @@ function renderMain() {
   renderSwBar();
   setStickyH();
   observeImages();
-  pinSchedule();
 }
 function bindMain() {
   const m = $('main');
@@ -928,8 +929,8 @@ function bindMain() {
   m.querySelectorAll('.si').forEach((e) => e.onclick = () => {
     state.spu = e.dataset.spu; store.set('pmp.spu', state.spu);
     const st = $('side').scrollTop; renderMain(); $('side').scrollTop = st;
-    const top = m.querySelector('.lib').getBoundingClientRect().top + window.scrollY - $('sticky').offsetHeight - 8;
-    if (window.scrollY > top) window.scrollTo({ top });
+    const top = m.querySelector('.lib').offsetTop - 8;
+    if (m.scrollTop > top) m.scrollTop = top;
   });
   m.querySelectorAll('.chk-h').forEach((e) => e.onclick = (ev) => { if (ev.target.closest('[data-cleanall]')) return; const k = e.parentElement.dataset.chk; foldChk.has(k) ? foldChk.delete(k) : foldChk.add(k); e.parentElement.classList.toggle('fold'); });
   const ca = m.querySelector('[data-cleanall]');
@@ -1012,54 +1013,17 @@ async function diagnose() {
     `<tr><td style="width:24px">${r[0]}</td><td>${esc(r[1])}</td><td style="color:var(--sub)">${esc(r[2])}</td></tr>`).join('')}</tbody></table></div>`;
 }
 
-// ===== ⑪ 吸顶兜底（页面硬规矩：顶部筛选栏滚动时必须留在可见区）=====
-// 飞书会把插件框撑到内容高度，滚动发生在飞书外层页面，插件里 position:sticky 失效、fixed 浮层也落在框外。
-// 跨域 iframe 读不到外层滚动位置，但 IntersectionObserver 的交叉区域是按「顶层视口」裁剪的：
-// 每 20px 放一个看不见的标记，交叉的标记拼出「插件框露在屏幕上的那一段」，再把顶栏、侧栏、表头、抽屉/弹窗挪进这一段。
-const PIN = { ok: false, top: 0, bot: 0 };   // 可见段（文档坐标）
-let pinRoot = null, pinIO = null, pinRaf = 0;
-const pinSeen = new Map();
-function pinBuild() {
-  const n = Math.ceil(Math.max(document.documentElement.scrollHeight, innerHeight) / 20) + 1;
-  if (pinRoot && pinRoot.childElementCount === n) return;
-  if (pinIO) pinIO.disconnect();
-  pinSeen.clear();
-  if (!pinRoot) { pinRoot = document.createElement('div'); pinRoot.className = 'pin-sent'; document.body.appendChild(pinRoot); }
-  pinRoot.innerHTML = '';
-  pinIO = new IntersectionObserver((ents) => {
-    for (const e of ents) pinSeen.set(e.target, e.isIntersecting && e.intersectionRect.height > 0
-      ? [e.intersectionRect.top + scrollY, e.intersectionRect.bottom + scrollY] : null);
-    let t = Infinity, b = -Infinity;
-    for (const v of pinSeen.values()) if (v) { t = Math.min(t, v[0]); b = Math.max(b, v[1]); }
-    if (t !== Infinity) { PIN.ok = true; PIN.top = t; PIN.bot = b; pinSchedule(); }
-  }, { threshold: Array.from({ length: 11 }, (_, i) => i / 10) });
-  for (let i = 0; i < n; i++) { const d = document.createElement('i'); d.style.top = i * 20 + 'px'; pinRoot.appendChild(d); pinIO.observe(d); }
+// ===== ⑪ 布局：顶栏固定、#main 内部滚动（页面硬规矩，照 Listing审核页 10-14）=====
+// 飞书若把插件框拉得比屏幕还高，滚的是外层页面、顶栏会被滚走 → 顶部提示用户把组件高度拖到一屏内。
+// （10-14 试过 IntersectionObserver 算可见段再平移顶栏：总慢一拍、一直跳动，已弃用）
+function layoutCheck() {
+  setStickyH();
+  const tall = innerHeight > (screen.availHeight || screen.height || 1080) + 40;
+  $('tallTip').style.display = tall ? '' : 'none';
 }
-function pinEl(el, want, maxBottomVp) {   // 把 el 往下平移，让它的顶边落在视口坐标 want；不超过 maxBottomVp
-  if (!el) return;
-  const cur = Number(el.dataset.pinY) || 0, r = el.getBoundingClientRect(), nat = r.top - cur;
-  let y = Math.max(0, want - nat);
-  if (maxBottomVp != null) y = Math.min(y, Math.max(0, maxBottomVp - nat - r.height));
-  if (Math.abs(y - cur) > 0.5) { el.style.transform = y ? `translateY(${y}px)` : ''; el.dataset.pinY = y; }
-}
-function pinApply() {
-  pinRaf = 0;
-  const vt = PIN.ok ? Math.max(0, PIN.top - scrollY) : 0;
-  const vh = PIN.ok ? Math.max(120, PIN.bot - Math.max(PIN.top, scrollY)) : innerHeight;
-  const rs = document.documentElement.style;
-  rs.setProperty('--vt', vt + 'px'); rs.setProperty('--vh', vh + 'px');
-  const st = $('sticky'), sh = st.offsetHeight;
-  pinEl(st, vt);
-  st.classList.toggle('stuck', vt > 0 || (st.getBoundingClientRect().top <= 0 && scrollY > 0));
-  const side = $('side'), lib = document.querySelector('.lib');
-  if (side && lib && getComputedStyle(side).position === 'sticky') pinEl(side, vt + sh + 8, lib.getBoundingClientRect().bottom);
-  const tb = document.querySelector('.swt');
-  if (tb) { const lim = tb.getBoundingClientRect().bottom; tb.querySelectorAll('thead th').forEach((th) => pinEl(th, vt + sh, lim)); }
-}
-function pinSchedule() { if (!pinRaf) pinRaf = requestAnimationFrame(pinApply); }
-{ window.addEventListener('scroll', pinSchedule, { passive: true });
-  window.addEventListener('resize', () => { pinBuild(); pinSchedule(); });
-  new ResizeObserver(() => { setStickyH(); pinBuild(); pinSchedule(); }).observe(document.body); }
+window.addEventListener('resize', layoutCheck);
+new ResizeObserver(setStickyH).observe($('sticky'));
+$('main').addEventListener('scroll', () => $('sticky').classList.toggle('stuck', $('main').scrollTop > 0), { passive: true });
 document.querySelectorAll('#mode button').forEach((b) => b.onclick = () => { state.mode = b.dataset.m; render(); });
 $('mask').onclick = () => closeDrawer();
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { if ($('modal').classList.contains('show')) $('modal').classList.remove('show'); else if (openRid) closeDrawer(); } });
@@ -1068,6 +1032,7 @@ window.addEventListener('beforeunload', (e) => { if (pend.size || (editMode && $
 // ===== 启动 =====
 function finish(rows, src) {
   ROWS = rows;
+  layoutCheck();
   const u = new Map();
   for (const r of ROWS) for (const x of r[OWNER] || []) u.set(x.id, x);
   USERS = [...u.values()].sort((a, b) => a.name.localeCompare(b.name, 'zh'));
