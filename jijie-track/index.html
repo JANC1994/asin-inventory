@@ -25,7 +25,31 @@
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--ink);
          font: 13px/1.5 -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; }
-  .wrap { padding: 14px 16px 28px; max-width: 1600px; margin: 0 auto; }
+  html, body { height: 100%; overflow: hidden; }
+  .wrap { padding: 12px 16px 0; max-width: 1600px; margin: 0 auto; height: 100vh; display: flex; flex-direction: column; }
+  #main { flex: 1; min-height: 0; overflow: auto; position: relative; margin: 0 -16px; padding: 0 16px 24px; }
+  .tip { flex: none; background: #fff7e8; border: 1px solid #ffd591; color: #8a5a00; border-radius: 8px; padding: 8px 12px; margin-bottom: 8px; font-size: 12.5px; }
+  .wrap.compact .hero-top { display: none; }
+  .wrap.compact .hero.hero-f { border-radius: 10px; border-top: 0; }
+  /* 左侧 SPU 栏（同 四季品经营复盘 / 产品主表 页） */
+  .lib { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 14px; align-items: start; }
+  .side { position: sticky; top: 0; max-height: calc(100vh - var(--topH, 200px) - 16px); overflow-y: auto;
+          background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 6px; }
+  .side-h { font-size: 12px; color: var(--sub); padding: 8px 8px 4px; display: flex; justify-content: space-between; gap: 6px; }
+  .side-h:first-child { padding-top: 4px; }
+  .si { display: flex; align-items: center; gap: 8px; width: 100%; border: 0; background: none; border-radius: 8px; padding: 5px 8px; cursor: pointer; text-align: left; color: var(--ink); font: inherit; }
+  .si:hover { background: var(--or-soft); }
+  .si.on { background: var(--or); color: #fff; }
+  .si-img { width: 34px; height: 34px; border-radius: 7px; overflow: hidden; flex: none; background: var(--grey-soft); font-size: 10px; color: var(--grey); display: flex; align-items: center; justify-content: center; }
+  .si-img img { width: 100%; height: 100%; object-fit: cover; }
+  .si .sn { flex: 1; min-width: 0; font-size: 13px; font-weight: 600; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .si .sn small { display: block; font-size: 11px; font-weight: 400; color: var(--sub); overflow: hidden; text-overflow: ellipsis; }
+  .si.on .sn small { color: rgba(255,255,255,.85); }
+  .ldot { width: 10px; height: 10px; border-radius: 50%; flex: none; background: #d5cbc0; display: inline-block; }
+  .ldot.red { background: #e5483f; } .ldot.yellow { background: #f5c518; } .ldot.green { background: #34c759; }
+  .si.on .ldot { box-shadow: 0 0 0 2px #fff; }
+  .one { min-width: 0; }
+  @media (max-width: 900px) { .lib { grid-template-columns: 1fr; } .side { position: static; max-height: 220px; } }
   .meta { color: var(--sub); font-size: 12px; }
   .err { color: var(--red); white-space: pre-wrap; }
   .loading, .empty { padding: 48px 16px; text-align: center; color: var(--sub); background: #fff; border-radius: 12px; border: 1px dashed var(--line2); }
@@ -36,8 +60,9 @@
   /* 顶栏 */
   .hero-t { width: 100%; }
   .hero .desc { margin: 4px 0 0; font-size: 12.5px; line-height: 1.6; color: rgba(255,255,255,.95); max-width: 1100px; }
-  .hero.hero-top { border-radius: 12px 12px 0 0; margin-bottom: 0; box-shadow: none; }
-  .sticky { position: sticky; top: 0; z-index: 20; background: var(--bg); margin: 0 -16px; padding: 0 16px 2px; }
+  .hero.hero-top { flex: none; border-radius: 12px 12px 0 0; margin-bottom: 0; box-shadow: none; }
+  .savebar { flex: none; }
+  .sticky { position: relative; flex: none; z-index: 20; background: var(--bg); margin: 0 -16px; padding: 0 16px 2px; }
   .hero.hero-f { padding: 10px 18px; border-radius: 0 0 12px 12px; border-top: 1px solid rgba(255,255,255,.3); margin-bottom: 12px; }
   .sticky.stuck { box-shadow: 0 6px 12px -8px rgba(80,50,20,.35); }
   .sticky.stuck .hero.hero-f { border-radius: 0 0 10px 10px; border-top: 0; }
@@ -203,7 +228,8 @@
 </style>
 </head>
 <body>
-<div class="wrap">
+<div class="wrap" id="wrap">
+  <div class="tip" id="tallTip" style="display:none">插件框比屏幕还高，往下滑时顶部筛选栏会被滚走。请在应用编辑模式里把这个插件组件的高度拖到一屏以内，页面会改成内部滚动、顶栏固定。</div>
   <div class="savebar" id="savebar">
     <span>这是插件的配置预览。确认没问题后点右边按钮，插件才会保存到应用页面上。</span>
     <button id="saveBtn">保存到页面</button>
@@ -212,7 +238,7 @@
   <div class="hero hero-top">
     <div class="hero-t">
       <h2>季节品每日追踪</h2>
-      <p class="desc">每张卡 = 一个季节品链接（SKU×国家），同一 SPU 排在一行，红灯多的 SPU 排前。红黄绿灯和原因由系统每天按追踪表判定；
+      <p class="desc">每张卡 = 一个季节品链接（SKU×国家）。左侧按 SPU 列出（红灯多的排前），点哪个 SPU 右边就显示它的产品卡。红黄绿灯和原因由系统每天按追踪表判定；
         「今日分析」点「记动作」可直接写回多维表；「红/黄未分析」= 当天亮红/黄灯、但竞品动态/问题归因/计划/建议操作都还没填的产品。
         切到「目标填写」：按产品填各阶段日均目标（阶段销量目标 = 日均 × 天数），并看当前状态和近 7 天表现。数据来源：季节品追踪表，每天更新。</p>
     </div>
@@ -433,11 +459,11 @@ function renderOwner() {
   $('date').style.display = state.mode === 'target' ? 'none' : '';
   $('mode').querySelectorAll('[data-mode]').forEach((b) => {
     b.classList.toggle('on', b.dataset.mode === state.mode);
-    b.onclick = () => { if (state.mode === b.dataset.mode) return; state.mode = b.dataset.mode; store.set('stp.mode', state.mode); state.light = 'all'; state.fill = 'all'; renderOwner(); render(); window.scrollTo(0, 0); };
+    b.onclick = () => { if (state.mode === b.dataset.mode) return; state.mode = b.dataset.mode; store.set('stp.mode', state.mode); state.light = 'all'; state.fill = 'all'; renderOwner(); render(); $('main').scrollTop = 0; };
   });
   $('owner').innerHTML = `<option value="">— 选择负责人 —</option>` + names.map((n) => `<option value="${esc(n)}"${n === state.owner ? ' selected' : ''}>${esc(lab(n))}</option>`).join('')
     + (state.owner && !cnt[state.owner] ? `<option value="${esc(state.owner)}" selected>${esc(state.owner)}（该日无产品）</option>` : '');
-  $('owner').onchange = (e) => { state.owner = e.target.value; state.light = 'all'; state.season = 'all'; state.stage = 'all'; store.set('stp.owner', state.owner); render(); };
+  $('owner').onchange = (e) => { state.owner = e.target.value; state.light = 'all'; state.season = 'all'; state.stage = 'all'; state.spu = ''; store.set('stp.owner', state.owner); render(); $('main').scrollTop = 0; };
   // 日期下拉：默认最新一天
   $('date').innerHTML = DATES.slice(0, 120).map((d) => `<option value="${d}"${d === state.date ? ' selected' : ''}>${fmtD(d)} 周${WK[ud(d).getUTCDay()]}${d === LATEST ? '（最新）' : ''}</option>`).join('')
     + (LOADED_FULL || !TBLS.track ? '' : `<option value="more">加载更早日期…（较慢）</option>`);
@@ -497,20 +523,52 @@ function cardHtml(x) {
 }
 
 // 按 SPU 分行：每个 SPU 一行（行内卡片自动换行），红灯多的 SPU 排前
-function spuRows(list, cardFn = cardHtml) {
+const LORDER = { red: 0, yellow: 1, green: 2, none: 3, ended: 4 };
+const lcnt = (xs, k) => xs.filter((x) => x.light === k).length;
+// SPU 分组：红灯多的排前；组内 红→黄→绿，同色按当日销售进度从低到高
+function spuGroups(list) {
   const g = {};
   list.forEach((x) => (g[x.spu] = g[x.spu] || []).push(x));
-  const lorder = { red: 0, yellow: 1, green: 2, none: 3, ended: 4 };
-  const cnt = (xs, k) => xs.filter((x) => x.light === k).length;
-  const keys = Object.keys(g).sort((a, b) => cnt(g[b], 'red') - cnt(g[a], 'red') || cnt(g[b], 'yellow') - cnt(g[a], 'yellow') || g[b].length - g[a].length || a.localeCompare(b));
-  return keys.map((k) => {
-    const xs = g[k].sort((a, b) => lorder[a.light] - lorder[b.light] || (num(a.today && a.today['_当日销售进度值']) ?? 9) - (num(b.today && b.today['_当日销售进度值']) ?? 9));
+  const keys = Object.keys(g).sort((a, b) => lcnt(g[b], 'red') - lcnt(g[a], 'red') || lcnt(g[b], 'yellow') - lcnt(g[a], 'yellow') || g[b].length - g[a].length || a.localeCompare(b));
+  return keys.map((k) => [k, g[k].sort((a, b) => LORDER[a.light] - LORDER[b.light] || (num(a.today && a.today['_当日销售进度值']) ?? 9) - (num(b.today && b.today['_当日销售进度值']) ?? 9))]);
+}
+// 左侧 SPU 栏 + 右侧当前 SPU 的卡片（同 四季品经营复盘 / 产品主表 页的布局）
+function libHtml(list, cardFn) {
+  const groups = spuGroups(list);
+  if (!groups.some(([k]) => k === state.spu)) state.spu = groups[0][0];
+  const target = state.mode === 'target';
+  const side = groups.map(([k, xs]) => {
+    const worst = xs.reduce((w, x) => LORDER[x.light] < LORDER[w] ? x.light : w, 'ended');
+    const sub = target ? `${xs.length} 个 · 未填 ${xs.filter((x) => !isFilled(x)).length}`
+      : `${xs.length} 个 · 🔴${lcnt(xs, 'red')} 🟡${lcnt(xs, 'yellow')}${xs.filter(isTodo).length ? ` · 未分析 ${xs.filter(isTodo).length}` : ''}`;
+    const f = xs[0], img = (f.pm && f.pm._imgData) || f.imgUrl;
+    return `<button class="si${k === state.spu ? ' on' : ''}" data-spu="${esc(k)}" title="${esc(k)}">
+      <span class="si-img" data-simg="${esc(f.c._id)}">${img ? `<img src="${esc(img)}" alt="">` : '无图'}</span>
+      <span class="sn">${esc(k)}<small>${sub}</small></span><span class="ldot ${worst}"></span></button>`;
+  }).join('');
+  const sel = groups.find(([k]) => k === state.spu);
+  return `<div class="lib"><nav class="side" id="side"><div class="side-h"><span>SPU</span><span>${groups.length}</span></div>${side}</nav>
+    <section class="one">${spuSection(sel[0], sel[1], cardFn)}</section></div>`;
+}
+function bindLib() {
+  $('main').querySelectorAll('.si').forEach((b) => b.onclick = () => {
+    state.spu = b.dataset.spu;
+    const st = $('side').scrollTop; render(); $('side').scrollTop = st;
+    const lib = $('main').querySelector('.lib'); if (lib && $('main').scrollTop > lib.offsetTop - 8) $('main').scrollTop = lib.offsetTop - 8;
+  });
+}
+// 要显示的卡 + 每个 SPU 第一张（侧栏缩略图）都去取图
+const imgTargets = (list) => { const gs = spuGroups(list); const sel = gs.find(([k]) => k === state.spu); return [...(sel ? sel[1] : []), ...gs.map(([, xs]) => xs[0])]; };
+
+function spuSection(k, xs, cardFn = cardHtml) {
+  {
+    const cnt = lcnt;
     const sum = LIGHTS.filter((l) => cnt(xs, l.key)).map((l) => `<span class="sd"><i style="background:${l.color}"></i>${cnt(xs, l.key)}</span>`).join('');
     const meta = [...new Set(xs.map((x) => x.stage))].join(' / ');
     const seg = LIGHTS.filter((l) => cnt(xs, l.key)).map((l) => `<i style="flex:${cnt(xs, l.key)};background:${l.key === 'none' ? '#e3ddd6' : l.color}" title="${l.label} ${cnt(xs, l.key)}"></i>`).join('');
     return `<section class="spu"><div class="spu-h"><b>${esc(k)}</b><span class="meta">${xs.length} 个 · ${esc(meta)}</span>${sum}<span class="lbar">${seg}</span></div>
       <div class="grid">${xs.map(cardFn).join('')}</div></section>`;
-  }).join('');
+  }
 }
 
 // 五个期预估销量（折叠）：每期预估 = X期日均 × X期天数，与表里「预估销量-整季」公式同口径
@@ -710,12 +768,14 @@ function render() {
     $('filters').innerHTML = `<div class="bar1">${fchips}</div>
       ${sChips ? `<div class="schips">${sChips}</div>` : ''}
       <div class="schips"><span class="flab">阶段</span>${stChips}</div>`;
-    $('main').innerHTML = tShown.length ? spuRows(tShown, targetCardHtml) : `<div class="empty">没有符合条件的产品</div>`;
+    $('main').innerHTML = tShown.length ? libHtml(tShown, targetCardHtml) : `<div class="empty">没有符合条件的产品</div>`;
+    bindLib();
     $('filters').querySelectorAll('[data-fill]').forEach((b) => b.onclick = () => { state.fill = b.dataset.fill; render(); });
     $('filters').querySelectorAll('[data-season]').forEach((b) => b.onclick = () => { state.season = b.dataset.season; state.stage = 'all'; render(); });
     $('filters').querySelectorAll('[data-stage]').forEach((b) => b.onclick = () => { state.stage = b.dataset.stage; render(); });
     $('main').querySelectorAll('.pc').forEach(bindCard);
-    loadImages(tShown);
+    loadImages(imgTargets(tShown));
+    syncTop();
     return;
   }
   const hist = state.date !== LATEST ? `<div class="histnote">正在看 ${fmtD(state.date)} 的记录：红绿灯、原因、当日指标、今日分析是那一天的；阶段、库存、在途、目标和五个期预估是当前值。</div>` : '';
@@ -724,12 +784,14 @@ function render() {
     ${sChips ? `<div class="schips">${sChips}</div>` : ''}
     <div class="schips"><span class="flab">阶段</span>${stChips}</div>`;
   $('main').innerHTML = `${hist}
-    ${shown.length ? spuRows(shown) : `<div class="empty">没有符合条件的产品</div>`}`;
+    ${shown.length ? libHtml(shown, cardHtml) : `<div class="empty">没有符合条件的产品</div>`}`;
+  bindLib();
   $('filters').querySelectorAll('[data-light]').forEach((b) => b.onclick = () => { state.light = b.dataset.light; render(); });
   $('filters').querySelectorAll('[data-season]').forEach((b) => b.onclick = () => { state.season = b.dataset.season; state.stage = 'all'; state.light = 'all'; render(); });
   $('filters').querySelectorAll('[data-stage]').forEach((b) => b.onclick = () => { state.stage = b.dataset.stage; state.light = 'all'; render(); });
   $('main').querySelectorAll('.pc').forEach(bindCard);
-  loadImages(shown);
+  loadImages(imgTargets(shown));
+  syncTop();
 }
 
 // ===== ⑤ 今日分析写回日行 =====
@@ -776,15 +838,15 @@ async function loadImages(list) {
   if (!TBLS.pm || !FIDS.pm['图片']) return;
   for (const x of list) {
     const att = x.pm && x.pm['图片'];
-    const box = document.querySelector(`[data-img="${x.c._id}"]`);
-    if (!box || !att || !att.length) continue;
+    const boxes = [...document.querySelectorAll(`[data-img="${x.c._id}"], [data-simg="${x.c._id}"]`)];
+    if (!boxes.length || !att || !att.length) continue;
     try {
       if (!x.imgUrl) {
         const urls = await TBLS.pm.getCellAttachmentUrls([att[0].token], FIDS.pm['图片'], x.pm._id);
         x.imgUrl = urls && urls[0];
       }
-      if (x.imgUrl) box.innerHTML = `<img src="${esc(x.imgUrl)}" alt="">`;
-    } catch (e) { box.textContent = '图未取到'; box.title = String(e && e.message || e); }
+      if (x.imgUrl) boxes.forEach((b) => { b.innerHTML = `<img src="${esc(x.imgUrl)}" alt="">`; });
+    } catch (e) { boxes.forEach((b) => { b.textContent = '图未取到'; b.title = String(e && e.message || e); }); }
   }
 }
 
@@ -834,9 +896,17 @@ async function diagnose() {
     `<tr><td style="width:24px">${r[0]}</td><td>${esc(r[1])}</td><td style="color:var(--sub)">${esc(r[2])}</td></tr>`).join('')}</tbody></table></div>`;
 }
 
-// 吸顶：滚动后筛选栏加阴影
-{ const st = $('sticky'); const onScroll = () => st.classList.toggle('stuck', st.getBoundingClientRect().top <= 0 && window.scrollY > 0);
-  window.addEventListener('scroll', onScroll, { passive: true }); }
+// 固定布局：#main 内部滚动；往下滑收起标题说明，回到顶部再展开；侧栏高度跟着 #main 顶部位置走
+function syncTop() { document.documentElement.style.setProperty('--topH', Math.round($('main').getBoundingClientRect().top) + 'px'); }
+function layoutCheck() { $('tallTip').style.display = innerHeight > (screen.availHeight || screen.height || 1080) + 40 ? '' : 'none'; syncTop(); }
+window.addEventListener('resize', layoutCheck);
+$('main').addEventListener('scroll', () => {
+  const t = $('main').scrollTop, w = $('wrap');
+  $('sticky').classList.toggle('stuck', t > 0);
+  if (t > 40 && !w.classList.contains('compact')) { w.classList.add('compact'); syncTop(); }
+  else if (t < 4 && w.classList.contains('compact')) { w.classList.remove('compact'); syncTop(); }
+}, { passive: true });
+layoutCheck();
 
 // ===== 启动 =====
 function finish(track, pm, src) {
