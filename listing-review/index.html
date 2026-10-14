@@ -25,7 +25,10 @@
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--ink);
          font: 13px/1.5 -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; }
-  .wrap { padding: 14px 16px 28px; max-width: 1600px; margin: 0 auto; }
+  html, body { height: 100%; overflow: hidden; }
+  .wrap { padding: 14px 16px 0; max-width: 1600px; margin: 0 auto; height: 100vh; display: flex; flex-direction: column; }
+  #main { flex: 1; min-height: 0; overflow: auto; padding-bottom: 28px; margin: 0 -16px; padding-left: 16px; padding-right: 16px; }
+  .tip { background: var(--amber-soft); color: #8a5a00; border: 1px solid #f3dc9a; border-radius: 8px; padding: 6px 12px; font-size: 12.5px; margin-bottom: 8px; }
   .meta { color: var(--sub); font-size: 12px; }
   .err { color: var(--red); white-space: pre-wrap; }
   .loading, .empty { padding: 48px 16px; text-align: center; color: var(--sub); background: #fff; border-radius: 12px; border: 1px dashed var(--line2); }
@@ -40,8 +43,7 @@
   .btn:disabled { opacity: .5; cursor: default; }
 
   /* 顶栏 */
-  .sticky { position: sticky; top: 0; z-index: 20; background: var(--bg); margin: 0 -16px; padding: 0 16px 2px; }
-  .sticky, .list, .cside { will-change: transform; }
+  .sticky { position: relative; flex: none; z-index: 20; background: var(--bg); margin: 0 -16px; padding: 0 16px 2px; }
   .sticky.stuck { box-shadow: 0 6px 12px -8px rgba(80,50,20,.35); }
   .hero { background: linear-gradient(120deg, #f07a12 0%, #f59a3c 60%, #f8b35f 100%); color: #fff; border-radius: 12px 12px 0 0;
           padding: 12px 18px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
@@ -104,7 +106,7 @@
 
   /* 逐条审核 */
   .split { display: grid; grid-template-columns: 300px 1fr; gap: 12px; align-items: start; }
-  .list { background: #fff; border: 1px solid var(--line); border-radius: 10px; max-height: calc(100vh - var(--hdr, 116px) - 20px); overflow: auto; position: sticky; top: calc(var(--hdr, 110px) + 6px); }
+  .list { background: #fff; border: 1px solid var(--line); border-radius: 10px; max-height: calc(100vh - var(--hdr, 116px) - 40px); overflow: auto; position: sticky; top: 4px; }
   .li { display: flex; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--line); cursor: pointer; align-items: center; }
   .li:hover { background: #fffaf4; }
   .li.on { background: var(--or-soft); box-shadow: inset 3px 0 0 var(--or); }
@@ -188,7 +190,7 @@
   .mod .atts { margin: 4px 0 6px; }
   textarea.note { min-height: 34px; margin-top: 6px; font-size: 12.5px; background: #fffef9; border-style: dashed; }
   .mod.noted textarea.note { border: 1px solid var(--or); background: var(--or-soft); }
-  .cside { padding: 10px 14px; min-width: 0; position: sticky; top: calc(var(--hdr, 110px) + 8px); align-self: start; max-height: calc(100vh - var(--hdr, 110px) - 20px); overflow: auto; }
+  .cside { padding: 10px 14px; min-width: 0; position: sticky; top: 4px; align-self: start; max-height: calc(100vh - var(--hdr, 110px) - 40px); overflow: auto; }
   .cside .sec { margin-bottom: 14px; }
   .cside h4 { margin: 0 0 6px; font-size: 13px; }
   .cside .ai { max-height: 46vh; }
@@ -234,6 +236,7 @@
 </head>
 <body>
 <div class="wrap">
+  <div class="tip" id="tallTip" style="display:none">插件框比屏幕还高，往下滑时顶部筛选栏会被滚走。请在应用编辑模式里把这个插件组件的高度拖到一屏以内，页面会改成内部滚动、顶栏固定。</div>
   <div class="savebar" id="savebar"><button class="btn pri" id="saveBtn">保存到页面</button><span class="meta" id="saveMsg"></span></div>
   <div class="sticky" id="sticky">
     <div class="hero">
@@ -558,7 +561,7 @@ function renderOverview(list) {
   }
   $('main').innerHTML = h + '</tbody></table>';
   $('main').querySelectorAll('tr.g').forEach((t) => t.onclick = () => { const g = t.dataset.g; folded.has(g) ? folded.delete(g) : folded.add(g); render(); });
-  $('main').querySelectorAll('tr.row').forEach((t) => t.onclick = () => { state.cur = t.dataset.id; state.mode = 'one'; store.set('lrp.mode', 'one'); render(); window.scrollTo(0, 0); });
+  $('main').querySelectorAll('tr.row').forEach((t) => t.onclick = () => { state.cur = t.dataset.id; state.mode = 'one'; store.set('lrp.mode', 'one'); render(); $('main').scrollTop = 0; });
 }
 
 function hl(text, marks) {
@@ -662,14 +665,14 @@ function renderOne(list) {
   });
   $('tab').querySelectorAll('button').forEach((b) => b.onclick = () => { state.tab = b.dataset.t; store.set('lrp.tab', state.tab); keepNav = true; const top = $('list').scrollTop; render(); $('list').scrollTop = top; });
   $('main').querySelectorAll('.nbtn').forEach((b) => b.onclick = () => {
-    const k = r._id + b.dataset.n, y = window.scrollY;
+    const k = r._id + b.dataset.n, y = $('main').scrollTop;
     noteEdit.has(k) ? noteEdit.delete(k) : noteEdit.add(k);
-    keepNav = true; const top = $('list').scrollTop; render(); $('list').scrollTop = top; window.scrollTo(0, y);
+    keepNav = true; const top = $('list').scrollTop; render(); $('list').scrollTop = top; $('main').scrollTop = y;
     const t = $('main').querySelector(`textarea[data-f="${CSS.escape(b.dataset.n)}"]`);
     if (t) { t.focus({ preventScroll: true }); t.setSelectionRange(t.value.length, t.value.length); }
   });
-  $('prev').onclick = () => { state.cur = list[i - 1].r._id; render(); };
-  $('next').onclick = () => { state.cur = list[i + 1].r._id; render(); };
+  $('prev').onclick = () => { state.cur = list[i - 1].r._id; render(); $('main').scrollTop = 0; };
+  $('next').onclick = () => { state.cur = list[i + 1].r._id; render(); $('main').scrollTop = 0; };
   const on = $('list').querySelector('.li.on'); if (on && !keepNav) on.scrollIntoView({ block: 'nearest' });
   keepNav = false;
   // 编辑只进草稿（按记录存在内存里，切走再回来还在），点各卡片的「保存」才写回该卡片的字段
@@ -816,37 +819,16 @@ async function diagnose() {
     `<tr><td style="width:24px">${r[0]}</td><td>${esc(r[1])}</td><td style="color:var(--sub)">${esc(r[2])}</td></tr>`).join('')}</tbody></table></div>`;
 }
 
-// ===== 吸顶 =====
-// 两种情况：①插件框内部滚动 → CSS position:sticky 生效；②飞书把插件框撑到内容那么高、滚的是外层页面 →
-// sticky 失效。②用 IntersectionObserver 算出插件框当前露在屏幕上的那段（跨域 iframe 也能拿到 intersectionRect），
-// 把顶栏 / 左侧清单 / 右栏平移到可见区顶部，并把清单高度限制在可见高度内。
-let VT = 0, VH = 0;
+// ===== 布局：顶栏固定、内容区自己滚 =====
+// 页面高度 = 插件框高度（100vh），顶栏不动，#main 内部滚动，左侧清单 / 右栏在 #main 里 sticky。
+// 飞书若把插件框拉得比屏幕还高，滚的是外层页面、顶栏会被滚走 → 页面顶部提示把组件高度拖到一屏内。
 function floatAll() {
-  const hdr = $('sticky').offsetHeight;
-  document.documentElement.style.setProperty('--hdr', hdr + 'px');
-  const vh = VH || innerHeight;
-  const items = [[$('sticky'), 0], [document.getElementById('list'), hdr + 6], ...[...document.querySelectorAll('.cside')].map((e) => [e, hdr + 8])];
-  for (const [el, off] of items) {
-    if (!el) continue;
-    if (el !== $('sticky')) el.style.maxHeight = VH > 0 ? Math.max(240, vh - hdr - 20) + 'px' : '';
-    const sh = el._sh || 0, r = el.getBoundingClientRect(), top0 = r.top - sh, pr = el.parentElement.getBoundingClientRect();
-    let s = VT > 0 ? Math.max(0, VT + off - top0) : 0;
-    s = Math.min(s, Math.max(0, pr.bottom - (top0 + r.height)));
-    el._sh = s; el.style.transform = s ? `translateY(${s}px)` : '';
-  }
-  $('sticky').classList.toggle('stuck', VT > 0 || ($('sticky').getBoundingClientRect().top <= 0 && window.scrollY > 0));
+  document.documentElement.style.setProperty('--hdr', $('sticky').offsetHeight + 'px');
+  const tall = innerHeight > (screen.availHeight || screen.height || 1080) + 40;
+  $('tallTip').style.display = tall ? '' : 'none';
 }
-try {
-  new IntersectionObserver((es) => {
-    const e = es[es.length - 1], ir = e.intersectionRect, br = e.boundingClientRect;
-    VT = ir.height && ir.top > Math.max(0, br.top) + 1 ? ir.top : 0;          // 外层页面把插件顶部滚出屏幕了多少
-    VH = ir.height && ir.height < innerHeight - 1 ? ir.height : 0;          // 插件框比屏幕高时，可见高度
-    floatAll();
-  }, { threshold: Array.from({ length: 1001 }, (_, i) => i / 1000) }).observe(document.body);
-} catch (e) { console.warn('IntersectionObserver 不可用', e); }
 window.addEventListener('resize', floatAll);
-{ const st = $('sticky'); const onScroll = () => st.classList.toggle('stuck', VT > 0 || (st.getBoundingClientRect().top <= 0 && window.scrollY > 0));
-  window.addEventListener('scroll', onScroll, { passive: true }); }
+$('main').addEventListener('scroll', () => $('sticky').classList.toggle('stuck', $('main').scrollTop > 0), { passive: true });
 document.querySelectorAll('#mode button').forEach((b) => b.onclick = () => { state.mode = b.dataset.m; store.set('lrp.mode', state.mode); render(); });
 
 // ===== 启动 =====
