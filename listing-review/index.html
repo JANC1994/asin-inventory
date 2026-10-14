@@ -109,7 +109,19 @@
   .li.on { background: var(--or-soft); box-shadow: inset 3px 0 0 var(--or); }
   .li .t { flex: 1; min-width: 0; }
   .li .t div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .li .mini { width: 36px; height: 36px; }
+  .li .mini { width: 44px; height: 44px; }
+  .li .ls { font-weight: 700; font-size: 12.5px; }
+  .lg { position: sticky; top: 0; z-index: 1; background: #fcf6ef; padding: 5px 10px; font-size: 12px; font-weight: 700; color: var(--or-d); border-bottom: 1px solid var(--line2); }
+  .lg span { color: var(--sub); font-weight: 400; margin-left: 4px; }
+  .atts { display: flex; flex-wrap: wrap; gap: 8px; }
+  .att { width: 108px; cursor: pointer; text-decoration: none; color: var(--sub); font-size: 11px; }
+  .att .ph { width: 108px; height: 108px; border-radius: 8px; overflow: hidden; background: var(--grey-soft); border: 1px solid var(--line); display: flex; align-items: center; justify-content: center; color: var(--grey); font-size: 11px; text-align: center; padding: 4px; }
+  .att .ph img { width: 100%; height: 100%; object-fit: cover; }
+  .att div.n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 2px; }
+  .ah { font-size: 12px; color: var(--sub); margin: 8px 0 4px; }
+  .ah b { color: var(--ink); }
+  .lightbox { position: fixed; inset: 0; background: rgba(20,14,8,.82); z-index: 60; display: flex; align-items: center; justify-content: center; cursor: zoom-out; }
+  .lightbox img { max-width: 94vw; max-height: 92vh; border-radius: 6px; background: #fff; }
   .det { min-width: 0; }
   .dh { display: flex; gap: 14px; align-items: center; background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin-bottom: 12px; }
   .dh .mini { width: 72px; height: 72px; border-radius: 8px; }
@@ -192,13 +204,14 @@ const SDK_URL = 'https://cdn.jsdelivr.net/npm/@lark-base-open/js-sdk@1.0.2/dist/
 const BASE_TOKEN = 'JGvebyaAYapWtOslxc9cuKYXnwd';   // 灯具组-全流程
 const COPY = ['标题', '亮点', '卖点1', '卖点2', '卖点3', '卖点4', '卖点5', 'ST'];
 const DONE = ['文案完成', '图片完成', 'A+完成', '视频完成', '品牌故事完成', '旗舰店完成'];
+const ATT = ['主副图', 'A+', '品牌故事', '旗舰店'];                          // 审核表自己的附件字段（图片审核看这些）
 const NOTES = ['运营审核文案', '主管审核文案', '运营审核图片', '主管审核图片'];
 const COPY_ST = ['待审核', '通过', '未通过'];
 const IMG_ST = ['待审核', '待审核-主管', '通过', '未通过'];
 const TABLES = {
   lr: { id: 'tblF7uOotHeqdnTz', name: 'Listing审核表', fields: [
     '审核键', 'ASIN', '店铺', '产品线', 'SPU', 'SKU', '品名', '负责人', ...COPY, '开售时间', 'AI 规范分析', '更新日志',
-    ...NOTES, '文案审核状态', '图片审核状态', ...DONE, 'listing最晚完成时间'] },
+    ...NOTES, '文案审核状态', '图片审核状态', ...DONE, 'listing最晚完成时间', ...ATT] },
   pm: { id: 'tblqksywqgYvywOT', name: '产品主表-灯类+精铺', fields: ['ASIN', '图片'] },
 };
 
@@ -232,7 +245,7 @@ function cell(v) {
 }
 const toDate = (v) => typeof v === 'number' ? v : (v ? Date.parse(v) : null);
 function norm(name, v) {
-  if (name === '图片') return Array.isArray(v) ? v.filter((x) => x && typeof x === 'object' && x.token) : [];
+  if (name === '图片' || ATT.includes(name)) return Array.isArray(v) ? v.filter((x) => x && typeof x === 'object' && x.token) : [];
   if (DONE.includes(name)) return !!v;
   if (name === '开售时间' || name === 'listing最晚完成时间') return toDate(v);
   if (name === '负责人') return Array.isArray(v) ? v.map((x) => x && (x.name || x.enName || x.id)).filter(Boolean) : [];
@@ -376,7 +389,8 @@ const folded = new Set();
 
 function build(rows, pm) {
   PMBY = {};
-  for (const p of pm) if (p['ASIN'] && !PMBY[p['ASIN']]) PMBY[p['ASIN']] = p;
+  // 产品主表同一 ASIN 有多行（多 SKU / -8.5 副款），取第一个有图的行
+  for (const p of pm) if (p['ASIN'] && (p['图片'] || []).length + (p._imgData ? 1 : 0) && !PMBY[p['ASIN']]) PMBY[p['ASIN']] = p;
   ITEMS = rows.filter((r) => txt(r['审核键'])).map((r) => {
     const res = check(r), ai = parseAI(r['AI 规范分析']);
     const late = r['listing最晚完成时间'] && dn(r['listing最晚完成时间']) < TODAY && !(r['文案审核状态'] === '通过' && r['图片审核状态'] === '通过');
@@ -397,6 +411,12 @@ const match = (x, skip) => (skip === 'line' || state.line === 'all' || x.line ==
 const scope = () => ITEMS.filter((x) => match(x));
 // 排序：超期 → 红线多 → SPU
 const rank = (a, b) => (b.late - a.late) || (b.red - a.red) || (b.orange - a.orange) || a.spu.localeCompare(b.spu, 'zh') || a.asin.localeCompare(b.asin);
+// 两个视图同一顺序：SPU 组按组内最多红线排，组内按 rank
+function ordered(xs) {
+  const g = {};
+  for (const x of [...xs].sort(rank)) (g[x.spu] = g[x.spu] || []).push(x);
+  return Object.entries(g).sort((a, b) => Math.max(...b[1].map((x) => x.red)) - Math.max(...a[1].map((x) => x.red)) || a[0].localeCompare(b[0], 'zh')).flatMap((e) => e[1]);
+}
 
 // ===== ⑥ 渲染 =====
 const pillCls = (s) => s === '通过' ? 'p-pass' : s === '未通过' ? 'p-fail' : s === '待审核-主管' ? 'p-boss' : s === '待审核' ? 'p-wait' : 'p-none';
@@ -441,7 +461,7 @@ function renderFilters() {
 function render() {
   document.querySelectorAll('#mode button').forEach((b) => b.classList.toggle('on', b.dataset.m === state.mode));
   renderFilters();
-  const list = scope().sort(rank);
+  const list = ordered(scope());
   $('meta').textContent = `${list.length} / ${ITEMS.length} 条 · ${SRC}`;
   if (!list.length) { $('main').innerHTML = '<div class="empty">当前筛选下没有记录</div>'; return; }
   if (state.mode === 'ov') renderOverview(list); else renderOne(list);
@@ -497,7 +517,10 @@ function hl(text, marks) {
 function renderOne(list) {
   if (!list.some((x) => x.r._id === state.cur)) state.cur = list[0].r._id;
   const i = list.findIndex((x) => x.r._id === state.cur), x = list[i], r = x.r;
-  const nav = list.map((y) => `<div class="li${y.r._id === state.cur ? ' on' : ''}" data-id="${y.r._id}">${imgBox(y)}<div class="t">
+  // 左侧清单：按 SPU 分组（组头吸顶），每条第一行是 SPU
+  const nav = list.map((y, j) => (j === 0 || list[j - 1].spu !== y.spu ? `<div class="lg">${esc(y.spu)} <span>${list.filter((z) => z.spu === y.spu).length}</span></div>` : '') +
+    `<div class="li${y.r._id === state.cur ? ' on' : ''}" data-id="${y.r._id}">${imgBox(y)}<div class="t">
+    <div class="ls" title="${esc(y.spu)}">${esc(y.spu)}</div>
     <div><span class="asin">${esc(y.asin)}</span> <span class="sub2">${esc(y.shop)}</span></div>
     <div class="sub2">${pill(y.cst)} ${pill(y.ist)} ${y.hidden ? '<span class="pill p-hide">不可见</span>' : `<b style="color:var(--red)">🔴${y.red}</b>`}</div></div></div>`).join('');
   const site = /-CA/.test(x.shop) ? 'https://www.amazon.ca/dp/' : 'https://www.amazon.com/dp/';
@@ -535,6 +558,11 @@ function renderOne(list) {
       <div class="nav"><button class="btn" id="prev"${i ? '' : ' disabled'}>← 上一条</button><span class="meta" style="align-self:center">${i + 1}/${list.length}</span><button class="btn" id="next"${i < list.length - 1 ? '' : ' disabled'}>下一条 →</button></div></div>
     <div class="cols"><div><div class="box"><h3>前台文案 <span class="meta">只读 · 来自 AI抓文案 · 页面现场规则检查 🔴${x.red} 🟠${x.orange}</span></h3>${copy}</div></div>
     <div><div class="box"><h3>审核</h3>${review}</div>
+      <div class="box"><h3>素材 <span class="meta">审核表附件 · 点图看大图</span></h3>${ATT.map((f) => {
+        const a = r[f] || [];
+        return `<div class="ah"><b>${f}</b> ${a.length} 个</div>` + (a.length ? `<div class="atts">${a.map((t, k) =>
+          `<a class="att" data-f="${f}" data-k="${k}" title="${esc(t.name)}"><div class="ph" data-tok="${esc(t.token)}">${SNAP ? '本地预览不显示<br>飞书里显示' : '加载中…'}</div><div class="n">${esc(t.name)}</div></a>`).join('')}</div>` : '');
+      }).join('')}</div>
       <div class="box"><h3>AI 规范分析</h3>${aiBox}</div>
       <div class="box"><details class="log"><summary>更新日志</summary><pre>${esc(r['更新日志'] || '（无）')}</pre></details></div></div></div></div></div>`;
   $('main').querySelectorAll('.li').forEach((d) => d.onclick = () => { state.cur = d.dataset.id; render(); });
@@ -552,6 +580,32 @@ function renderOne(list) {
   $('main').querySelectorAll('.chk input').forEach((c) => c.onchange = () => { c.parentElement.classList.toggle('on', c.checked); draft[c.dataset.f] = c.checked; });
   $('main').querySelectorAll('textarea').forEach((t) => t.oninput = () => { draft[t.dataset.f] = t.value; });
   $('sbtn').onclick = () => save(x, draft);
+  loadAtts(r);
+}
+
+// 审核表附件：按当前记录取临时地址（地址会过期，不缓存跨记录）
+async function loadAtts(r) {
+  if (SNAP) return;
+  for (const f of ATT) {
+    const a = r[f] || [];
+    if (!a.length || !FIDS.lr[f]) continue;
+    let urls = [];
+    try { urls = await TBLS.lr.getCellAttachmentUrls(a.map((t) => t.token), FIDS.lr[f], r._id); }
+    catch (e) { document.querySelectorAll(`.att[data-f="${f}"] .ph`).forEach((p) => { p.textContent = '图未取到'; p.title = String(e && e.message || e); }); continue; }
+    if (state.cur !== r._id) return;                                      // 已切到别的记录
+    document.querySelectorAll(`.att[data-f="${f}"]`).forEach((el) => {
+      const u = urls[+el.dataset.k];
+      if (!u) return;
+      const isImg = /\.(png|jpe?g|gif|webp|bmp)$/i.test(a[+el.dataset.k].name || '') || /^image\//.test(a[+el.dataset.k].type || '');
+      el.querySelector('.ph').innerHTML = isImg ? `<img src="${esc(u)}" alt="" loading="lazy">` : '非图片<br>点击打开';
+      el.onclick = () => {
+        if (!isImg) { window.open(u, '_blank'); return; }
+        const lb = document.createElement('div');
+        lb.className = 'lightbox'; lb.innerHTML = `<img src="${esc(u)}" alt="">`;
+        lb.onclick = () => lb.remove(); document.body.appendChild(lb);
+      };
+    });
+  }
 }
 
 // ===== ⑦ 写回 =====
@@ -670,8 +724,9 @@ try {
     setupSave();
     const rows = await readTable('lr');
     let pm = [];
-    try { pm = await readTable('pm'); } catch (e) { console.warn('产品主表读不到，不显示图片', e); }
-    finish(rows, pm, '取数：Listing审核表 + 产品主表');
+    let pmErr = '';
+    try { pm = await readTable('pm'); } catch (e) { pmErr = ' · ⚠ 产品主表读不到，缩略图不显示：' + (e && e.message ? e.message : e); }
+    finish(rows, pm, '取数：Listing审核表 + 产品主表' + pmErr);
   }
 } catch (e) {
   const msg = esc(e && e.message ? e.message : e);
