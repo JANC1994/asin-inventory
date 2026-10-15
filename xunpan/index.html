@@ -193,7 +193,7 @@
     <div id="detail"></div>
   </div>
   <div class="foot">
-    今日 = 美西 17:40 当日累计，按完整数展示。昨日全天 / 近7天日均 数字后的小字 = 今日较它的变化；比率类按百分点（pt）。右侧趋势：近 7 天 + 今日的每日销量（柱）与订单量（柱下数字），虚线 = 近 7 天日均。<br>
+    今日 = 美西 17:40 当日累计，按完整数展示。金额一律美元（加拿大按领星当月汇率换算）；转化率 = 订单 ÷ Sessions（电脑+手机，次日才出）；广告订单占比：ASIN 卡 = 直接广告订单 ÷ 订单，SPU 汇总 = 全部广告订单 ÷ 订单。昨日全天 / 近7天日均 数字后的小字 = 今日较它的变化；比率类按百分点（pt）。右侧趋势：近 7 天 + 今日的每日销量（柱）与订单量（柱下数字），虚线 = 近 7 天日均。<br>
     目标框：四季品取「四季品经营表(周)」本周 SPU 行（产品目标 / 经营策略 / 关键指标 / 周目标销量）；季节品取「季节品追踪表」战役行（产品目标 / 关键指标 / 当前阶段 + 阶段目标与阶段日均）。<br>
     预警标签沿用 X10 规则，每天照报，「N天」= 连续触发天数。售罄 = 可售+预留 &lt; 10 且无在途；断货 = 可售+预留 &lt; 10 但有在途；两者排在最底。<br>
     数据：领星 → 「询盘快照-灯」每天美西 17:40 同步；SPU / 季节 / 负责人 / 图片取产品主表（ASIN + 国家）。
@@ -215,7 +215,7 @@ const STAGES = ['起量期', '爆发期', '高峰期', '消退期', '清仓期']
 // 第一张表 = saveConfig 第一条 dataCondition（应用只认它授权）；其余表已由别的页面/数据授权页授权
 const TABLES = {
   snap: { id: 'tblGVMWzTuijGA1Q', name: '询盘快照-灯', fields: ['日期', 'ASIN', '国家', '数据类型', '店铺', 'MSKU', '领星品名',
-    '销量', '订单量', '销售额', '广告花费', '曝光', '点击', '广告订单', '广告销售额', 'Sessions', '退货量',
+    '销量', '订单量', '销售额', '广告花费', '曝光', '点击', '广告订单', '直接广告订单', '广告销售额', 'Sessions', '退货量',
     'FBA可售', '预留', '在途', '可售天数', '星级', '评论数', 'BSR', '前日BSR'] },
   pm: { id: 'tblqksywqgYvywOT', name: '产品主表', fields: ['ASIN', '国家文本', 'SPU', '销售季分类', OWNER_F, '品名', '图片', '领星SKU'] },
   week: { id: 'tblbSnNiUOOLlZwu', name: '四季品经营表(周)', view: 'vewL1VwST4', fields: ['层级', '_SPU键', '国家文本', '周起始日', '周标签', '周目标销量', '产品目标', '经营策略', '关键指标'] },
@@ -285,7 +285,7 @@ async function readTable(key) {
 }
 
 // ================= 数据整理 =================
-const RAWK = { units: '销量', orders: '订单量', sales: '销售额', spend: '广告花费', impr: '曝光', clicks: '点击', adOrders: '广告订单', adSales: '广告销售额', sessions: 'Sessions', returns: '退货量' };
+const RAWK = { units: '销量', orders: '订单量', sales: '销售额', spend: '广告花费', impr: '曝光', clicks: '点击', adOrders: '广告订单', directAd: '直接广告订单', adSales: '广告销售额', sessions: 'Sessions', returns: '退货量' };
 let ENT = {};          // `${asin}|${ctry}` → { asin, ctry, days: Map(天序号 → 行), pm }
 let DATES = [];        // 有数据的日期（天序号，降序，最多 7 个）
 let SNAPTYPE = {};     // 天序号 → 数据类型文字
@@ -372,10 +372,11 @@ function view(e, D) {   // 一个 ASIN 在所选日期的全部数
 
 // ================= 指标 =================
 const div = (a, b) => (b ? a / b : null);
-function metrics(m) {
+// 广告订单占比：单个 ASIN 用「直接广告订单」（本 ASIN 自己成交）；SPU 汇总用全部广告订单（溢出单大多落在同 SPU 兄弟变体上）
+function metrics(m, spuLevel) {
   return { units: m.units, price: div(m.sales, m.units), orders: m.orders, ctr: div(m.clicks, m.impr),
     acos: div(m.spend, m.adSales), tacos: div(m.spend, m.sales), cpc: div(m.spend, m.clicks), spend: m.spend,
-    cvr: m.sessions ? m.orders / m.sessions : null, adshare: div(m.adOrders, m.orders) };
+    cvr: m.sessions ? m.orders / m.sessions : null, adshare: div(spuLevel ? m.adOrders : m.directAd, m.orders) };
 }
 const COLS = [
   ['units', '销量', 'n', 1], ['price', '均价', '$', 0], ['orders', '订单量', 'n', 1], ['ctr', 'CTR', '%', 1],
@@ -394,8 +395,8 @@ function delta(now, ref, t, dir) {
   const cls = !big || dir === 0 ? '' : ((now > ref) === (dir > 0) ? 'good' : 'bad');
   return `<span class="${cls}">${txt}</span>`;
 }
-function metricTable(T, Y, A7) {
-  const mt = metrics(T), my = metrics(Y), m7 = metrics(A7);
+function metricTable(T, Y, A7, spuLevel) {
+  const mt = metrics(T, spuLevel), my = metrics(Y, spuLevel), m7 = metrics(A7, spuLevel);
   const head = '<tr><th></th>' + COLS.map((c) => `<th colspan="2" class="hc">${c[1]}</th>`).join('') + '</tr>';
   const today = '<tr class="today"><td>今日</td>' + COLS.map((c) => c[0] === 'cvr' && !T.sessions
     ? '<td class="vc"><span class="na" title="Sessions 次日才出">—</span></td><td class="dc"></td>'
@@ -573,7 +574,7 @@ function render() {
         <span>在途 <b>${inb.toLocaleString()}</b></span><span>可售天数 <b>${days == null ? '—' : days.toFixed(0)}</b></span></div></div>
       ${state.season === '四季品' ? spuGoalBox(s.name, items, D) : '<div class="spacer"></div>'}</div>
     ${alertBand(items.flatMap((v) => v.alerts.map((x) => ({ ...x, who: v.e.asin + ' ' + v.e.ctry }))))}
-    <div class="body">${metricTable(T, Y, A7)}${trendBox(D, daily, dOrd, T.units, T.orders)}</div></div>`;
+    <div class="body">${metricTable(T, Y, A7, true)}${trendBox(D, daily, dOrd, T.units, T.orders)}</div></div>`;
 
   const live = items.filter((v) => !v.stock).sort((p, q) => q.t.units - p.t.units || q.a7.units - p.a7.units);
   const dead = items.filter((v) => v.stock).sort((p, q) => q.a7.units - p.a7.units);
