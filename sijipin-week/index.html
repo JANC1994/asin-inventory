@@ -329,12 +329,12 @@ const BOSS_FIELDS = ['建议操作'];                                   // 主�
 const TEXT_FIELDS = [...GOAL_FIELDS, ...REVIEW_FIELDS, ...BOSS_FIELDS];
 const NUM_EDIT = ['周目标销量'];
 // 只读数字（存储）字段；CVR/ACOS 等比率是经营表的公式字段，插件里读到的是带格式的值（如「8.8%」），改在页面按同一公式算（见 normRow）
-const WK_NUM = ['有效天数', '启用', '销量', '订单量', '销售额', '总点击数', '广告展示数', '广告点击', '广告花费', '广告销售额', '广告订单量',
+const WK_NUM = ['有效天数', '启用', '销量', '订单量', '销售额', '总点击数', '广告展示数', '广告点击', '广告花费', '广告销售额', '广告订单量', '直接广告订单',
   '毛利', '毛利率', '退货量', '周目标销量'];
 const WK_RATIO = {   // 同四季品经营表的公式；分母为 0 → 空
   CVR: ['订单量', '总点击数'], 销售均价: ['销售额', '销量'], 广告CTR: ['广告点击', '广告展示数'], 广告单占比: ['广告订单量', '订单量'],
   广告CVR: ['广告订单量', '广告点击'], CPC: ['广告花费', '广告点击'], ACOS: ['广告花费', '广告销售额'], TACOS: ['广告花费', '销售额'], 退货率: ['退货量', '销量'] };
-const DAY_NUM = ['销量', '订单量', '销售额', 'Sessions', '广告曝光量', '点击', '广告花费', '广告销售额', '广告CVR', '退货量', '小类排名',
+const DAY_NUM = ['销量', '订单量', '销售额', 'Sessions', '广告曝光量', '点击', '广告花费', '广告销售额', '广告CVR', '直接广告订单', '退货量', '小类排名',
   'FBA可售-领星', 'FBA在途入库-领星', 'FBA接收中-领星', 'FBA调拨处理中-领星'];
 const TABLES = {
   // view：「插件-近9周（经营表页面用，勿删）」= 启用=1 且 距今周数<=8（约 700 行）；视图被删时自动退回读全表
@@ -402,6 +402,8 @@ function normRow(key, r) {
   for (const f of ['层级', '店铺', '维度', '负责人', '国家', '国家文本', '红绿灯', '周状态']) if (f in o && typeof o[f] !== 'string') o[f] = cell(o[f]);
   for (const f of TEXT_FIELDS) if (f in o && o[f] != null && typeof o[f] !== 'string') o[f] = cell(o[f]);
   if (key === 'wk') for (const [f, [a, b]] of Object.entries(WK_RATIO)) o[f] = o[a] != null && o[b] ? o[a] / o[b] : null;
+  // 广告单占比：ASIN 行用「直接广告订单」（广告订单量含溢出到其他 ASIN 的单，单 ASIN 会 >100%；10-15 起表里有这列，之前的周为空 → 显示 —）
+  if (key === 'wk' && o['层级'] === 'ASIN') o['广告单占比'] = o['直接广告订单'] != null && o['订单量'] ? o['直接广告订单'] / o['订单量'] : null;
   return o;
 }
 
@@ -751,12 +753,13 @@ function buildDay(day) {
     if (!need.has(k)) continue;
     const d = dn(r['日期']); dset.add(d);
     const m = (DAYAGG[k] = DAYAGG[k] || {});
-    const a = (m[d] = m[d] || { sales: 0, orders: 0, rev: 0, sess: 0, imp: 0, clk: 0, spend: 0, adrev: 0, adord: 0, fba: 0, inb: 0, recv: 0, xfer: 0, inv: false,
+    const a = (m[d] = m[d] || { sales: 0, orders: 0, rev: 0, sess: 0, imp: 0, clk: 0, spend: 0, adrev: 0, adord: 0, dad: 0, dadMiss: false, fba: 0, inb: 0, recv: 0, xfer: 0, inv: false,
       ret: 0, comm: 0, fbaFee: 0, cogs: 0, miss: 0, rank: null });
     a.sales += r['销量'] || 0; a.orders += r['订单量'] || 0; a.rev += r['销售额'] || 0;
     a.sess = Math.max(a.sess, r['Sessions'] || 0);
     a.imp += r['广告曝光量'] || 0; a.clk += r['点击'] || 0; a.spend += r['广告花费'] || 0; a.adrev += r['广告销售额'] || 0;
     a.adord += Math.round((r['广告CVR'] || 0) * (r['点击'] || 0));
+    if (r['直接广告订单'] == null) a.dadMiss = true; else a.dad += r['直接广告订单'];
     if (r['FBA可售-领星'] != null || r['FBA在途入库-领星'] != null) a.inv = true;
     a.fba += r['FBA可售-领星'] || 0; a.inb += r['FBA在途入库-领星'] || 0; a.recv += r['FBA接收中-领星'] || 0; a.xfer += r['FBA调拨处理中-领星'] || 0;
     a.ret += r['退货量'] || 0;
@@ -1227,11 +1230,14 @@ function seriesFor(e) {
   const keys = e.layer === 'SPU' ? Object.values(ENT).filter((a) => a.layer === 'ASIN' && a.spu === e.spu && a.country === e.country).map((a) => `${a.asin}|${a.country}`) : [`${e.asin}|${e.country}`];
   return DAYS.map((d) => {
     const t = { d, sales: 0, orders: 0, rev: 0, sess: 0, imp: 0, clk: 0, spend: 0, adrev: 0, adord: 0, fba: 0, inb: 0, recv: 0, xfer: 0, has: false, inv: false,
-      ret: 0, comm: 0, fbaFee: 0, cogs: 0, miss: 0, rank: null, missAsins: [] };
+      ret: 0, comm: 0, fbaFee: 0, cogs: 0, miss: 0, rank: null, missAsins: [], dad: 0, dadMiss: false };
     for (const k of keys) { const a = DAYAGG[k] && DAYAGG[k][d]; if (!a) continue; t.has = true; if (a.inv) t.inv = true;
       for (const f of ['sales', 'orders', 'rev', 'sess', 'imp', 'clk', 'spend', 'adrev', 'adord', 'fba', 'inb', 'recv', 'xfer', 'ret', 'comm', 'fbaFee', 'cogs', 'miss']) t[f] += a[f];
       if (a.miss > 0) t.missAsins.push(k.split('|')[0]);
+      t.dad += a.dad; if (a.dadMiss) t.dadMiss = true;
       if (a.rank != null) t.rank = t.rank == null ? a.rank : Math.min(t.rank, a.rank); }   // SPU：取最好的 ASIN 排名
+    // 广告单占比分子：SPU = 全部广告订单（溢出单大多落在同 SPU 兄弟变体上）；ASIN = 直接广告订单（缺数的日子 → NaN 显示 —）
+    t.adsh = e.layer === 'SPU' ? t.adord : (t.has && t.dadMiss ? NaN : t.dad);
     return t;
   });
 }
@@ -1250,7 +1256,7 @@ const ADM = [
   { k: '广告点击', sum: 'clk', fmt: 'n', dir: 1 }, { k: 'CTR', r: ['clk', 'imp'], fmt: '%2', dir: 1 }, { k: 'CPC', r: ['spend', 'clk'], fmt: '$2', dir: -1 },
   { k: 'ACOS', r: ['spend', 'adrev'], fmt: '%', dir: -1 }, { k: 'TACOS', r: ['spend', 'rev'], fmt: '%', dir: -1 },
   { k: '广告订单', sum: 'adord', fmt: 'n', dir: 1, tip: '按 广告CVR×点击 反推' }, { k: '广告CVR', r: ['adord', 'clk'], fmt: '%', dir: 1 },
-  { k: '广告单占比', r: ['adord', 'orders'], fmt: '%', dir: 0 },
+  { k: '广告单占比', r: ['adsh', 'orders'], fmt: '%', dir: 0, tip: 'SPU = 全部广告订单 ÷ 订单量；ASIN = 直接广告订单（本 ASIN 自己成交）÷ 订单量' },
 ];
 const RANGES = [7, 14, 30];
 const fmtBy = (f, v, c) => v == null || !isFinite(v) ? '—' : f === 'n' ? fmtN(v) : f === '$' ? cur(c) + fmtN(v) : f === '$2' ? cur(c) + fmtN(v, 2) : f === '%2' ? pct(v, 2) : pct(v, 1);
