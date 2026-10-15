@@ -310,10 +310,10 @@ function prepare(D) {
     const k = `${String(p['ASIN']).trim()}|${c}`;
     if (!PM[k] || (!PM[k]['SPU'] && p['SPU']) || (!(PM[k]['图片'] || []).length && (p['图片'] || []).length)) PM[k] = p;
   }
-  const PMA = {};   // 只按 ASIN：CA 站没单独登记时借用同 ASIN 其他国家的主表行（优先美国）
-  for (const p of Object.values(PM)) { const a = String(p['ASIN']).trim(); if (!PMA[a] || CTRY[p['国家文本']] === 'US') PMA[a] = p; }
+  // 只收产品主表里登记了「ASIN + 国家」的链接（用户 10-14 定：CA 站没单独登记 = 没在卖，不进页面）
+  for (const k of Object.keys(ENT)) if (!PM[k]) delete ENT[k];
   for (const [k, e] of Object.entries(ENT)) {
-    const p = PM[k] || PMA[e.asin] || null;
+    const p = PM[k];
     e.pm = p;
     const lr = [...e.days.values()].pop() || {};
     e.spu = (p && String(p['SPU'] || '').trim()) || (p ? '（主表未填SPU）' : '未登记·' + String(lr['领星品名'] || e.asin).slice(0, 14));
