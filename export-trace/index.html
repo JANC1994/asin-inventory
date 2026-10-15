@@ -1,0 +1,491 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>出口单证追踪</title>
+<!--
+  飞书应用「灯具组-全流程」自定义插件页 · 出口单证追踪（2026-10-15）
+  一张合同（=一张报关单）一张卡：左 采购单（领星）｜中 报关明细（财务出口退税表）｜右 货件状态时间线（领星发货单 + FBA 货件）
+  读三张表（只读）：出口退税明细 / 出口货件 / 出口采购单；数据由 tools/claude-workspace/sync_export_trace.py 每日同步
+  读表授权：应用页「数据授权2（勿删）」pgezWolk3vEpdQPp 的 3 个原生列表组件
+  基于 tools/feishu-page-kit/template.html（硬规矩见 wiki/页面设计/概念/飞书应用自定义插件页.md）。页面里只有 base token 和表 ID，无密钥。
+-->
+<style>
+  :root {
+    --bg: #f5f6f7; --card: #ffffff; --ink: #1f2329; --sub: #646a73; --line: #e5e6eb;
+    --blue: #3370ff; --blue-soft: #e1eaff; --red: #f54a45; --red-soft: #fde2e2;
+    --yellow: #ff8800; --yellow-soft: #fff1d6; --green: #34c724; --green-soft: #e4f7e1; --gray-soft: #eff0f1;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 13px/1.5 -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; }
+  html, body { height: 100%; overflow: hidden; }
+  .wrap { padding: 12px 16px 0; height: 100vh; display: flex; flex-direction: column; }
+  #main { flex: 1; min-height: 0; overflow: auto; position: relative; margin: 0 -16px; padding: 0 16px 24px; }
+  .tip { flex: none; background: #fff7e8; color: #b25e00; border-radius: 8px; padding: 6px 12px; font-size: 12.5px; margin-bottom: 8px; }
+  .card { background: var(--card); border-radius: 8px; padding: 12px 14px; border: 1px solid var(--line); margin-bottom: 12px; }
+  .card.hl { box-shadow: 0 0 0 2px var(--blue); }
+  .meta { color: var(--sub); font-size: 12px; }
+  .err { color: var(--red); white-space: pre-wrap; }
+  .loading { padding: 40px; text-align: center; color: var(--sub); }
+  table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+  .tbl th, .tbl td { padding: 5px 8px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; }
+  .tbl th { color: var(--sub); font-weight: normal; background: var(--bg); position: sticky; top: 0; z-index: 2; }
+  .tbl td.r, .tbl th.r { text-align: right; }
+  .savebar { flex: none; display: none; align-items: center; gap: 12px; background: #fff7e8; border: 1px solid #ffd591; border-radius: 8px;
+             padding: 10px 14px; margin-bottom: 10px; }
+  .savebar.show { display: flex; }
+  .savebar button { height: 32px; padding: 0 16px; border: 0; border-radius: 6px; background: var(--blue); color: #fff; font-size: 14px; cursor: pointer; }
+  .savebar button:disabled { opacity: .6; cursor: default; }
+  .sticky { position: relative; flex: none; z-index: 20; background: var(--bg); margin: 0 -16px; padding: 4px 16px 8px; }
+  .sticky.stuck { box-shadow: 0 6px 12px -8px rgba(0,0,0,.25); }
+
+  /* 顶栏 */
+  .bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; }
+  .bar h1 { font-size: 16px; margin: 0 6px 0 0; }
+  .seg { display: inline-flex; background: #fff; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+  .seg button { border: 0; background: none; padding: 5px 12px; cursor: pointer; font-size: 13px; color: var(--sub); }
+  .seg button.on { background: var(--blue); color: #fff; }
+  .bar select, .bar input { height: 30px; border: 1px solid var(--line); border-radius: 6px; padding: 0 8px; background: #fff; font-size: 13px; }
+  .bar input { width: 230px; max-width: 100%; }
+  .kpis { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .kpi { background: #fff; border: 1px solid var(--line); border-radius: 6px; padding: 3px 10px; font-size: 12px; color: var(--sub); cursor: pointer; }
+  .kpi b { color: var(--ink); font-size: 14px; margin-left: 4px; }
+  .kpi.red b { color: var(--red); } .kpi.yellow b { color: var(--yellow); } .kpi.green b { color: var(--green); }
+  .kpi.on { border-color: var(--blue); background: var(--blue-soft); }
+
+  /* 合同卡 */
+  .ch { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; margin-bottom: 10px; }
+  .ch .no { font-size: 15px; font-weight: 600; }
+  .ch .kv { color: var(--sub); font-size: 12px; } .ch .kv b { color: var(--ink); font-weight: normal; }
+  .pill { display: inline-block; border-radius: 10px; padding: 0 8px; font-size: 12px; line-height: 20px; white-space: nowrap; }
+  .p-red { background: var(--red-soft); color: #c4302b; } .p-yellow { background: var(--yellow-soft); color: #b25e00; }
+  .p-green { background: var(--green-soft); color: #1e8a12; } .p-blue { background: var(--blue-soft); color: #245bdb; }
+  .p-gray { background: var(--gray-soft); color: var(--sub); }
+  .cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr) minmax(0, 1.6fr); gap: 12px; }
+  .col { min-width: 0; }
+  @media (max-width: 1100px) { .cols { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .cols .c3 { grid-column: 1 / -1; } }
+  @media (max-width: 720px) { .cols { grid-template-columns: minmax(0, 1fr); } }
+  .col h4 { margin: 0 0 6px; font-size: 12px; color: var(--sub); font-weight: normal; display: flex; justify-content: space-between; }
+  .box { border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; margin-bottom: 6px; }
+  .box .t { display: flex; justify-content: space-between; gap: 6px; align-items: center; }
+  .box .t b { font-weight: 600; }
+  .box .s { color: var(--sub); font-size: 12px; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .box details summary { cursor: pointer; color: var(--blue); font-size: 12px; margin-top: 2px; }
+  .box details pre { margin: 4px 0 0; white-space: pre-wrap; font: 12px/1.5 inherit; color: var(--ink); }
+  .mini { width: 100%; table-layout: fixed; font-size: 12px; }
+  .mini td, .mini th { padding: 3px 4px; border-bottom: 1px dashed var(--line); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mini th { color: var(--sub); font-weight: normal; text-align: left; }
+  .mini .r { text-align: right; }
+  .bar2 { height: 6px; background: var(--gray-soft); border-radius: 3px; overflow: hidden; margin-top: 4px; }
+  .bar2 i { display: block; height: 100%; background: var(--green); }
+
+  /* 状态时间线 */
+  .steps { display: grid; grid-template-columns: repeat(5, 1fr); margin: 8px 0 2px; }
+  .st { position: relative; text-align: center; font-size: 11px; color: var(--sub); padding-top: 14px; }
+  .st::before { content: ''; position: absolute; top: 4px; left: -50%; width: 100%; height: 2px; background: var(--line); }
+  .st:first-child::before { display: none; }
+  .st i { position: absolute; top: 0; left: 50%; margin-left: -5px; width: 10px; height: 10px; border-radius: 50%; background: #fff; border: 2px solid #c9cdd4; z-index: 1; }
+  .st.done { color: var(--ink); } .st.done i { background: var(--green); border-color: var(--green); } .st.done::before { background: var(--green); }
+  .st.cur i { background: var(--blue); border-color: var(--blue); box-shadow: 0 0 0 3px var(--blue-soft); }
+  .st.cur::before { background: var(--green); }
+  .st.late i { background: var(--red); border-color: var(--red); box-shadow: 0 0 0 3px var(--red-soft); }
+  .st em { display: block; font-style: normal; color: var(--sub); font-size: 10.5px; }
+  .chip { color: var(--blue); cursor: pointer; text-decoration: none; } .chip:hover { text-decoration: underline; }
+  .empty { padding: 30px; text-align: center; color: var(--sub); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="tip" id="tallTip" style="display:none">插件框比屏幕还高，往下滑时顶部筛选栏会被滚走。请在应用编辑模式里把这个插件组件的高度拖到一屏以内，页面会改成内部滚动、顶栏固定。</div>
+  <div class="savebar" id="savebar">
+    <span>这是插件的配置预览。确认没问题后点右边按钮，插件才会保存到应用页面上。</span>
+    <button id="saveBtn">保存到页面</button>
+    <span class="meta" id="saveMsg"></span>
+  </div>
+  <div class="sticky" id="sticky">
+    <div class="bar">
+      <h1>出口单证追踪</h1>
+      <div class="seg" id="viewSeg"><button data-v="contract" class="on">按合同</button><button data-v="ship">按货件</button></div>
+      <select id="fOp"><option value="">全部运营</option></select>
+      <select id="fMonth"><option value="">全部出口月份</option></select>
+      <input id="fQ" placeholder="搜 货件号 / 合同号 / 采购单号 / 品名">
+      <span class="meta" id="meta">数据加载中…</span>
+    </div>
+    <div class="kpis" id="kpis"></div>
+  </div>
+  <div id="main"><div class="loading">正在读取多维表数据…</div></div>
+</div>
+
+<script type="module">
+// ===== ① 页面配置 =====
+const SDK_URLS = [new URL('./sdk/index.mjs', location.href).href,
+  'https://cdn.jsdelivr.net/npm/@lark-base-open/js-sdk@1.0.2/dist/index.mjs',
+  'https://unpkg.com/@lark-base-open/js-sdk@1.0.2/dist/index.mjs'];
+const BASE_TOKEN = 'JGvebyaAYapWtOslxc9cuKYXnwd';   // 灯具组-全流程
+const TABLES = {
+  det: { id: 'tbl0F3jfCuyNB1ud', name: '出口退税明细', links: ['货件', '采购单'],
+    fields: ['合同协议号', '报关单号', '提运单号', '出口日期', '运营', '货物或应税劳务名称', '出口数量', '申报计量单位',
+      '申报金额总价c&f', '币种', 'FOB（外币）', 'FOB金额（人民币）', '发票号码', '开票日期', '发票认证', '发票稽核',
+      '退税日期', '退税金额', '回款金额（外币）', '回款日期', 'FBA货件号', '采购单号', '货件', '采购单'] },
+  ship: { id: 'tblwKDnP6SpU3ydp', name: '出口货件', links: [],
+    fields: ['货件号', '店铺', '货件名称', '发货单号', '物流商', '物流渠道', '运输方式', '发货单建单日', '发货日', '预计到仓日',
+      'FBA状态', '目的仓', '发货量', '已收量', 'FBA建单时间', 'FBA已发货时间', 'FBA接收中时间', 'FBA关闭时间', 'FBA最近更新',
+      '领星匹配', '数据更新日'] },
+  po: { id: 'tblbh0XaF0WGTfs0', name: '出口采购单', links: [],
+    fields: ['采购单号', '单据状态', '到货状态', '付款状态', '供应商', '采购员', '下单日', '预计到货日', '首次到货日', '最近到货日',
+      '采购量', '已到货量', '采购金额', '含税', '明细', '采购备注', '领星匹配'] },
+};
+const SAVE_TABLE = 'det';
+
+// ===== ② 通用工具 =====
+const $ = (id) => document.getElementById(id);
+const DAY = 86400000, BJ = 8 * 3600000;
+const dn = (ms) => Math.floor((Number(ms) + BJ) / DAY);
+const today0 = dn(Date.now());
+const ud = (n) => new Date(n * DAY);
+const fmtD = (n) => { const d = ud(n); return `${d.getUTCMonth() + 1}-${String(d.getUTCDate()).padStart(2, '0')}`; };
+const fmtFull = (n) => { const d = ud(n); return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`; };
+const n0 = (v) => (v == null || v === '' || isNaN(v)) ? 0 : Number(v);
+const fmtN = (v, p = 0) => (v == null || v === '' || isNaN(v)) ? '—' : Number(v).toLocaleString('zh-CN', { maximumFractionDigits: p, minimumFractionDigits: p });
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+// 日期字段 → 天序号（毫秒 / 'YYYY-MM-DD…' 文本 都认）
+function dayOf(v) {
+  if (v == null || v === '') return null;
+  if (typeof v === 'number') return dn(v);
+  const m = String(v).match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  return m ? Math.floor(Date.UTC(+m[1], +m[2] - 1, +m[3]) / DAY) : null;
+}
+const fD = (v) => { const n = dayOf(v); return n == null ? '' : fmtD(n); };
+
+function cell(v) {
+  if (v == null) return null;
+  if (typeof v === 'number' || typeof v === 'string' || typeof v === 'boolean') return v;
+  if (Array.isArray(v)) {
+    if (!v.length) return null;
+    if (v.every((x) => x && typeof x === 'object' && 'text' in x && !('id' in x && 'name' in x && !('type' in x)))) return v.map((x) => x.text ?? '').join('');
+    if (v.length === 1) return cell(v[0]);
+    return v.map(cell).join('、');
+  }
+  if (typeof v === 'object') {
+    if ('text' in v) return v.text;
+    if ('name' in v) return v.name;
+    if ('value' in v) return cell(v.value);
+  }
+  return String(v);
+}
+function linkIds(v) {
+  if (!v) return [];
+  if (typeof v === 'string') return v.startsWith('rec') ? [v] : [];
+  if (Array.isArray(v)) return v.flatMap(linkIds);
+  if (typeof v === 'object') {
+    for (const k of ['recordIds', 'record_ids']) if (Array.isArray(v[k])) return v[k].flatMap(linkIds);
+    for (const k of ['recordId', 'record_id', 'id']) if (typeof v[k] === 'string' && v[k].startsWith('rec')) return [v[k]];
+  }
+  return [];
+}
+
+let SDK = null;
+async function readTable(key) {
+  const cfg = TABLES[key];
+  const table = await SDK.bitable.base.getTableById(cfg.id);
+  const fields = await table.getFieldMetaList();
+  const idByName = Object.fromEntries(fields.map((f) => [f.name, f.id]));
+  const missing = cfg.fields.filter((w) => !idByName[w]);
+  if (missing.length) { console.warn(`表 ${cfg.name} 缺字段：`, missing); DIAG.push(`${cfg.name} 缺字段：${missing.join('、')}`); }
+  const rows = [];
+  let pageToken;
+  for (let guard = 0; guard < 500; guard++) {
+    const res = await table.getRecordsByPage({ pageSize: 200, pageToken });
+    for (const r of res.records) {
+      const o = { _id: r.recordId };
+      for (const w of cfg.fields) if (idByName[w]) o[w] = cfg.links.includes(w) ? linkIds(r.fields[idByName[w]]) : cell(r.fields[idByName[w]]);
+      rows.push(o);
+    }
+    if (!res.hasMore) break;
+    pageToken = res.pageToken;
+  }
+  return rows;
+}
+
+// ===== ③ 页面逻辑 =====
+const DIAG = [];
+let DATA = {};
+let M = null;            // 整理后的模型
+const UI = { view: 'contract', op: '', month: '', q: '', st: '', focus: '' };
+
+async function load() {
+  if (window.__SNAPSHOT__) { DATA = window.__SNAPSHOT__.data; return; }
+  const keys = Object.keys(TABLES);
+  const results = await Promise.all(keys.map(readTable));
+  keys.forEach((k, i) => { DATA[k] = results[i]; });
+}
+
+// 货件阶段：0 发货单建单 → 1 已发货 → 2 在途 → 3 接收中 → 4 已完结
+const STEP_NAMES = ['建单', '已发货', '在途', '接收中', '已完结'];
+function shipModel(s) {
+  const st = s['FBA状态'] || '';
+  const sent = n0(s['发货量']), got = n0(s['已收量']);
+  let stage = 0;
+  if (dayOf(s['发货日']) != null || ['已发货', '在途', '已送达', '已签到', '接收中', '已关闭'].includes(st)) stage = 1;
+  if (st === '在途' || (stage >= 1 && dayOf(s['发货日']) != null && dayOf(s['发货日']) < today0)) stage = 2;
+  if (['已送达', '已签到', '接收中'].includes(st) || got > 0) stage = 3;
+  if (st === '已关闭' || (sent > 0 && got >= sent)) stage = 4;
+  if (['已取消', '已删除'].includes(st)) stage = -1;
+  const eta = dayOf(s['预计到仓日']);
+  const late = stage >= 0 && stage < 4 && eta != null && eta < today0 ? today0 - eta : 0;
+  // 状态分档：done 已完结 / red 逾期未到仓 / yellow 逾期接收中 / recv 接收中 / way 在途或待发
+  const level = stage === 4 ? 'done' : stage === -1 ? 'cancel' : late && stage < 3 ? 'red' : late ? 'yellow' : stage === 3 ? 'recv' : 'way';
+  const dates = [s['发货单建单日'] || s['FBA建单时间'], s['发货日'] || s['FBA已发货时间'], null, s['FBA接收中时间'], s['FBA关闭时间']];
+  return { ...s, stage, late, eta, level, sent, got, dates };
+}
+const LV = { red: ['逾期未到仓', 'p-red', 0], yellow: ['逾期·接收中', 'p-yellow', 1], way: ['在途', 'p-blue', 2], recv: ['接收中', 'p-green', 3],
+  done: ['已完结', 'p-gray', 4], cancel: ['已取消', 'p-gray', 5] };
+
+function buildModel() {
+  const ships = Object.fromEntries((DATA.ship || []).map((s) => [s._id, shipModel(s)]));
+  const pos = Object.fromEntries((DATA.po || []).map((p) => [p._id, p]));
+  const byC = new Map();
+  for (const d of DATA.det || []) {
+    const k = d['合同协议号'] || '(无合同号)';
+    if (!byC.has(k)) byC.set(k, { no: k, lines: [], ships: new Set(), pos: new Set() });
+    const c = byC.get(k);
+    c.lines.push(d);
+    (d['货件'] || []).forEach((id) => ships[id] && c.ships.add(id));
+    (d['采购单'] || []).forEach((id) => pos[id] && c.pos.add(id));
+  }
+  const contracts = [...byC.values()].map((c) => {
+    const f = c.lines[0];
+    const sl = [...c.ships].map((id) => ships[id]);
+    const worst = sl.length ? sl.reduce((a, s) => (LV[s.level][2] < LV[a][2] ? s.level : a), 'cancel') : 'way';
+    const exp = dayOf(f['出口日期']);
+    return {
+      ...c, ships: sl, pos: [...c.pos].map((id) => pos[id]), level: worst,
+      decl: f['报关单号'], bl: f['提运单号'], exp, op: [...new Set(c.lines.map((x) => x['运营']).filter(Boolean))].join('、'),
+      cur: f['币种'], fob: c.lines.reduce((a, x) => a + n0(x['FOB（外币）']), 0), fobCny: c.lines.reduce((a, x) => a + n0(x['FOB金额（人民币）']), 0),
+      inv: c.lines.filter((x) => x['发票号码']).length, refund: c.lines.reduce((a, x) => a + n0(x['退税金额']), 0),
+      refunded: c.lines.filter((x) => x['退税日期']).length, paid: c.lines.filter((x) => x['回款日期']).length,
+      maxLate: Math.max(0, ...sl.map((s) => s.late)),
+    };
+  });
+  // 货件 → 所属合同 / 采购单（反查）
+  const shipRefs = {};
+  for (const c of contracts) for (const s of c.ships) {
+    const r = (shipRefs[s._id] ||= { contracts: new Set(), pos: new Set() });
+    r.contracts.add(c.no); c.pos.forEach((p) => r.pos.add(p['采购单号']));
+  }
+  // 精确到明细行：货件实际挂的采购单
+  for (const d of DATA.det || []) for (const sid of d['货件'] || []) {
+    if (!shipRefs[sid]) continue;
+    shipRefs[sid].posExact ||= new Set();
+    (d['采购单'] || []).forEach((pid) => pos[pid] && shipRefs[sid].posExact.add(pos[pid]['采购单号']));
+  }
+  return { ships, pos, contracts, shipRefs };
+}
+
+function fillFilters() {
+  const ops = [...new Set((DATA.det || []).map((d) => d['运营']).filter(Boolean))].sort();
+  $('fOp').innerHTML = '<option value="">全部运营</option>' + ops.map((o) => `<option>${esc(o)}</option>`).join('');
+  const months = [...new Set(M.contracts.map((c) => c.exp != null ? fmtFull(c.exp).slice(0, 7) : '').filter(Boolean))].sort().reverse();
+  $('fMonth').innerHTML = '<option value="">全部出口月份</option>' + months.map((m) => `<option>${m}</option>`).join('');
+}
+
+function matchQ(c, q) {
+  if (!q) return true;
+  const hay = [c.no, c.decl, c.bl, ...c.lines.map((x) => `${x['货物或应税劳务名称']} ${x['FBA货件号']} ${x['采购单号']}`),
+    ...c.ships.map((s) => `${s['货件号']} ${s['发货单号']} ${s['店铺']}`), ...c.pos.map((p) => `${p['采购单号']} ${p['供应商']}`)].join(' ').toUpperCase();
+  return q.toUpperCase().split(/\s+/).every((w) => hay.includes(w));
+}
+function baseFilter() {
+  return M.contracts.filter((c) => (!UI.op || c.op.includes(UI.op))
+    && (!UI.month || (c.exp != null && fmtFull(c.exp).startsWith(UI.month))) && matchQ(c, UI.q.trim()));
+}
+
+function renderKpis(cs) {
+  const ships = [...new Map(cs.flatMap((c) => c.ships).map((s) => [s._id, s])).values()];
+  const cnt = (lv) => (UI.view === 'contract' ? cs.filter((c) => c.level === lv).length : ships.filter((s) => s.level === lv).length);
+  const unit = UI.view === 'contract' ? '合同' : '货件';
+  const items = [['', `全部${unit}`, UI.view === 'contract' ? cs.length : ships.length, ''], ['red', '逾期未到仓', cnt('red'), 'red'],
+    ['yellow', '逾期·接收中', cnt('yellow'), 'yellow'], ['way', '在途', cnt('way'), ''], ['recv', '接收中', cnt('recv'), 'green'], ['done', '已完结', cnt('done'), '']];
+  $('kpis').innerHTML = items.map(([k, t, n, c]) => `<span class="kpi ${c} ${UI.st === k ? 'on' : ''}" data-st="${k}">${t}<b>${n}</b></span>`).join('')
+    + `<span class="meta" style="align-self:center">FOB 合计 ¥${fmtN(cs.reduce((a, c) => a + c.fobCny, 0))}　·　逾期 = 预计到仓日已过且未收完（领星发货单的预计到仓日）</span>`;
+  $('kpis').querySelectorAll('.kpi').forEach((el) => el.onclick = () => { UI.st = UI.st === el.dataset.st ? '' : el.dataset.st; render(); });
+}
+
+function stepsHtml(s) {
+  return `<div class="steps">${STEP_NAMES.map((nm, i) => {
+    const cls = s.stage > i || s.stage === 4 ? 'done' : s.stage === i ? (s.late ? 'late' : 'cur') : '';
+    let d = s.dates[i] ? fD(s.dates[i]) : '';
+    if (i === 2 && s.eta != null) d = `预计 ${fmtD(s.eta)}`;
+    return `<div class="st ${cls}"><i></i>${nm}<em>${esc(d) || '&nbsp;'}</em></div>`;
+  }).join('')}</div>`;
+}
+function shipBox(s) {
+  const lv = LV[s.level];
+  const pct = s.sent ? Math.min(100, Math.round(s.got / s.sent * 100)) : 0;
+  return `<div class="box"><div class="t"><b>${esc(s['货件号'])}</b><span class="pill ${lv[1]}">${lv[0]}${s.late ? ` ${s.late}天` : ''}</span></div>
+    <div class="s" title="${esc(s['货件名称'])}">${esc(s['店铺'] || '')} → ${esc(s['目的仓'] || '—')}　${esc(s['物流商'] || '')} ${esc(s['物流渠道'] || '')} ${esc(s['运输方式'] || '')}</div>
+    ${stepsHtml(s)}
+    <div class="s">收货 ${fmtN(s.got)} / ${fmtN(s.sent)}（${pct}%）　发货单 ${esc(s['发货单号'] || '—')}　FBA ${esc(s['FBA状态'] || '—')}${s['FBA最近更新'] ? ` · 更新 ${esc(String(s['FBA最近更新']).slice(5))}` : ''}</div>
+    <div class="bar2"><i style="width:${pct}%"></i></div></div>`;
+}
+function poBox(p) {
+  const real = n0(p['采购量']), got = n0(p['已到货量']);
+  const pill = p['领星匹配'] === '未找到' ? '<span class="pill p-red">领星未找到</span>'
+    : `<span class="pill ${p['到货状态'] === '全部到货' ? 'p-green' : 'p-yellow'}">${esc(p['到货状态'] || '—')}</span>`;
+  return `<div class="box"><div class="t"><b>${esc(p['采购单号'])}</b>${pill}</div>
+    <div class="s" title="${esc(p['供应商'])}">${esc(p['供应商'] || '')}</div>
+    <div class="s">下单 ${fD(p['下单日']) || '—'}　到货 ${fD(p['首次到货日']) || '—'}${p['最近到货日'] && fD(p['最近到货日']) !== fD(p['首次到货日']) ? `~${fD(p['最近到货日'])}` : ''}　${fmtN(got)}/${fmtN(real)}</div>
+    <div class="s">¥${fmtN(p['采购金额'], 2)} ${esc(p['含税'] || '')}　${esc(p['单据状态'] || '')}　付款:${esc(p['付款状态'] || '—')}　${esc(p['采购员'] || '')}</div>
+    ${p['明细'] || p['采购备注'] ? `<details><summary>SKU 明细${p['采购备注'] ? ' / 备注' : ''}</summary><pre>${esc(p['明细'] || '')}${p['采购备注'] ? `\n备注：${esc(p['采购备注'])}` : ''}</pre></details>` : ''}</div>`;
+}
+function contractCard(c) {
+  const lv = LV[c.level];
+  const tag = (ok, all, txt) => `<span class="pill ${ok === 0 ? 'p-gray' : ok >= all ? 'p-green' : 'p-yellow'}">${txt} ${ok}/${all}</span>`;
+  const n = c.lines.length;
+  return `<div class="card ${UI.focus === c.no ? 'hl' : ''}" id="c-${esc(c.no)}">
+    <div class="ch"><span class="no">${esc(c.no)}</span><span class="pill ${lv[1]}">${lv[0]}${c.maxLate ? ` ${c.maxLate}天` : ''}</span>
+      <span class="kv">报关单 <b>${esc(c.decl || '—')}</b></span><span class="kv">提运单 <b>${esc(c.bl || '—')}</b></span>
+      <span class="kv">出口 <b>${c.exp != null ? fmtFull(c.exp) : '—'}</b></span>
+      <span class="kv">FOB <b>${fmtN(c.fob, 2)} ${esc(c.cur || '')}</b> / ¥${fmtN(c.fobCny)}</span>
+      <span class="kv">运营 <b>${esc(c.op || '—')}</b></span>
+      ${tag(c.inv, n, '发票')} ${tag(c.refunded, n, '退税')} ${tag(c.paid, n, '回款')}${c.refund ? ` <span class="kv">退税额 <b>¥${fmtN(c.refund, 2)}</b></span>` : ''}</div>
+    <div class="cols">
+      <div class="col"><h4><span>采购单（合同单号）</span><span>${c.pos.length}</span></h4>${c.pos.map(poBox).join('') || '<div class="meta">明细里没填采购单号</div>'}</div>
+      <div class="col"><h4><span>报关明细</span><span>${n} 行</span></h4>
+        <table class="mini"><colgroup><col style="width:38%"><col style="width:20%"><col style="width:22%"><col style="width:20%"></colgroup>
+        <tr><th>品名</th><th class="r">数量</th><th class="r">申报金额</th><th>发票</th></tr>
+        ${c.lines.map((x) => `<tr title="货件 ${esc(x['FBA货件号'])}｜采购单 ${esc(x['采购单号'])}"><td>${esc(x['货物或应税劳务名称'])}</td>
+          <td class="r">${fmtN(x['出口数量'])}${esc(x['申报计量单位'] || '')}</td><td class="r">${fmtN(x['申报金额总价c&f'], 2)}</td>
+          <td>${x['发票号码'] ? `<span class="pill p-green">${esc(x['发票认证'] || '已开')}</span>` : '<span class="pill p-gray">未开</span>'}</td></tr>`).join('')}</table></div>
+      <div class="col c3"><h4><span>货件轨迹（领星状态）</span><span>${c.ships.length}</span></h4>${c.ships.sort((a, b) => LV[a.level][2] - LV[b.level][2]).map(shipBox).join('') || '<div class="meta">无货件</div>'}</div>
+    </div></div>`;
+}
+
+function renderContracts(cs) {
+  const list = cs.filter((c) => !UI.st || c.level === UI.st)
+    .sort((a, b) => LV[a.level][2] - LV[b.level][2] || b.maxLate - a.maxLate || (b.exp ?? 0) - (a.exp ?? 0));
+  $('main').innerHTML = list.map(contractCard).join('') || '<div class="empty">没有符合条件的合同</div>';
+  if (UI.focus) { const el = document.getElementById('c-' + UI.focus); if (el) el.scrollIntoView({ block: 'start' }); }
+}
+function renderShips(cs) {
+  const ids = new Set(cs.flatMap((c) => c.ships.map((s) => s._id)));
+  const list = [...ids].map((id) => M.ships[id]).filter((s) => !UI.st || s.level === UI.st)
+    .sort((a, b) => LV[a.level][2] - LV[b.level][2] || b.late - a.late || (a.eta ?? 1e9) - (b.eta ?? 1e9));
+  const chips = (arr, kind) => arr.map((x) => `<a class="chip" data-${kind}="${esc(x)}">${esc(x)}</a>`).join('、');
+  $('main').innerHTML = list.length ? `<div class="card" style="padding:0;overflow:auto"><table class="tbl">
+    <thead><tr><th>货件号</th><th>状态</th><th>店铺 → 仓</th><th>物流</th><th>发货日</th><th>预计到仓</th><th class="r">收货</th><th>合同协议号</th><th>采购单号</th><th>发货单</th></tr></thead>
+    <tbody>${list.map((s) => {
+      const ref = M.shipRefs[s._id] || { contracts: new Set(), pos: new Set() };
+      const lv = LV[s.level];
+      return `<tr><td><b>${esc(s['货件号'])}</b></td><td><span class="pill ${lv[1]}">${lv[0]}${s.late ? ` ${s.late}天` : ''}</span></td>
+        <td>${esc(s['店铺'] || '')} → ${esc(s['目的仓'] || '')}</td><td>${esc(s['物流商'] || '')} ${esc(s['运输方式'] || '')}</td>
+        <td>${fD(s['发货日']) || '—'}</td><td>${s.eta != null ? fmtD(s.eta) : '—'}</td>
+        <td class="r">${fmtN(s.got)}/${fmtN(s.sent)}</td><td>${chips([...ref.contracts], 'c')}</td><td>${chips([...(ref.posExact || ref.pos)], 'q')}</td>
+        <td>${esc(s['发货单号'] || '')}</td></tr>`;
+    }).join('')}</tbody></table></div>` : '<div class="empty">没有符合条件的货件</div>';
+  $('main').querySelectorAll('a[data-c]').forEach((a) => a.onclick = () => { UI.view = 'contract'; UI.focus = a.dataset.c; UI.q = ''; UI.st = ''; $('fQ').value = ''; syncSeg(); render(); });
+  $('main').querySelectorAll('a[data-q]').forEach((a) => a.onclick = () => { UI.view = 'contract'; UI.q = a.dataset.q; UI.st = ''; $('fQ').value = a.dataset.q; syncSeg(); render(); });
+}
+function syncSeg() { $('viewSeg').querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.v === UI.view)); }
+
+function render() {
+  const cs = baseFilter();
+  renderKpis(cs);
+  UI.view === 'contract' ? renderContracts(cs) : renderShips(cs);
+  if (UI.view === 'ship' || !UI.focus) $('main').scrollTop = 0;
+  UI.focus = '';
+}
+function bindUi() {
+  $('viewSeg').querySelectorAll('button').forEach((b) => b.onclick = () => { UI.view = b.dataset.v; UI.st = ''; syncSeg(); render(); });
+  $('fOp').onchange = (e) => { UI.op = e.target.value; render(); };
+  $('fMonth').onchange = (e) => { UI.month = e.target.value; render(); };
+  let t; $('fQ').oninput = (e) => { clearTimeout(t); t = setTimeout(() => { UI.q = e.target.value; render(); }, 200); };
+}
+
+// ===== ④ 保存 =====
+function setupSave() {
+  const dash = SDK && SDK.dashboard;
+  let st = '';
+  try { st = dash && dash.state; } catch (e) { st = '读取失败'; }
+  $('saveMsg').textContent = `（插件状态：${st || '未知'}）`;
+  if (dash && typeof dash.saveConfig === 'function' && st !== 'View' && st !== 'FullScreen') {
+    $('savebar').classList.add('show');
+    $('saveBtn').onclick = async () => {
+      $('saveBtn').disabled = true; $('saveMsg').textContent = '保存中…';
+      try {
+        // 应用只认第一条 dataCondition；其余表靠应用页「数据授权2（勿删）」的原生列表组件授权
+        const ok = await dash.saveConfig({
+          dataConditions: Object.values(TABLES).map((t) => ({ tableId: t.id, baseToken: BASE_TOKEN, dataRange: { type: 'ALL' }, series: 'COUNTA' })),
+          customConfig: { page: document.title, version: 1 },
+        });
+        $('saveMsg').textContent = ok === false ? '保存失败，请重试' : '已保存 ✔';
+      } catch (e) {
+        $('saveMsg').textContent = '保存失败：' + (e && e.message ? e.message : e);
+      } finally { $('saveBtn').disabled = false; }
+    };
+  } else if (dash && dash.setRendered) {
+    dash.setRendered().catch(() => {});
+  }
+}
+
+// ===== ⑤ 诊断 =====
+async function diagnose() {
+  const res = [];
+  const t = async (name, fn) => {
+    try {
+      const v = await Promise.race([fn(), new Promise((_, rej) => setTimeout(() => rej(new Error('超时 8s')), 8000))]);
+      let shown; try { shown = typeof v === 'string' ? v : JSON.stringify(v); } catch (x) { shown = String(v); }
+      res.push(['✔', name, String(shown).slice(0, 300)]); return v;
+    } catch (e) { res.push(['✘', name, e && e.message ? e.message : String(e)]); return undefined; }
+  };
+  const { bitable, dashboard } = SDK;
+  await t('dashboard.state', async () => dashboard.state);
+  await t('dashboard.getConfig', () => dashboard.getConfig());
+  for (const [k, cfg] of Object.entries(TABLES)) {
+    const tb = await t(`打开表 ${cfg.name}`, () => bitable.base.getTableById(cfg.id));
+    if (tb) await t(`读记录 ${cfg.name}`, () => tb.getRecordsByPage({ pageSize: 2 }));
+  }
+  return `<div class="card"><b>接口诊断</b> <span class="meta">请把这块整体截图发回</span><table class="tbl"><tbody>${res.map((r) =>
+    `<tr><td style="width:24px">${r[0]}</td><td>${esc(r[1])}</td><td style="white-space:normal;color:var(--sub)">${esc(r[2])}</td></tr>`).join('')}</tbody></table></div>`;
+}
+
+// ===== ⑥ 布局检查 =====
+function layoutCheck() {
+  const tall = innerHeight > (screen.availHeight || screen.height || 1080) + 40;
+  $('tallTip').style.display = tall ? '' : 'none';
+}
+window.addEventListener('resize', layoutCheck);
+layoutCheck();
+$('main').addEventListener('scroll', () => $('sticky').classList.toggle('stuck', $('main').scrollTop > 0), { passive: true });
+
+async function loadSdk() {
+  const errs = [];
+  for (const u of SDK_URLS) {
+    try { return await Promise.race([import(u), new Promise((_, rej) => setTimeout(() => rej(new Error('超时 12s')), 12000))]); }
+    catch (e) { errs.push(`${u} → ${e && e.message ? e.message : e}`); }
+  }
+  throw new Error('飞书 SDK 三个来源都没加载上（也就没有「保存到页面」按钮），请截图：' + errs.join(' ｜ '));
+}
+
+// ===== 启动 =====
+try {
+  if (!window.__SNAPSHOT__) { SDK = await loadSdk(); setupSave(); }
+  await load();
+  M = buildModel();
+  const upd = (DATA.ship || []).map((s) => dayOf(s['数据更新日'])).filter((x) => x != null);
+  $('meta').textContent = `${M.contracts.length} 份合同 · ${Object.keys(M.ships).length} 个货件 · ${Object.keys(M.pos).length} 张采购单`
+    + (upd.length ? ` · 领星数据 ${fmtFull(Math.max(...upd))}` : '') + (window.__SNAPSHOT__ ? `（本地快照 ${window.__SNAPSHOT__.at}）` : '')
+    + (DIAG.length ? ` · ⚠ ${DIAG.join('；')}` : '');
+  fillFilters(); bindUi(); render();
+  if (!M.contracts.length) $('main').innerHTML = '<div class="card err">读到 0 份合同。</div>' + (SDK ? await diagnose() : '');
+} catch (e) {
+  const msg = esc(e && e.message ? e.message : e);
+  $('meta').textContent = '';
+  $('main').innerHTML = `<div class="card err">加载失败：${msg}</div>` + (SDK ? '<div class="card">正在诊断…</div>' : '');
+  if (SDK) { try { $('main').innerHTML = `<div class="card err">加载失败：${msg}</div>` + await diagnose(); } catch (e2) { /* 保留上面的报错 */ } }
+}
+</script>
+</body>
+</html>
