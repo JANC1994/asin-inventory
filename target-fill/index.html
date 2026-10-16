@@ -1,0 +1,738 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>目标填写</title>
+<!--
+  飞书应用「灯具组-全流程」自定义插件页：目标填写（2026-10-16）
+  读写 产品目标总表-灯 tblE3XbKD8PUEX7Y（口径 wiki/工具/产品目标总表口径.md §6），两个分页：
+    · 四季品：左侧 SPU 栏；右侧每个国家一块 = 年度（SPU 父行：产品目标/经营策略/关键指标）
+              + 月度（月度行：经营策略/关键指标；月销量目标 = ASIN 预估之和，只读）
+              + ASIN 预估日均（四季品-ASIN预估行，每个 ASIN × 每个月都要填，0 也算填）
+    · 季节品：左侧按季节分组（可折叠）→ SPU；右侧选中 SPU 的每个 ASIN×国家一张卡
+              = 总库存数量 + 五个阶段（日均 + 阶段目标）；阶段日期/天数取 季节节奏日历，天数为 0 的阶段不用填
+  「各层级不能漏」：每个必填格空着就标红虚线，侧栏圆点 绿=填完 / 橙=填了一部分 / 灰=没动；缺行（还没建的月份/ASIN 行）也算未完成，由每日任务 X29 补行。
+  网址加 ?tab=sijipin 或 ?tab=jijie 可锁定只显示一个分页（两个应用页面各放一个插件）。
+  只写手填字段；月销量目标、预估月销量、预估销量-整季、库存差额 是表里公式，页面按同一口径现算显示。
+  四条硬规矩见 wiki/页面设计/概念/飞书应用自定义插件页.md。
+-->
+<style>
+  :root {
+    --bg: #faf6f1; --card: #ffffff; --ink: #2b2118; --sub: #7a6d61; --line: #f0e4d7; --line2: #e8d9c8;
+    --or: #f07a12; --or-d: #c95f05; --or-soft: #fff1e2; --or-soft2: #ffe3c4;
+    --red: #d9363e; --red-soft: #fdebec; --green: #2a9d4b; --green-soft: #e6f6eb; --grey: #9a9089; --grey-soft: #f3efea;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 13px/1.5 -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; }
+  html, body { height: 100%; overflow: hidden; }
+  .wrap { padding: 12px 16px 0; max-width: 1700px; margin: 0 auto; height: 100vh; display: flex; flex-direction: column; }
+  #main { flex: 1; min-height: 0; overflow: auto; position: relative; margin: 0 -16px; padding: 0 16px 24px; }
+  .tip { flex: none; background: #fff7e8; color: #b25e00; border-radius: 8px; padding: 6px 12px; font-size: 12.5px; margin-bottom: 8px; }
+  .meta { color: var(--sub); font-size: 12px; }
+  .err { color: var(--red); white-space: pre-wrap; }
+  .loading, .empty { padding: 48px 16px; text-align: center; color: var(--sub); background: #fff; border-radius: 12px; border: 1px dashed var(--line2); }
+  .card0 { background: var(--card); border-radius: 10px; padding: 14px 16px; border: 1px solid var(--line); margin-bottom: 12px; }
+  .tbl { border-collapse: collapse; width: 100%; }
+  .tbl td { padding: 6px 8px; border-bottom: 1px solid var(--line); }
+
+  /* 顶栏 */
+  .sticky { position: relative; flex: none; z-index: 20; background: var(--bg); margin: 0 -16px; padding: 0 16px 2px; }
+  .sticky.stuck { box-shadow: 0 6px 12px -8px rgba(80,50,20,.35); }
+  .hero { background: linear-gradient(120deg, #f07a12 0%, #f59a3c 60%, #f8b35f 100%); color: #fff; border-radius: 12px 12px 0 0;
+          padding: 12px 18px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .hero h2 { margin: 0; font-size: 18px; letter-spacing: .5px; }
+  .hero .meta { color: rgba(255,255,255,.92); margin-left: auto; }
+  .hero select { height: 30px; padding: 0 10px; border: 0; border-radius: 8px; font-size: 13px; color: var(--ink); background: #fff; cursor: pointer; }
+  .seg { display: inline-flex; background: rgba(255,255,255,.22); border-radius: 9px; padding: 3px; gap: 2px; }
+  .seg button { height: 28px; padding: 0 16px; border: 0; border-radius: 7px; background: transparent; color: #fff; font-size: 14px; cursor: pointer; }
+  .seg button.on { background: #fff; color: var(--or-d); font-weight: 700; box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+  .hero-f { background: linear-gradient(120deg, #f38a2a 0%, #f7a650 100%); border-radius: 0 0 12px 12px; padding: 8px 18px 10px; margin-bottom: 12px;
+            border-top: 1px solid rgba(255,255,255,.3); display: flex; flex-direction: column; gap: 6px; }
+  .frow { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .frow > .lb { color: rgba(255,255,255,.9); font-size: 12px; width: 52px; flex: none; }
+  .chip { height: 26px; padding: 0 11px; border-radius: 13px; border: 1px solid rgba(255,255,255,.55); background: rgba(255,255,255,.12); color: #fff; font-size: 12px; cursor: pointer; }
+  .chip.on { background: #fff; border-color: #fff; color: var(--or-d); font-weight: 700; }
+  .chip.zero { opacity: .45; }
+  .chip i { font-style: normal; opacity: .75; margin-left: 3px; }
+
+  /* 保存条（全局：改动可跨 SPU 累积，一次保存） */
+  .dirtybar { display: none; position: sticky; top: 0; z-index: 15; align-items: center; gap: 10px; background: #fffbea; border: 1px solid #f2d27a;
+              border-radius: 10px; padding: 8px 12px; margin-bottom: 10px; box-shadow: 0 4px 10px -6px rgba(120,90,0,.35); }
+  .dirtybar.show { display: flex; }
+  .dirtybar b { color: #8a6500; }
+  .btn { height: 28px; padding: 0 12px; border-radius: 7px; border: 1px solid var(--line2); background: #fff; color: var(--ink); font-size: 12.5px; cursor: pointer; white-space: nowrap; }
+  .btn:hover { border-color: var(--or); color: var(--or-d); }
+  .btn.pri { background: var(--or); border-color: var(--or); color: #fff; }
+  .btn.pri:hover { background: var(--or-d); color: #fff; }
+  .btn.sm { height: 22px; padding: 0 7px; font-size: 11.5px; }
+  .btn:disabled { opacity: .5; cursor: default; }
+  .savebar { display: none; align-items: center; gap: 10px; background: #fff; border: 1px solid var(--or-soft2); border-radius: 10px; padding: 8px 12px; margin-bottom: 12px; }
+  .savebar.show { display: flex; }
+
+  /* 左侧栏 */
+  .lib { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 14px; align-items: start; }
+  .side { position: sticky; top: 0; max-height: calc(100vh - var(--stickyH, 160px) - 30px); overflow-y: auto;
+          background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 6px; }
+  .side-h { font-size: 12px; color: var(--sub); padding: 8px 8px 4px; display: flex; justify-content: space-between; gap: 6px; }
+  .grp { display: flex; align-items: center; gap: 6px; width: 100%; border: 0; background: #fcf6ef; border-radius: 8px; padding: 7px 8px; margin-top: 4px;
+         cursor: pointer; font: inherit; font-size: 12.5px; font-weight: 700; color: var(--ink); text-align: left; }
+  .grp:hover { background: var(--or-soft); }
+  .grp::before { content: '▾'; color: var(--or); width: 12px; transition: transform .12s; }
+  .grp.fold::before { transform: rotate(-90deg); }
+  .grp .gm { margin-left: auto; font-weight: 400; font-size: 11.5px; color: var(--sub); }
+  .si { display: flex; align-items: center; gap: 8px; width: 100%; border: 0; background: none; border-radius: 8px; padding: 5px 8px; cursor: pointer; text-align: left; color: var(--ink); font: inherit; }
+  .si:hover { background: var(--or-soft); }
+  .si.on { background: var(--or); color: #fff; }
+  .si-img { width: 34px; height: 34px; border-radius: 7px; overflow: hidden; flex: none; background: var(--grey-soft); font-size: 10px; color: var(--grey); display: flex; align-items: center; justify-content: center; }
+  .si-img img { width: 100%; height: 100%; object-fit: cover; }
+  .si .sn { flex: 1; min-width: 0; font-size: 13px; font-weight: 600; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .si .sn small { display: block; font-size: 11px; font-weight: 400; color: var(--sub); }
+  .si.on .sn small { color: rgba(255,255,255,.85); }
+  .ldot { width: 10px; height: 10px; border-radius: 50%; flex: none; background: #d5cbc0; display: inline-block; }
+  .ldot.done { background: #34c759; } .ldot.part { background: #f5a623; }
+  .si.on .ldot { box-shadow: 0 0 0 2px #fff; }
+  .one { min-width: 0; }
+  @media (max-width: 900px) { .lib { grid-template-columns: 1fr; } .side { position: static; max-height: 240px; } }
+
+  /* 通用块 */
+  .blk { background: #fff; border: 1px solid var(--line); border-radius: 12px; margin-bottom: 14px; overflow: hidden; }
+  .blk-h { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  .blk-h .ttl { font-size: 15px; font-weight: 700; padding-left: 8px; border-left: 4px solid var(--or); }
+  .tag { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 9px; background: var(--grey-soft); color: var(--sub); white-space: nowrap; }
+  .tag.or { background: var(--or-soft); color: var(--or-d); }
+  .tag.ok { background: var(--green-soft); color: var(--green); }
+  .tag.bad { background: var(--red-soft); color: var(--red); }
+  .prog { margin-left: auto; display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--sub); }
+  .prog .bar { width: 120px; height: 6px; border-radius: 3px; background: var(--grey-soft); overflow: hidden; }
+  .prog .bar i { display: block; height: 100%; background: var(--or); }
+  .prog.done .bar i { background: var(--green); }
+  .sec { padding: 10px 14px 12px; }
+  .sec + .sec { border-top: 1px dashed var(--line2); }
+  .sec-t { font-size: 13px; font-weight: 700; color: var(--or-d); margin-bottom: 8px; display: flex; align-items: baseline; gap: 8px; }
+  .sec-t .meta { font-weight: 400; }
+  .g3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+  .fl .k { font-size: 12px; color: var(--sub); margin-bottom: 3px; }
+  .fl .k b { color: var(--red); margin-left: 2px; }
+
+  /* 输入 */
+  .in { width: 100%; font: inherit; font-size: 12.5px; border: 1px solid var(--line2); border-radius: 6px; padding: 4px 7px; background: #fff; color: var(--ink); }
+  .in:focus { outline: none; border-color: var(--or); box-shadow: 0 0 0 2px rgba(240,122,18,.15); }
+  textarea.in { resize: vertical; min-height: 54px; line-height: 1.5; display: block; }
+  .in.miss { border: 1px dashed var(--red); background: #fffafa; }
+  .in.dirty { border-color: #f2b705; background: #fffbea; }
+  input.in.n { text-align: right; font-variant-numeric: tabular-nums; }
+
+  /* 四季品：月度大表 */
+  .mt-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; }
+  .mt { border-collapse: separate; border-spacing: 0; min-width: 100%; font-size: 12.5px; }
+  .mt th, .mt td { border-bottom: 1px solid var(--line); border-right: 1px solid var(--line); padding: 6px 7px; vertical-align: top; background: #fff; }
+  .mt th { background: var(--or-soft); color: var(--or-d); font-weight: 600; text-align: center; white-space: nowrap; position: sticky; top: 0; z-index: 2; }
+  .mt .c0 { position: sticky; left: 0; z-index: 3; width: 210px; min-width: 210px; max-width: 210px; background: #fcfaf7; text-align: left; }
+  .mt th.c0 { z-index: 4; background: var(--or-soft); }
+  .mt td.m { width: 150px; min-width: 150px; }
+  .mt tr.tot td { background: #fff8ef; font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; font-size: 14px; }
+  .mt tr.tot td.c0 { font-size: 12.5px; text-align: left; }
+  .mt tr.sep td { background: #fcf6ef; color: var(--or-d); font-weight: 700; font-size: 12px; padding: 5px 8px; }
+  .mt .rk { font-weight: 600; }
+  .mt .rk small { display: block; font-weight: 400; color: var(--sub); font-size: 11px; }
+  .mt .mv { font-size: 11px; color: var(--sub); text-align: right; margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .mt td.nr { background: repeating-linear-gradient(135deg, #fffafa 0 6px, #fdf0f0 6px 12px); color: var(--red); font-size: 11px; text-align: center; vertical-align: middle; }
+  .an { display: flex; gap: 7px; align-items: center; }
+  .an .mini { width: 36px; height: 36px; border-radius: 6px; overflow: hidden; background: var(--grey-soft); flex: none; display: flex; align-items: center; justify-content: center; font-size: 10px; color: var(--grey); }
+  .an .mini img { width: 100%; height: 100%; object-fit: cover; }
+  .an .nm { min-width: 0; font-size: 12px; line-height: 1.3; }
+  .an .nm b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 150px; }
+  .an .nm span { font-family: Consolas, monospace; font-size: 11px; color: var(--sub); }
+
+  /* 季节品卡 */
+  .sc { background: #fff; border: 1px solid var(--line); border-radius: 12px; margin-bottom: 12px; overflow: hidden; }
+  .sc-top { display: grid; grid-template-columns: 76px minmax(200px, 1fr) auto; gap: 14px; align-items: center; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+  .img { width: 76px; height: 76px; border-radius: 8px; background: var(--grey-soft); display: flex; align-items: center; justify-content: center; color: var(--grey); font-size: 11px; overflow: hidden; border: 1px solid var(--line); }
+  .img img { width: 100%; height: 100%; object-fit: cover; }
+  .nm2 { font-size: 14.5px; font-weight: 700; line-height: 1.35; }
+  .ids { margin-top: 4px; display: flex; gap: 5px; flex-wrap: wrap; align-items: center; }
+  .asin { font-family: Consolas, monospace; font-size: 12px; color: var(--sub); }
+  .kv { display: grid; grid-template-columns: repeat(3, auto); gap: 4px 18px; align-items: end; }
+  .kv .k { font-size: 11.5px; color: var(--sub); white-space: nowrap; }
+  .kv .v { font-size: 18px; font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .kv .v.neg { color: var(--red); } .kv .v.pos { color: var(--green); }
+  .kv .in { width: 110px; font-size: 15px; font-weight: 700; }
+  .stg { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .sg { padding: 10px 12px 12px; border-right: 1px solid var(--line); min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+  .sg:last-child { border-right: 0; }
+  .sg.off { background: repeating-linear-gradient(135deg, #fcfaf7 0 8px, #f8f3ee 8px 16px); }
+  .sg.cur { background: #fffaf3; box-shadow: inset 0 3px 0 var(--or); }
+  .sg-h { display: flex; align-items: baseline; gap: 6px; }
+  .sg-h b { font-size: 13px; }
+  .sg-h b::before { content: attr(data-i); display: inline-block; width: 16px; height: 16px; line-height: 16px; text-align: center; border-radius: 50%;
+                    background: var(--or); color: #fff; font-size: 10.5px; margin-right: 5px; vertical-align: 1px; }
+  .sg.off .sg-h b::before { background: #cfc5bb; }
+  .sg-h .dt { font-size: 12px; color: var(--sub); margin-left: auto; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .sg .row { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--sub); white-space: nowrap; }
+  .sg .row .in { width: 80px; }
+  .sg .row b { color: var(--ink); font-variant-numeric: tabular-nums; }
+  .sg textarea.in { min-height: 60px; }
+  @media (max-width: 1150px) { .stg { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); } .sg { border-bottom: 1px solid var(--line); } .g3 { grid-template-columns: 1fr; } }
+  .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: #2b2118; color: #fff; padding: 8px 16px; border-radius: 8px; font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 50; }
+  .toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="tip" id="tallTip" style="display:none">插件框比屏幕还高，往下滑时顶部筛选栏会被滚走。请在应用编辑模式里把这个插件组件的高度拖到一屏以内，页面会改成内部滚动、顶栏固定。</div>
+  <div class="savebar" id="savebar"><button class="btn pri" id="saveBtn">保存到页面</button><span class="meta" id="saveMsg"></span></div>
+  <div class="sticky" id="sticky">
+    <div class="hero">
+      <h2 id="title">目标填写</h2>
+      <div class="seg" id="tabs"><button data-t="sijipin">四季品</button><button data-t="jijie">季节品</button></div>
+      <select id="year" style="display:none"></select>
+      <span class="meta" id="meta">数据加载中…</span>
+    </div>
+    <div class="hero-f" id="filters"></div>
+  </div>
+  <div id="main"><div class="loading">正在读取多维表数据…</div></div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script type="module">
+// ===== ① 页面配置 =====
+const SDK_URLS = [new URL('./sdk/index.mjs', location.href).href,
+  'https://cdn.jsdelivr.net/npm/@lark-base-open/js-sdk@1.0.2/dist/index.mjs',
+  'https://unpkg.com/@lark-base-open/js-sdk@1.0.2/dist/index.mjs'];
+async function loadSdk() {
+  const errs = [];
+  for (const u of SDK_URLS) {
+    try { return await Promise.race([import(u), new Promise((_, rej) => setTimeout(() => rej(new Error('超时 12s')), 12000))]); }
+    catch (e) { errs.push(`${u} → ${e && e.message ? e.message : e}`); }
+  }
+  throw new Error('飞书 SDK 三个来源都没加载上（也就没有「保存到页面」按钮），请截图：' + errs.join(' ｜ '));
+}
+const BASE_TOKEN = 'JGvebyaAYapWtOslxc9cuKYXnwd';   // 灯具组-全流程
+const STAGES = ['起量期', '爆发期', '高峰期', '消退期', '清仓期'];
+const Y_TEXT = ['产品目标', '经营策略', '关键指标'];        // 四季品 SPU 父行（年级）必填
+const M_TEXT = ['经营策略', '关键指标'];                    // 四季品 月度行 必填（月销量目标 = ASIN 预估之和，自动）
+const NUMS = ['当月销量', '预估日均', '预估月销量', '总库存数量', ...STAGES.map((s) => s + '日均'), '预估销量-整季', '库存差额'];
+const TABLES = {
+  // 第一张 = saveConfig 授权表；其余两张靠应用页「数据授权（勿删）」「数据授权2（勿删）」的列表组件授权
+  tg: { id: 'tblE3XbKD8PUEX7Y', name: '产品目标总表-灯', fields: [
+    '目标键', '目标类型', 'ASIN', '国家文本', 'SPU', '品名', '负责人', '销售年月', '销售年份', '销售季分类', '销量最高ASIN',
+    ...Y_TEXT, '当月销量', '预估日均', '预估月销量', '总库存数量',
+    ...STAGES.map((s) => s + '日均'), ...STAGES.map((s) => s + '目标'), '预估销量-整季', '库存差额'] },
+  cal: { id: 'tblxuyiS9rZYiZPW', name: '季节节奏日历', fields: ['对应销售季分类', '销售年份', '国家', '当前阶段', '起量期开始', ...STAGES, ...STAGES.map((s) => s + '天数')] },
+  pm: { id: 'tblqksywqgYvywOT', name: '产品主表-灯类+精铺', fields: ['ASIN', '国家文本', '图片'] },
+};
+
+// ===== ② 通用工具 =====
+const $ = (id) => document.getElementById(id);
+const BJ = 8 * 3600000;
+const num = (v) => (v == null || v === '' || isNaN(v)) ? null : Number(v);
+const fmtN = (v, d = 0) => num(v) == null ? '—' : Number(v).toLocaleString('zh-CN', { maximumFractionDigits: d });
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const txt = (v) => String(v ?? '').trim();
+const store = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
+const toast = (m) => { const t = $('toast'); t.textContent = m; t.classList.add('show'); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('show'), 2400); };
+const short = (s) => String(s || '').replace(/^(季节品|节日品)-/, '');
+const daysIn = (ym) => new Date(Date.UTC(+ym.slice(0, 4), +ym.slice(4), 0)).getUTCDate();
+const ymLabel = (ym) => `${ym.slice(2, 4)}年${+ym.slice(4)}月`;
+const NOW = new Date(Date.now() + BJ), CUR_YM = `${NOW.getUTCFullYear()}${String(NOW.getUTCMonth() + 1).padStart(2, '0')}`;   // 北京本月
+
+function cell(v) {
+  if (v == null) return null;
+  if (typeof v === 'number' || typeof v === 'string' || typeof v === 'boolean') return v;
+  if (Array.isArray(v)) {
+    if (!v.length) return null;
+    if (v.every((x) => x && typeof x === 'object' && 'text' in x && !('id' in x && 'name' in x && !('type' in x)))) return v.map((x) => x.text ?? '').join('');
+    if (v.length === 1) return cell(v[0]);
+    return v.map(cell).join('、');
+  }
+  if (typeof v === 'object') {
+    if ('text' in v) return v.text;
+    if ('name' in v) return v.name;
+    if ('value' in v) return cell(v.value);
+  }
+  return String(v);
+}
+function norm(name, v) {
+  if (name === '图片') return Array.isArray(v) ? v.filter((x) => x && typeof x === 'object' && x.token) : [];
+  const c = cell(v);
+  if (NUMS.includes(name) || name.endsWith('天数')) return num(c);
+  return c == null ? null : String(c);
+}
+
+let SDK = null, SNAP = false;
+const TBLS = {}, FIDS = {}, DIAG = { missing: {}, read: {} };
+async function readTable(key) {
+  const cfg = TABLES[key];
+  const table = await SDK.bitable.base.getTableById(cfg.id);
+  const fields = await table.getFieldMetaList();
+  const idByName = Object.fromEntries(fields.map((f) => [f.name, f.id]));
+  DIAG.missing[cfg.name] = cfg.fields.filter((w) => !idByName[w]);
+  TBLS[key] = table; FIDS[key] = idByName;
+  const rows = [];
+  let pageToken;
+  for (let guard = 0; guard < 500; guard++) {
+    const res = await table.getRecordsByPage({ pageSize: 200, pageToken });
+    for (const r of res.records) {
+      const o = { _id: r.recordId };
+      for (const w of cfg.fields) if (idByName[w]) o[w] = norm(w, r.fields[idByName[w]]);
+      rows.push(o);
+    }
+    DIAG.read[cfg.name] = rows.length;
+    $('meta').textContent = `正在读取 ${cfg.name}… 已读 ${rows.length} 行`;
+    if (!res.hasMore) break;
+    pageToken = res.pageToken;
+  }
+  return rows;
+}
+
+// ===== ③ 草稿（改动先进 DRAFT，顶部黄条统一保存；存本浏览器，刷新不丢） =====
+const ROW = {};                // record_id → 行
+let DRAFT = {};                // `${rid}|${字段}` → 新值（null = 清空）
+try { DRAFT = JSON.parse(store.get('tgf.draft') || '{}') || {}; } catch (e) { DRAFT = {}; }
+const saveDraft = () => store.set('tgf.draft', JSON.stringify(DRAFT));
+const dk = (rid, f) => `${rid}|${f}`;
+const val = (r, f) => (r && dk(r._id, f) in DRAFT) ? DRAFT[dk(r._id, f)] : (r ? r[f] : null);
+const isNumF = (f) => f === '预估日均' || f === '总库存数量' || f.endsWith('日均');
+const filled = (r, f) => { const v = val(r, f); return isNumF(f) ? num(v) != null : !!txt(v); };
+
+// ===== ④ 数据整理 =====
+let SJ = [], JJ = [], CAL = {}, PM = {};
+const state = { tab: 'sijipin', country: 'all', owner: store.get('tgf.owner') || 'all', fill: 'all', spu: { sijipin: '', jijie: '' }, year: store.get('tgf.year') || '' };
+const lockTab = new URLSearchParams(location.search).get('tab');
+state.tab = lockTab === 'jijie' || lockTab === 'sijipin' ? lockTab : (store.get('tgf.tab') === 'jijie' ? 'jijie' : 'sijipin');
+const folded = new Set(JSON.parse(store.get('tgf.fold') || '[]'));
+
+function build(tg, cal, pm) {
+  for (const p of pm) if (p['ASIN']) PM[`${p['ASIN']}|${p['国家文本']}`] = p;
+  for (const c of cal) for (const cls of String(c['对应销售季分类'] || '').split('、')) for (const ct of String(c['国家'] || '').split('、')) CAL[`${cls}|${c['销售年份']}|${ct}`] = c;
+  for (const r of tg) ROW[r._id] = r;
+  for (const k of Object.keys(DRAFT)) if (!ROW[k.split('|')[0]]) delete DRAFT[k];
+  saveDraft();
+
+  // 四季品：SPU×国家 实体
+  const ent = {};
+  const E = (spu, c) => ent[`${spu}|${c}`] ??= { spu, country: c, spuRow: null, mon: {}, asins: {} };
+  for (const r of tg) {
+    const t = r['目标类型'], c = r['国家文本'];
+    if (t === '四季品-SPU') E(r['SPU'] || String(r['目标键']).split('|')[0], c).spuRow = r;
+    else if (t === '四季品-月度' && r['销售年月'] >= CUR_YM) E(r['SPU'] || String(r['目标键']).split('|')[0], c).mon[r['销售年月']] = r;
+    else if (t === '四季品-ASIN预估' && r['销售年月'] >= CUR_YM && r['SPU']) {
+      const a = (E(r['SPU'], c).asins[r['ASIN']] ??= { asin: r['ASIN'], name: r['品名'], owner: r['负责人'], cells: {} });
+      a.cells[r['销售年月']] = r; a.name ||= r['品名']; a.owner ||= r['负责人'];
+    }
+  }
+  SJ = Object.values(ent).map((e) => {
+    const months = [...new Set([...Object.keys(e.mon), ...Object.values(e.asins).flatMap((a) => Object.keys(a.cells))])].sort();
+    const asins = Object.values(e.asins).sort((a, b) => sumAsin(b, months) - sumAsin(a, months) || a.asin.localeCompare(b.asin));
+    const owners = [...new Set([e.spuRow && e.spuRow['负责人'], ...asins.map((a) => a.owner)].flatMap((o) => String(o || '').split('、')).filter(Boolean))];
+    return { ...e, months, asins, owners, imgKey: `${(e.spuRow && e.spuRow['销量最高ASIN']) || (asins[0] && asins[0].asin)}|${e.country}` };
+  });
+  // 季节品：ASIN×国家×赛季
+  JJ = tg.filter((r) => r['目标类型'] === '季节品').map((r) => ({ r, spu: r['SPU'] || '（无SPU）', country: r['国家文本'] || '—', year: r['销售年份'] || '',
+    season: r['销售季分类'] || '（无分类）', owners: String(r['负责人'] || '').split('、').filter(Boolean), imgKey: `${r['ASIN']}|${r['国家文本']}`,
+    cal: CAL[`${r['销售季分类']}|${r['销售年份']}|${r['国家文本']}`] || null }));
+  const years = [...new Set(JJ.map((x) => x.year))].filter(Boolean).sort();
+  if (!years.includes(state.year)) state.year = years.includes(String(NOW.getUTCFullYear())) ? String(NOW.getUTCFullYear()) : (years[years.length - 1] || '');
+  $('year').innerHTML = years.map((y) => `<option value="${esc(y)}"${y === state.year ? ' selected' : ''}>${esc(y)} 赛季</option>`).join('');
+}
+const sumAsin = (a, months) => months.reduce((t, ym) => t + (num(val(a.cells[ym], '预估日均')) || 0) * daysIn(ym), 0);
+
+// ===== ⑤ 完成度（各层级不能漏：每个必填格 + 缺行都算一项） =====
+function needSJ(e) {
+  const items = [];   // {ok, what}
+  for (const f of Y_TEXT) items.push({ ok: !!e.spuRow && filled(e.spuRow, f), what: `年度·${f}` });
+  for (const ym of e.months) {
+    for (const f of M_TEXT) items.push({ ok: !!e.mon[ym] && filled(e.mon[ym], f), what: `${ymLabel(ym)}·${f}` });
+    for (const a of e.asins) items.push({ ok: !!a.cells[ym] && filled(a.cells[ym], '预估日均'), what: `${a.asin}·${ymLabel(ym)}预估日均` });
+  }
+  return items;
+}
+const stageOn = (x, s) => !x.cal || (num(x.cal[s + '天数']) || 0) > 0;     // 没有节奏日历时五段都要填
+function needJJ(x) {
+  const items = [{ ok: filled(x.r, '总库存数量'), what: '总库存数量' }];
+  for (const s of STAGES) if (stageOn(x, s)) { items.push({ ok: filled(x.r, s + '日均'), what: s + '日均' }); items.push({ ok: filled(x.r, s + '目标'), what: s + '目标' }); }
+  return items;
+}
+const stat = (items) => { const n = items.filter((i) => i.ok).length; return { n, all: items.length, st: n === items.length ? 'done' : n ? 'part' : 'none' }; };
+const statOf = (list, need) => { let n = 0, all = 0; for (const x of list) { const s = stat(need(x)); n += s.n; all += s.all; } return { n, all, st: all && n === all ? 'done' : n ? 'part' : 'none' }; };
+
+// ===== ⑥ 筛选 =====
+function scope() { return state.tab === 'sijipin' ? SJ : JJ.filter((x) => x.year === state.year); }
+const needOf = (x) => state.tab === 'sijipin' ? needSJ(x) : needJJ(x);
+function pass(x, skip) {
+  if (skip !== 'country' && state.country !== 'all' && x.country !== state.country) return false;
+  if (skip !== 'owner' && state.owner !== 'all' && !x.owners.includes(state.owner)) return false;
+  if (skip !== 'fill' && state.fill !== 'all') { const s = stat(needOf(x)).st; if (state.fill === 'done' ? s !== 'done' : s === 'done') return false; }
+  return true;
+}
+function renderFilters() {
+  const base = scope();
+  const chips = (key, list, label) => `<div class="frow"><span class="lb">${label}</span>${list.map(([v, t]) => {
+    const n = base.filter((x) => pass(x, key) && (v === 'all' || (key === 'fill' ? (v === 'done') === (stat(needOf(x)).st === 'done')
+      : key === 'owner' ? x.owners.includes(v) : x[key] === v))).length;
+    return `<button class="chip${state[key] === v ? ' on' : ''}${n ? '' : ' zero'}" data-k="${key}" data-v="${esc(v)}">${esc(t)}<i>${n}</i></button>`;
+  }).join('')}</div>`;
+  const countries = [...new Set(base.map((x) => x.country))].sort((a, b) => a.localeCompare(b, 'zh'));
+  const owners = [...new Set(base.flatMap((x) => x.owners))].sort((a, b) => a.localeCompare(b, 'zh'));
+  $('filters').innerHTML = chips('country', [['all', '全部'], ...countries.map((c) => [c, c])], '国家')
+    + chips('owner', [['all', '全部'], ...owners.map((o) => [o, o])], '负责人')
+    + chips('fill', [['all', '全部'], ['todo', '没填完'], ['done', '已填完']], '填写');
+  $('filters').querySelectorAll('.chip').forEach((b) => b.onclick = () => {
+    state[b.dataset.k] = b.dataset.v;
+    if (b.dataset.k === 'owner') store.set('tgf.owner', b.dataset.v);
+    render();
+  });
+}
+
+// ===== ⑦ 输入控件 =====
+function inp(r, f, opt = {}) {
+  if (!r) return `<span class="meta">缺行</span>`;
+  const v = val(r, f), d = dk(r._id, f) in DRAFT, need = opt.need !== false;
+  const miss = need && !filled(r, f) ? ' miss' : '';
+  if (opt.ta) return `<textarea class="in${miss}${d ? ' dirty' : ''}" data-rid="${r._id}" data-f="${esc(f)}" rows="${opt.rows || 2}" placeholder="${esc(opt.ph || '')}">${esc(v ?? '')}</textarea>`;
+  return `<input class="in n${miss}${d ? ' dirty' : ''}" data-rid="${r._id}" data-f="${esc(f)}" inputmode="decimal" placeholder="${esc(opt.ph || '未填')}" value="${esc(v ?? '')}"${opt.style ? ` style="${opt.style}"` : ''}>`;
+}
+function parse(el) {
+  const s = el.value.trim();
+  if (el.tagName === 'TEXTAREA') return s || null;
+  if (s === '') return null;
+  const n = Number(s.replace(/[,，]/g, ''));
+  if (isNaN(n) || n < 0) throw new Error(`「${el.dataset.f}」要填非负数字：${s}`);
+  return n;
+}
+const same = (a, b) => (a == null || a === '') && (b == null || b === '') ? true : (typeof b === 'number' || typeof a === 'number' ? num(a) === num(b) : txt(a) === txt(b));
+
+// ===== ⑧ 渲染：侧栏 =====
+const imgCache = {};
+const imgTag = (key) => imgCache[key] ? `<img src="${esc(imgCache[key])}" alt="">` : '无图';
+function sideItem(key, name, sub, st, imgKey, on) {
+  return `<button class="si${on ? ' on' : ''}" data-spu="${esc(key)}" title="${esc(name)}"><span class="si-img" data-img="${esc(imgKey)}">${imgTag(imgKey)}</span>
+    <span class="sn">${esc(name)}<small>${sub}</small></span><span class="ldot ${st}"></span></button>`;
+}
+function groupsSJ(list) {
+  const g = {};
+  for (const e of list) (g[e.spu] ??= []).push(e);
+  return Object.entries(g).map(([spu, l]) => ({ spu, l: l.sort((a, b) => a.country.localeCompare(b.country, 'zh')),
+    tot: l.reduce((t, e) => t + e.asins.reduce((s, a) => s + sumAsin(a, e.months), 0), 0), s: statOf(l, needSJ) }))
+    .sort((a, b) => b.tot - a.tot || a.spu.localeCompare(b.spu, 'zh'));
+}
+function groupsJJ(list) {
+  const bySeason = {};
+  for (const x of list) ((bySeason[x.season] ??= {})[x.spu] ??= []).push(x);
+  return Object.entries(bySeason).map(([season, m]) => ({ season,
+    spus: Object.entries(m).map(([spu, l]) => ({ spu, l: l.sort((a, b) => a.country.localeCompare(b.country, 'zh') || String(a.r['ASIN']).localeCompare(String(b.r['ASIN']))), s: statOf(l, needJJ) }))
+      .sort((a, b) => a.spu.localeCompare(b.spu, 'zh')) }))
+    .sort((a, b) => seasonRank(a.season) - seasonRank(b.season) || seasonStart(a.season) - seasonStart(b.season) || a.season.localeCompare(b.season, 'zh'));
+}
+// 季节排序：正在卖（起量~清仓）→ 还没开始 → 已结束；同类按起量期开始日期
+const calOf = (season) => CAL[`${season}|${state.year}|美国`] || Object.values(CAL).find((c) => String(c['对应销售季分类'] || '').split('、').includes(season) && c['销售年份'] === state.year) || null;
+const seasonStart = (season) => { const c = calOf(season), v = c && c['起量期开始']; if (v == null || v === '') return 9e15; return isNaN(+v) ? Date.parse(v) : +v; };
+const seasonRank = (season) => { const st = calOf(season) && calOf(season)['当前阶段']; return !st ? 3 : st === '已结束' ? 2 : st === '未开始' ? 1 : 0; };
+function renderSide(list) {
+  const LBL = { done: '已填完', part: '填了一部分', none: '未填' };
+  if (state.tab === 'sijipin') {
+    const G = groupsSJ(list);
+    return `<div class="side-h"><span>SPU</span><span>填完 ${G.filter((g) => g.s.st === 'done').length}/${G.length}</span></div>`
+      + G.map((g) => sideItem(g.spu, g.spu, `${g.l.map((e) => e.country).join('·')} · ${g.s.n}/${g.s.all} · ${LBL[g.s.st]}`, g.s.st, g.l[0].imgKey, g.spu === state.spu.sijipin)).join('');
+  }
+  const G = groupsJJ(list);
+  return `<div class="side-h"><span>季节 → SPU</span><span>${state.year} 赛季</span></div>` + G.map((g) => {
+    const s = statOf(g.spus.flatMap((p) => p.l), needJJ), f = folded.has(g.season);
+    return `<button class="grp${f ? ' fold' : ''}" data-grp="${esc(g.season)}">${esc(short(g.season))}<span class="gm">${g.spus.filter((p) => p.s.st === 'done').length}/${g.spus.length} SPU 填完 <span class="ldot ${s.st}"></span></span></button>`
+      + (f ? '' : g.spus.map((p) => sideItem(`${g.season}||${p.spu}`, p.spu, `${p.l.length} 个 · ${p.s.n}/${p.s.all} · ${LBL[p.s.st]}`, p.s.st, p.l[0].imgKey, `${g.season}||${p.spu}` === state.spu.jijie)).join(''));
+  }).join('');
+}
+
+// ===== ⑨ 渲染：四季品 =====
+function progHtml(s) {
+  return `<span class="prog${s.st === 'done' ? ' done' : ''}"><span>已填 <b>${s.n}</b>/${s.all}</span><span class="bar"><i style="width:${s.all ? s.n / s.all * 100 : 0}%"></i></span>${s.st === 'done' ? '<span class="tag ok">已填完</span>' : `<span class="tag bad">缺 ${s.all - s.n}</span>`}</span>`;
+}
+function blockSJ(e) {
+  const s = stat(needSJ(e));
+  const yearTot = e.asins.reduce((t, a) => t + sumAsin(a, e.months), 0);
+  const head = `<div class="blk-h"><span class="ttl">${esc(e.spu)}</span><span class="tag or">${esc(e.country)}</span>${e.owners.map((o) => `<span class="tag">${esc(o)}</span>`).join('')}
+    <span class="meta">${e.months.length ? `${ymLabel(e.months[0])}–${ymLabel(e.months[e.months.length - 1])} 合计 <b data-calc="ytot" data-e="${esc(e.spu + '|' + e.country)}">${fmtN(yearTot)}</b> 件` : ''}</span>${progHtml(s)}</div>`;
+  const year = `<div class="sec"><div class="sec-t">① 年度目标（SPU 长期，一般不改）</div>${e.spuRow ? `<div class="g3">${Y_TEXT.map((f) => `<div class="fl"><div class="k">${f}<b>*</b></div>${inp(e.spuRow, f, { ta: true, rows: 3,
+      ph: { 产品目标: '如：年销 2 万件，做到类目前 20', 经营策略: '如：主推大包装、拓展变体、守价不打价格战', 关键指标: '如：月销量、毛利率 ≥20%、TACoS ≤12%' }[f] })}</div>`).join('')}</div>`
+    : '<div class="meta" style="color:var(--red)">目标总表还没有这个 SPU×国家 的年度行（每日任务 X29 会补）</div>'}</div>`;
+  if (!e.months.length) return `<div class="blk">${head}${year}<div class="sec meta">没有本月起的月度行 / ASIN 预估行（每日任务 X29 会补）</div></div>`;
+  const mcol = (fn) => e.months.map((ym) => fn(ym)).join('');
+  const rows = [];
+  rows.push(`<tr class="tot"><td class="c0">② 月销量目标<div class="meta" style="font-weight:400">= 下面各 ASIN 预估之和（自动）</div></td>${mcol((ym) =>
+    `<td class="m"><span data-calc="mtot" data-e="${esc(e.spu + '|' + e.country)}" data-ym="${ym}">${fmtN(e.asins.reduce((t, a) => t + (num(val(a.cells[ym], '预估日均')) || 0) * daysIn(ym), 0))}</span></td>`)}</tr>`);
+  for (const f of M_TEXT) rows.push(`<tr><td class="c0 rk">当月${f}<b style="color:var(--red)">*</b><small>${f === '经营策略' ? '这个月主打什么动作' : '这个月盯哪几个数'}</small></td>${mcol((ym) =>
+    e.mon[ym] ? `<td class="m">${inp(e.mon[ym], f, { ta: true, rows: 3, ph: f === '经营策略' ? '如：黑五前加预算冲排名' : '如：日均 60、TACoS ≤15%' })}</td>` : '<td class="m nr">缺月度行</td>')}</tr>`);
+  rows.push(`<tr class="sep"><td class="c0">③ ASIN 预估日均<span style="font-weight:400;color:var(--sub)">（必填，没量也填 0）</span></td>${mcol(() => '<td></td>')}</tr>`);
+  for (const a of e.asins) {
+    const ik = `${a.asin}|${e.country}`;
+    rows.push(`<tr><td class="c0"><div class="an"><span class="mini" data-img="${esc(ik)}">${imgTag(ik)}</span><span class="nm"><b title="${esc(a.name || '')}">${esc(a.name || '（品名空）')}</b><span>${esc(a.asin)}</span></span></div>
+        <div style="margin-top:4px"><button class="btn sm" data-fillright="${esc(e.spu + '|' + e.country + '|' + a.asin)}" title="把左边最近一个填过的日均复制到右边所有空格">→ 向右补空格</button></div></td>${mcol((ym) => {
+      const r = a.cells[ym];
+      if (!r) return '<td class="m nr">缺行</td>';
+      return `<td class="m">${inp(r, '预估日均', { ph: '日均' })}<div class="mv"><span data-calc="cellm" data-rid="${r._id}" data-ym="${ym}">${num(val(r, '预估日均')) != null ? '≈ ' + fmtN(num(val(r, '预估日均')) * daysIn(ym)) + ' 件/月' : ''}</span></div></td>`;
+    })}</tr>`);
+  }
+  if (!e.asins.length) rows.push(`<tr><td class="c0 meta" colspan="${e.months.length + 1}" style="color:var(--red)">这个 SPU×国家 下没有 ASIN 预估行（备货表没启用 ASIN），月销量目标会是 0</td></tr>`);
+  return `<div class="blk">${head}${year}<div class="sec"><div class="sec-t">月度目标 + ASIN 预估 <span class="meta">从本月（${ymLabel(CUR_YM)}）起；改日均后月目标、备货表、周目标都会跟着变</span></div>
+    <div class="mt-wrap"><table class="mt"><thead><tr><th class="c0">${esc(e.country)}</th>${mcol((ym) => `<th>${ymLabel(ym)}<div style="font-weight:400;font-size:11px">${daysIn(ym)} 天</div></th>`)}</tr></thead>
+    <tbody>${rows.join('')}</tbody></table></div></div></div>`;
+}
+
+// ===== ⑩ 渲染：季节品 =====
+function cardJJ(x) {
+  const r = x.r, s = stat(needJJ(x)), cur = x.cal && x.cal['当前阶段'];
+  const est = STAGES.reduce((t, st) => t + (num(val(r, st + '日均')) || 0) * (x.cal ? (num(x.cal[st + '天数']) || 0) : 0), 0);
+  const stock = num(val(r, '总库存数量')), diff = stock != null ? stock - est : null;
+  const stg = STAGES.map((st, i) => {
+    const on = stageOn(x, st), days = x.cal ? num(x.cal[st + '天数']) || 0 : null;
+    const avg = num(val(r, st + '日均'));
+    return `<div class="sg${on ? '' : ' off'}${cur === st ? ' cur' : ''}"><div class="sg-h"><b data-i="${i + 1}">${st}</b><span class="dt">${x.cal ? esc(x.cal[st] || '—') : '无节奏日历'}${days != null ? ` · ${days} 天` : ''}</span></div>
+      ${on ? `<div class="row">日均 ${inp(r, st + '日均', { ph: '日均' })}</div>
+        <div class="row">阶段销量 <b data-calc="stg" data-rid="${r._id}" data-st="${st}">${avg != null && days != null ? fmtN(avg * days) : '—'}</b>${cur === st ? ' <span class="tag or">当前</span>' : ''}</div>
+        ${inp(r, st + '目标', { ta: true, rows: 3, ph: '这个阶段要达成什么，如：冲进类目前 50 / ACOS 压到 30%' })}`
+        : '<div class="meta">本季没有这个阶段，不用填</div>'}</div>`;
+  }).join('');
+  return `<div class="sc" id="c-${r._id}"><div class="sc-top">
+      <div class="img" data-img="${esc(x.imgKey)}">${imgTag(x.imgKey)}</div>
+      <div><div class="nm2">${esc(r['品名'] || '（品名空）')}</div>
+        <div class="ids"><span class="asin">${esc(r['ASIN'])}</span><span class="tag or">${esc(x.country)}</span>${x.owners.map((o) => `<span class="tag">${esc(o)}</span>`).join('')}<span class="tag">${esc(short(x.season))}</span>${progHtml(s)}</div>
+        ${x.cal ? '' : '<div class="meta" style="color:var(--red);margin-top:4px">⚠ 季节节奏日历里没有这个分类×年份×国家，阶段天数未知，五段都要填</div>'}</div>
+      <div class="kv"><div><div class="k">总库存数量<b style="color:var(--red)">*</b></div>${inp(r, '总库存数量', { ph: '件' })}</div>
+        <div><div class="k">整季预估销量</div><div class="v" data-calc="est" data-rid="${r._id}">${fmtN(est)}</div></div>
+        <div><div class="k">库存差额（＋多备／－不够）</div><div class="v ${diff == null ? '' : diff < 0 ? 'neg' : 'pos'}" data-calc="diff" data-rid="${r._id}">${diff == null ? '—' : (diff > 0 ? '+' : '') + fmtN(diff)}</div></div></div>
+    </div><div class="stg">${stg}</div></div>`;
+}
+
+// ===== ⑪ 总渲染 =====
+function render() {
+  document.querySelectorAll('#tabs button').forEach((b) => b.classList.toggle('on', b.dataset.t === state.tab));
+  $('tabs').style.display = lockTab ? 'none' : '';
+  $('title').textContent = lockTab ? (state.tab === 'jijie' ? '季节品目标填写' : '四季品目标填写') : '目标填写';
+  $('year').style.display = state.tab === 'jijie' ? '' : 'none';
+  renderFilters();
+  const list = scope().filter((x) => pass(x));
+  let right = '';
+  if (!list.length) right = '<div class="empty">当前筛选下没有产品</div>';
+  else if (state.tab === 'sijipin') {
+    const G = groupsSJ(list);
+    if (!G.some((g) => g.spu === state.spu.sijipin)) state.spu.sijipin = G[0].spu;
+    right = G.find((g) => g.spu === state.spu.sijipin).l.map(blockSJ).join('');
+  } else {
+    const G = groupsJJ(list), all = G.flatMap((g) => g.spus.map((p) => ({ key: `${g.season}||${p.spu}`, p, season: g.season })));
+    if (!all.some((a) => a.key === state.spu.jijie)) state.spu.jijie = all[0].key;
+    const sel = all.find((a) => a.key === state.spu.jijie);
+    folded.delete(sel.season);
+    right = `<div class="blk-h" style="background:none;border:0;padding:0 2px 8px"><span class="ttl">${esc(sel.p.spu)}</span><span class="tag">${esc(short(sel.season))}</span><span class="meta">${sel.p.l.length} 个 ASIN×国家 · 天数为 0 的阶段不用填 · 橙色上边框 = 当前阶段</span>${progHtml(sel.p.s)}</div>`
+      + sel.p.l.map(cardJJ).join('');
+  }
+  $('main').innerHTML = `<div class="dirtybar" id="dirtybar"></div>${list.length ? `<div class="lib"><nav class="side" id="side">${renderSide(list)}</nav><section class="one" id="right">${right}</section></div>` : right}`;
+  bind(); refreshDirtyBar(); setStickyH(); loadImages();
+}
+function refreshSide() {
+  const side = $('side'); if (!side) return;
+  const st = side.scrollTop; side.innerHTML = renderSide(scope().filter((x) => pass(x))); side.scrollTop = st; bindSide(); loadImages();
+}
+
+// ===== ⑫ 交互 =====
+function bindSide() {
+  const side = $('side'); if (!side) return;
+  side.querySelectorAll('.si').forEach((b) => b.onclick = () => {
+    state.spu[state.tab] = b.dataset.spu;
+    const st = side.scrollTop; render(); if ($('side')) $('side').scrollTop = st;
+    $('main').scrollTop = 0;
+  });
+  side.querySelectorAll('[data-grp]').forEach((b) => b.onclick = () => {
+    const g = b.dataset.grp; folded.has(g) ? folded.delete(g) : folded.add(g); store.set('tgf.fold', JSON.stringify([...folded])); refreshSide();
+  });
+}
+function bind() {
+  bindSide();
+  const m = $('main');
+  m.querySelectorAll('.in').forEach((el) => {
+    el.oninput = () => onEdit(el);
+    el.onchange = () => refreshSide();
+  });
+  m.querySelectorAll('[data-fillright]').forEach((b) => b.onclick = () => {
+    const [spu, c, asin] = b.dataset.fillright.split('|');
+    const e = SJ.find((x) => x.spu === spu && x.country === c), a = e && e.asins.find((x) => x.asin === asin);
+    if (!a) return;
+    let last = null, n = 0;
+    for (const ym of e.months) {
+      const r = a.cells[ym]; if (!r) continue;
+      const v = num(val(r, '预估日均'));
+      if (v != null) last = v; else if (last != null) { setDraft(r, '预估日均', last); n++; }
+    }
+    if (!n) { toast(last == null ? '左边还没有填过的日均' : '右边没有空格'); return; }
+    saveDraft(); render(); toast(`补了 ${n} 格（还没保存）`);
+  });
+}
+function setDraft(r, f, v) { if (same(v, r[f])) delete DRAFT[dk(r._id, f)]; else DRAFT[dk(r._id, f)] = v; }
+function onEdit(el) {
+  const r = ROW[el.dataset.rid], f = el.dataset.f;
+  let v;
+  try { v = parse(el); el.title = ''; } catch (e) { el.title = e.message; el.classList.add('miss'); return; }
+  setDraft(r, f, v); saveDraft();
+  el.classList.toggle('dirty', dk(r._id, f) in DRAFT);
+  el.classList.toggle('miss', !filled(r, f));
+  recalc(); refreshDirtyBar();
+}
+// 现算：月目标、单格月销量、合计、季节品阶段销量/整季/差额（不重画输入框，保住光标）
+function recalc() {
+  document.querySelectorAll('[data-calc]').forEach((n) => {
+    const k = n.dataset.calc;
+    if (k === 'cellm') { const v = num(val(ROW[n.dataset.rid], '预估日均')); n.textContent = v != null ? '≈ ' + fmtN(v * daysIn(n.dataset.ym)) + ' 件/月' : ''; return; }
+    if (k === 'mtot' || k === 'ytot') {
+      const [spu, c] = n.dataset.e.split('|'), e = SJ.find((x) => x.spu === spu && x.country === c); if (!e) return;
+      n.textContent = fmtN(k === 'ytot' ? e.asins.reduce((t, a) => t + sumAsin(a, e.months), 0)
+        : e.asins.reduce((t, a) => t + (num(val(a.cells[n.dataset.ym], '预估日均')) || 0) * daysIn(n.dataset.ym), 0));
+      return;
+    }
+    const x = JJ.find((i) => i.r._id === n.dataset.rid); if (!x) return;
+    const days = (st) => x.cal ? num(x.cal[st + '天数']) || 0 : 0;
+    const est = STAGES.reduce((t, st) => t + (num(val(x.r, st + '日均')) || 0) * days(st), 0);
+    if (k === 'stg') { const v = num(val(x.r, n.dataset.st + '日均')); n.textContent = v != null && x.cal ? fmtN(v * days(n.dataset.st)) : '—'; }
+    if (k === 'est') n.textContent = fmtN(est);
+    if (k === 'diff') { const s = num(val(x.r, '总库存数量')), d = s != null ? s - est : null; n.textContent = d == null ? '—' : (d > 0 ? '+' : '') + fmtN(d); n.className = 'v ' + (d == null ? '' : d < 0 ? 'neg' : 'pos'); }
+  });
+}
+function refreshDirtyBar() {
+  const bar = $('dirtybar'); if (!bar) return;
+  const keys = Object.keys(DRAFT), rows = new Set(keys.map((k) => k.split('|')[0]));
+  bar.classList.toggle('show', keys.length > 0);
+  if (!keys.length) { bar.innerHTML = ''; return; }
+  bar.innerHTML = `<span>改了 <b>${keys.length}</b> 处（${rows.size} 行）还没保存${SNAP ? '（本地预览：保存不写回多维表）' : ''}　<span class="meta">换 SPU、切分页都不会丢，刷新页面也还在</span></span>
+    <span style="margin-left:auto"></span><button class="btn" id="undoAll">全部撤销</button><button class="btn pri" id="saveAll">保存到目标总表</button>`;
+  $('undoAll').onclick = () => { if (!confirm(`撤销 ${keys.length} 处未保存的改动？`)) return; DRAFT = {}; saveDraft(); render(); };
+  $('saveAll').onclick = saveAll;
+}
+async function saveAll() {
+  const btn = $('saveAll'), keys = Object.keys(DRAFT);
+  const byRow = {};
+  for (const k of keys) { const i = k.indexOf('|'); (byRow[k.slice(0, i)] ??= {})[k.slice(i + 1)] = DRAFT[k]; }
+  btn.disabled = true; btn.textContent = '保存中…';
+  try {
+    if (!SNAP) {
+      const recs = Object.entries(byRow).map(([rid, fs]) => {
+        const fields = {};
+        for (const [f, v] of Object.entries(fs)) {
+          const fid = FIDS.tg[f]; if (!fid) throw new Error(`目标总表缺字段「${f}」`);
+          fields[fid] = v;
+        }
+        return { recordId: rid, fields };
+      });
+      for (let i = 0; i < recs.length; i += 50) await TBLS.tg.setRecords(recs.slice(i, i + 50));
+    }
+    for (const [rid, fs] of Object.entries(byRow)) Object.assign(ROW[rid], fs);
+    DRAFT = {}; saveDraft(); render();
+    toast(SNAP ? `本地预览：已改 ${keys.length} 处（未写回）` : `已保存 ${keys.length} 处到产品目标总表`);
+  } catch (e) {
+    btn.disabled = false; btn.textContent = '保存到目标总表';
+    alert('保存失败：' + (e && e.message ? e.message : e) + '\n\n（多维表应用的数据权限要对「产品目标总表-灯」开「可编辑」；改动还在，没有丢）');
+  }
+}
+
+// 图片：产品主表附件临时地址（按 ASIN|国家 缓存）
+const imgBusy = new Set();
+async function loadImages() {
+  if (SNAP || !TBLS.pm || !FIDS.pm['图片']) return;
+  for (const n of document.querySelectorAll('[data-img]')) {
+    const key = n.dataset.img;
+    if (imgCache[key]) { n.innerHTML = `<img src="${esc(imgCache[key])}" alt="">`; continue; }
+    const p = PM[key], att = p && p['图片'];
+    if (!att || !att.length || imgBusy.has(key)) continue;
+    imgBusy.add(key);
+    try {
+      const urls = await TBLS.pm.getCellAttachmentUrls([att[0].token], FIDS.pm['图片'], p._id);
+      if (urls && urls[0]) { imgCache[key] = urls[0]; document.querySelectorAll(`[data-img="${CSS.escape(key)}"]`).forEach((b) => b.innerHTML = `<img src="${esc(urls[0])}" alt="">`); }
+    } catch (e) { /* 没图就显示「无图」 */ }
+  }
+}
+
+// ===== ⑬ 保存插件配置（硬规矩①②）=====
+function setupSave() {
+  const dash = SDK && SDK.dashboard;
+  let st = '';
+  try { st = dash && dash.state; } catch (e) { st = '读取失败'; }
+  $('saveMsg').textContent = `（插件状态：${st || '未知'}）`;
+  if (dash && typeof dash.saveConfig === 'function' && st !== 'View' && st !== 'FullScreen') {
+    $('savebar').classList.add('show');
+    $('saveBtn').onclick = async () => {
+      $('saveBtn').disabled = true; $('saveMsg').textContent = '保存中…';
+      try {
+        const ok = await dash.saveConfig({
+          dataConditions: Object.values(TABLES).map((t) => ({ tableId: t.id, baseToken: BASE_TOKEN, dataRange: { type: 'ALL' }, series: 'COUNTA' })),
+          customConfig: { page: 'target-fill', tab: lockTab || '', version: 1 },
+        });
+        $('saveMsg').textContent = ok === false ? '保存失败，请重试' : '已保存 ✔';
+      } catch (e) { $('saveMsg').textContent = '保存失败：' + (e && e.message ? e.message : e); }
+      finally { $('saveBtn').disabled = false; }
+    };
+  } else if (dash && dash.setRendered) {
+    dash.setRendered().catch(() => {});
+  }
+}
+
+// ===== ⑭ 诊断 =====
+async function diagnose() {
+  const res = [];
+  const t = async (name, fn) => {
+    try {
+      const v = await Promise.race([fn(), new Promise((_, rej) => setTimeout(() => rej(new Error('超时 8s')), 8000))]);
+      let shown; try { shown = typeof v === 'string' ? v : JSON.stringify(v); } catch (x) { shown = String(v); }
+      res.push(['✔', name, String(shown).slice(0, 300)]); return v;
+    } catch (e) { res.push(['✘', name, e && e.message ? e.message : String(e)]); return undefined; }
+  };
+  const { bitable, dashboard } = SDK;
+  await t('dashboard.state', async () => dashboard.state);
+  await t('dashboard.getConfig', () => dashboard.getConfig());
+  for (const cfg of Object.values(TABLES)) {
+    const tb = await t(`getTableById ${cfg.name}`, () => bitable.base.getTableById(cfg.id));
+    if (tb) await t(`getRecordsByPage ${cfg.name}`, () => tb.getRecordsByPage({ pageSize: 2 }));
+  }
+  return `<div class="card0"><b>接口诊断</b> <span class="meta">请把这块整体截图发回</span><table class="tbl"><tbody>${res.map((r) =>
+    `<tr><td style="width:24px">${r[0]}</td><td>${esc(r[1])}</td><td style="color:var(--sub)">${esc(r[2])}</td></tr>`).join('')}</tbody></table></div>`;
+}
+
+function setStickyH() { document.documentElement.style.setProperty('--stickyH', $('sticky').offsetHeight + 'px'); }
+window.addEventListener('resize', setStickyH);
+$('main').addEventListener('scroll', () => $('sticky').classList.toggle('stuck', $('main').scrollTop > 0), { passive: true });
+function layoutCheck() { $('tallTip').style.display = innerHeight > (screen.availHeight || screen.height || 1080) + 40 ? '' : 'none'; }
+window.addEventListener('resize', layoutCheck); layoutCheck();
+document.querySelectorAll('#tabs button').forEach((b) => b.onclick = () => { state.tab = b.dataset.t; store.set('tgf.tab', state.tab); state.country = 'all'; state.fill = 'all'; render(); });
+$('year').onchange = () => { state.year = $('year').value; store.set('tgf.year', state.year); render(); };
+window.addEventListener('beforeunload', (ev) => { if (Object.keys(DRAFT).length) { ev.preventDefault(); ev.returnValue = ''; } });
+
+// ===== 启动 =====
+function finish(tg, cal, pm, src) {
+  build(tg, cal, pm);
+  $('meta').textContent = `四季品 ${SJ.length} 个 SPU×国家 · 季节品 ${JJ.length} 个 ASIN×国家×赛季 · ${src}`;
+  render();
+  if (!SJ.length && !JJ.length) $('main').insertAdjacentHTML('afterbegin', `<div class="card0"><b>没有读到目标行</b> <span class="meta">读取行数 ${esc(JSON.stringify(DIAG.read))}；缺失字段 ${esc(JSON.stringify(DIAG.missing))}</span></div>`);
+  else if (Object.values(DIAG.missing).some((l) => l.length)) $('main').insertAdjacentHTML('afterbegin', `<div class="card0 err">表里找不到这些字段（改过名？）：${esc(JSON.stringify(DIAG.missing))}</div>`);
+}
+try {
+  if (window.__SNAPSHOT__) {
+    SNAP = true;
+    const S = window.__SNAPSHOT__;
+    Object.assign(imgCache, S.img || {});
+    finish(S.tg, S.cal, S.pm, `本地快照 ${S.at}（预览，保存不写回）`);
+  } else {
+    SDK = await loadSdk();
+    setupSave();
+    const tg = await readTable('tg');
+    let cal = [], pm = [];
+    try { cal = await readTable('cal'); } catch (e) { DIAG.missing['季节节奏日历'] = ['读不到：' + (e && e.message ? e.message : e)]; }
+    try { pm = await readTable('pm'); } catch (e) { console.warn('产品主表读不到，不显示图片', e); }
+    finish(tg, cal, pm, '取数：产品目标总表 + 季节节奏日历 + 产品主表');
+  }
+} catch (e) {
+  const msg = esc(e && e.message ? e.message : e);
+  $('meta').textContent = '';
+  $('main').innerHTML = `<div class="card0 err">加载失败：${msg}</div><div class="card0">正在诊断…</div>`;
+  if (SDK) { try { $('main').innerHTML = `<div class="card0 err">加载失败：${msg}</div>` + await diagnose(); } catch (e2) { /* 保留报错 */ } }
+}
+</script>
+</body>
+</html>
