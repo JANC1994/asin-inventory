@@ -1,0 +1,1270 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>产品定价利润计算</title>
+<!--
+  产品定价利润计算（插件页 profit-calc，2026-10-16 起草，当前为 HTML 预览版）
+  四块：① FBA 配送费（2026 费率，可回填主表）② 单件利润 ③ 广告投入推演 ④ 定价反推
+  数据：产品主表-灯类+精铺 tblqksywqgYvywOT（尺寸/重量/成本/配送费/佣金/汇率）
+        产品定价利润表 tblliOUMJk5nnJXv（原价/折扣/广告占比-手填/退货率预估，按 ASIN+匹配SKU+国家）
+  口径与多维表「产品定价利润表」毛利公式一致：
+        毛利¥ = (成交价×(1−佣金) − FBA配送费)×汇率 − 采购 − 头程 − 广告占比×成交价×汇率
+        投产比 = 毛利 ÷ (采购 + 头程)，按 % 显示   （用户 10-16 确认）
+  费率来源：亚马逊帮助页 GABBX6GZPA8MSZGW（2026-10-16 抓取）；加拿大旺季页未取到 2026 版，沿用 2025 旺季表（亚马逊称涨幅同去年）。
+  数据入口：window.PRELOAD（本地预览）→ 飞书插件 SDK（插件版再接）→ 都没有 = 空白离线版，手填即算。
+-->
+<style>
+  :root {
+    --bg: #faf6f1; --card: #ffffff; --ink: #2b2118; --sub: #7a6d61; --line: #f0e4d7; --line2: #e8d9c8;
+    --or: #f07a12; --or-d: #c95f05; --or-soft: #fff1e2; --or-soft2: #ffe3c4;
+    --red: #d9363e; --red-soft: #fdeced; --yel: #b7791f; --yel-soft: #fff7e0; --green: #2a9d4b; --green-soft: #e6f6eb;
+    --grey: #9a9089; --grey-soft: #f3efea; --blue: #2f6fd0; --blue-soft: #eaf1fc;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 13px/1.5 -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; }
+  /* 页面硬规矩：高度 = 插件框高度，顶栏固定，#main 内部滚动 */
+  html, body { height: 100%; overflow: hidden; }
+  .wrap { padding: 14px 16px 0; max-width: 1500px; margin: 0 auto; height: 100vh; display: flex; flex-direction: column; }
+  #main { flex: 1; min-height: 0; overflow: auto; margin: 0 -16px; padding: 0 16px 60px; }
+  .meta { color: var(--sub); font-size: 12px; }
+  .mono { font-family: Consolas, monospace; }
+  .num { font-variant-numeric: tabular-nums; }
+
+  /* 顶栏 */
+  .top { flex: none; }
+  .hero { background: linear-gradient(120deg, #f07a12 0%, #f59a3c 60%, #f8b35f 100%); color: #fff; border-radius: 12px 12px 0 0;
+          padding: 12px 18px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .hero h2 { margin: 0; font-size: 18px; letter-spacing: .5px; }
+  .hero .meta { color: rgba(255,255,255,.92); margin-left: auto; }
+  .seg { display: inline-flex; background: rgba(255,255,255,.22); border-radius: 9px; padding: 3px; gap: 2px; }
+  .seg button { height: 28px; padding: 0 14px; border: 0; border-radius: 7px; background: transparent; color: #fff; font-size: 13px; cursor: pointer; }
+  .seg button.on { background: #fff; color: var(--or-d); font-weight: 700; box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+  .seg button:disabled { opacity: .45; cursor: not-allowed; }
+  .hero-f { background: linear-gradient(120deg, #f38a2a 0%, #f7a650 100%); border-radius: 0 0 12px 12px; padding: 8px 18px 10px; margin-bottom: 12px;
+            border-top: 1px solid rgba(255,255,255,.3); display: flex; gap: 10px; flex-wrap: wrap; align-items: center; color: #fff; }
+  .pick { position: relative; }
+  .pick input { height: 30px; width: 380px; max-width: 70vw; border: 0; border-radius: 15px; padding: 0 14px; font-size: 13px; color: var(--ink); background: #fff; }
+  .pick input:disabled { background: rgba(255,255,255,.6); }
+  .dd { position: absolute; top: 34px; left: 0; width: 520px; max-width: 90vw; max-height: 420px; overflow: auto; background: #fff; border-radius: 10px;
+        box-shadow: 0 10px 30px rgba(60,30,0,.25); z-index: 50; padding: 6px; display: none; color: var(--ink); }
+  .dd.open { display: block; }
+  .dd .g { font-size: 11.5px; color: var(--sub); padding: 6px 8px 2px; font-weight: 700; }
+  .dd .it { display: flex; gap: 8px; align-items: center; padding: 6px 8px; border-radius: 7px; cursor: pointer; }
+  .dd .it:hover, .dd .it.hl { background: var(--or-soft); }
+  .dd .it .s { font-family: Consolas, monospace; font-weight: 700; color: var(--or-d); flex: none; }
+  .dd .it .n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; }
+  .dd .none { padding: 16px; text-align: center; color: var(--sub); }
+  .cur { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 12.5px; }
+  .cur b { font-size: 13.5px; }
+  .hbtn { height: 28px; padding: 0 12px; border-radius: 14px; border: 1px solid rgba(255,255,255,.7); background: rgba(255,255,255,.15); color: #fff; font-size: 12.5px; cursor: pointer; }
+  .hbtn:hover { background: #fff; color: var(--or-d); }
+  .hero-f .r { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+
+  .tag { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 9px; background: var(--grey-soft); color: var(--sub); white-space: nowrap; }
+  .tag.us { background: var(--blue-soft); color: var(--blue); }
+  .tag.ca { background: var(--red-soft); color: var(--red); }
+  .tag.or { background: var(--or-soft); color: var(--or-d); }
+  .tag.ok { background: var(--green-soft); color: var(--green); }
+  .tag.bad { background: var(--red-soft); color: var(--red); }
+  .tag.warn { background: var(--yel-soft); color: var(--yel); }
+  .btn { height: 30px; padding: 0 12px; border-radius: 7px; border: 1px solid var(--line2); background: #fff; color: var(--ink); font-size: 12.5px; cursor: pointer; white-space: nowrap; }
+  .btn:hover { border-color: var(--or); color: var(--or-d); }
+  .btn.pri { background: var(--or); border-color: var(--or); color: #fff; }
+  .btn.pri:hover { background: var(--or-d); color: #fff; }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .savebar { display: none; gap: 10px; align-items: center; background: #fff; border: 2px dashed var(--or); border-radius: 10px; padding: 8px 14px; margin-bottom: 10px; }
+  .savebar.show { display: flex; }
+  .err { color: var(--red); white-space: pre-wrap; }
+  .banner { background: var(--yel-soft); color: var(--yel); border-radius: 8px; padding: 7px 12px; font-size: 12.5px; margin-bottom: 10px; }
+  .banner.blue { background: var(--blue-soft); color: var(--blue); }
+
+  /* 布局 */
+  /* 产品信息大卡（截图用） */
+  .prod { background: #fff; border: 1px solid var(--or-soft2); border-radius: 14px; margin-bottom: 14px; padding: 14px 18px;
+          display: grid; grid-template-columns: 88px minmax(0, 1fr) auto; gap: 16px; align-items: center; box-shadow: 0 2px 10px rgba(240,122,18,.08); }
+  .prod .pimg { width: 88px; height: 88px; border-radius: 10px; background: var(--or-soft); display: flex; align-items: center; justify-content: center;
+                font-size: 34px; overflow: hidden; border: 1px solid var(--line); }
+  .prod .pimg img { width: 100%; height: 100%; object-fit: cover; }
+  .prod .pn { font-size: 21px; font-weight: 800; line-height: 1.3; }
+  .prod .pids { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-top: 6px; }
+  .prod .pids .big { font-family: Consolas, monospace; font-size: 15px; font-weight: 800; color: var(--or-d); }
+  .prod .pids .tag { font-size: 12px; padding: 2px 9px; }
+  .prod .pkpi { display: flex; gap: 10px; }
+  .prod .pk { text-align: center; padding: 6px 14px; border-radius: 10px; background: var(--bg); min-width: 92px; }
+  .prod .pk .k { font-size: 11.5px; color: var(--sub); }
+  .prod .pk .v { font-size: 22px; font-weight: 800; font-variant-numeric: tabular-nums; }
+  .prod .pk.hi { background: var(--or-soft); }
+  @media (max-width: 900px) { .prod { grid-template-columns: 64px minmax(0, 1fr); } .prod .pimg { width: 64px; height: 64px; } .prod .pkpi { grid-column: 1 / -1; flex-wrap: wrap; } }
+
+  /* 横向大卡 + 折叠 */
+  .fold { width: 24px; height: 24px; border: 1px solid var(--line2); border-radius: 6px; background: #fff; color: var(--sub); cursor: pointer; font-size: 12px; transition: transform .15s; }
+  .card.closed .fold { transform: rotate(-90deg); }
+  .card.closed .card-b { display: none; }
+  .card.closed .card-h { border-bottom: 0; }
+  .card-h .sum { font-size: 12.5px; color: var(--ink); display: none; }
+  .card.closed .card-h .sum { display: inline; }
+  .card-h .sum b { border: 0; padding: 0; font-size: 13px; }
+  .split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: 20px; align-items: start; }
+  .split2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0; align-items: stretch; padding: 0; }
+  .split2 .pane { padding: 12px 16px 14px; min-width: 0; }
+  .split2 .pane + .pane { border-left: 1px solid var(--line); background: #fffdfa; }
+  .pane-h { font-size: 14px; font-weight: 800; margin-bottom: 6px; }
+  .pane-h .meta { font-weight: 400; margin-left: 6px; }
+  .rpane { min-width: 0; }
+  .split .rpane > .res:first-child, .rpane .res0 { margin-top: 0; border-top: 0; padding-top: 0; }
+  @media (max-width: 1100px) {
+    .split, .split2 { grid-template-columns: 1fr; }
+    .split2 .pane + .pane { border-left: 0; border-top: 1px solid var(--line); }
+  }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; margin-bottom: 14px; overflow: hidden; }
+  .card-h { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--line); background: #fffaf4; flex-wrap: wrap; }
+  .card-h b { font-size: 14.5px; padding-left: 8px; border-left: 4px solid var(--or); }
+  .card-h .r { margin-left: auto; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .card-b { padding: 12px 16px 14px; }
+  .sub-h { font-size: 12px; font-weight: 700; color: var(--sub); margin: 12px 0 6px; letter-spacing: .5px; }
+  .sub-h:first-child { margin-top: 0; }
+
+  /* 输入 */
+  .fg { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px 10px; }
+  .fg.c3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .fg.c5 { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  @media (max-width: 640px) { .fg, .fg.c3, .fg.c5 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  .f { min-width: 0; }
+  .f label { display: flex; justify-content: space-between; gap: 4px; font-size: 11.5px; color: var(--sub); margin-bottom: 2px; white-space: nowrap; }
+  .f label .u { color: var(--grey); }
+  .f .box { position: relative; }
+  .f input, .f select { width: 100%; height: 32px; border: 1px solid var(--line2); border-radius: 7px; padding: 0 9px; font: inherit; font-size: 13.5px;
+                        font-variant-numeric: tabular-nums; background: #fff; color: var(--ink); outline: none; }
+  .f input:focus, .f select:focus { border-color: var(--or); box-shadow: 0 0 0 3px rgba(240,122,18,.15); }
+  .f input.chg { background: var(--yel-soft); border-color: #e9c46a; }
+  .f .orig { font-size: 11px; color: var(--yel); margin-top: 1px; height: 15px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .f .orig.src { color: var(--grey); }
+  .f input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  .f input[type=number] { -moz-appearance: textfield; }
+  .opts { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; margin-top: 4px; font-size: 12.5px; }
+  .opts label { display: inline-flex; gap: 5px; align-items: center; cursor: pointer; }
+  .mini { display: inline-flex; background: var(--grey-soft); border-radius: 7px; padding: 2px; gap: 2px; }
+  .mini button { height: 24px; padding: 0 9px; border: 0; border-radius: 5px; background: transparent; color: var(--sub); font-size: 12px; cursor: pointer; }
+  .mini button.on { background: #fff; color: var(--or-d); font-weight: 700; box-shadow: 0 1px 2px rgba(0,0,0,.1); }
+
+  /* 结果 */
+  .res { margin-top: 12px; border-top: 1px dashed var(--line2); padding-top: 12px; }
+  .chain { display: grid; grid-template-columns: 74px 1fr; gap: 4px 10px; font-size: 12.5px; margin-bottom: 10px; }
+  .chain .k { color: var(--or-d); font-weight: 700; font-size: 11.5px; background: var(--or-soft); border-radius: 5px; padding: 1px 6px; text-align: center; align-self: start; }
+  .chain .v { color: var(--ink); }
+  .chain .v small { color: var(--sub); }
+  .fee2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .feebox { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: #fff; }
+  .feebox.on { border-color: var(--or); box-shadow: 0 0 0 3px rgba(240,122,18,.12); }
+  .feebox .t { font-size: 12px; color: var(--sub); display: flex; justify-content: space-between; }
+  .feebox .v { font-size: 22px; font-weight: 800; font-variant-numeric: tabular-nums; }
+  .feebox .d { font-size: 11.5px; color: var(--sub); }
+  .feebox .cmp { font-size: 11.5px; margin-top: 3px; }
+  .acts { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  .tips { margin-top: 10px; background: var(--yel-soft); border-radius: 8px; padding: 8px 12px; font-size: 12.5px; color: #7a5410; }
+  .tips div + div { margin-top: 3px; }
+  .ctn { margin-top: 12px; border: 1px solid var(--line); border-radius: 10px; }
+  .ctn summary { padding: 8px 12px; cursor: pointer; font-size: 12.5px; font-weight: 700; color: var(--sub); }
+  .ctn .in { padding: 0 12px 12px; }
+  .chk { font-size: 12.5px; margin-top: 6px; }
+  .chk div { padding: 2px 0; }
+
+  .kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+  @media (max-width: 640px) { .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  .kpi { border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; background: #fff; min-width: 0; }
+  .kpi .k { font-size: 11.5px; color: var(--sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .kpi .v { font-size: 19px; font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .kpi .v small { font-size: 11.5px; font-weight: 400; color: var(--sub); margin-left: 3px; }
+  .kpi .d { font-size: 11px; color: var(--sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .kpi.hi { background: var(--or-soft); border-color: var(--or-soft2); }
+  .pos { color: var(--green); } .neg { color: var(--red); } .mid { color: var(--yel); }
+
+  /* 售价拆解条 */
+  .wf { margin-top: 12px; }
+  .wf .bar { display: flex; height: 26px; border-radius: 7px; overflow: hidden; background: var(--grey-soft); }
+  .wf .bar span { display: flex; align-items: center; justify-content: center; font-size: 11px; color: #fff; white-space: nowrap; overflow: hidden; min-width: 0; }
+  .wf .lg { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 6px; font-size: 12px; color: var(--sub); }
+  .wf .lg i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
+
+  .tbl { border-collapse: collapse; width: 100%; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+  .tbl th, .tbl td { padding: 5px 8px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
+  .tbl th { color: var(--sub); font-weight: 600; background: #fffaf4; }
+  .tbl td:first-child, .tbl th:first-child { text-align: left; }
+  .tbl tr.me td { font-weight: 800; }
+  .tbl td.c { text-align: center; }
+  .heat td.h { text-align: center; }
+  .mini button i { font-style: normal; opacity: .75; }
+  .bulk { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; background: var(--or-soft); border: 1px solid var(--or-soft2); border-radius: 8px; padding: 8px 12px; margin-bottom: 10px; font-size: 12.5px; }
+  .audit-w .tbl tr.selrow td { background: #fff4e5; }
+  .audit-w input[type=checkbox] { width: 15px; height: 15px; cursor: pointer; accent-color: var(--or); }
+  .audit-s { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; font-size: 12.5px; align-items: center; }
+  .audit-w { max-height: 560px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; }
+  .audit-w .tbl th { position: sticky; top: 0; z-index: 1; }
+  .audit-w .tbl td.nm { max-width: 240px; overflow: hidden; text-overflow: ellipsis; text-align: left; }
+  .audit-w .tbl td.l { text-align: left; }
+  .audit-w .tbl tr:hover td { background: #fffaf4; }
+  .audit-w .lnk { color: var(--or-d); cursor: pointer; font-weight: 700; font-family: Consolas, monospace; }
+  .audit-w .lnk:hover { text-decoration: underline; }
+  .dpos { color: var(--red); font-weight: 700; } .dneg { color: var(--blue); font-weight: 700; }
+  .formula { font-size: 11.5px; color: var(--sub); margin-top: 8px; line-height: 1.6; }
+  .formula code { background: var(--grey-soft); border-radius: 4px; padding: 0 4px; font-family: Consolas, monospace; font-size: 11px; color: var(--ink); }
+
+  /* 弹窗 */
+  .mask { position: fixed; inset: 0; background: rgba(40,20,0,.35); display: none; align-items: center; justify-content: center; z-index: 100; }
+  .mask.open { display: flex; }
+  .dlg { background: #fff; border-radius: 12px; width: 520px; max-width: 92vw; padding: 16px 18px; box-shadow: 0 20px 50px rgba(0,0,0,.25); }
+  .dlg h3 { margin: 0 0 4px; font-size: 15px; }
+  .dlg .tbl { margin: 10px 0; }
+  .dlg .tbl td.new { color: var(--or-d); font-weight: 800; }
+  .dlg .foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
+  .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: #2b2118; color: #fff; padding: 9px 16px; border-radius: 8px;
+           font-size: 13px; z-index: 200; display: none; max-width: 90vw; }
+  .toast.open { display: block; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div class="hero">
+      <h2>产品定价利润计算</h2>
+      <div class="seg" id="segCtry">
+        <button data-c="US" class="on">🇺🇸 美国</button>
+        <button data-c="CA">🇨🇦 加拿大</button>
+      </div>
+      <div class="seg" id="segSeason">
+        <button data-s="np">淡季</button>
+        <button data-s="pk">旺季 10.15–1.14</button>
+      </div>
+      <div class="meta" id="heroMeta"></div>
+    </div>
+    <div class="hero-f">
+      <div class="pick">
+        <input id="pickIn" autocomplete="off" placeholder="选 SKU：搜 领星SKU / ASIN / 品名 / SPU">
+        <div class="dd" id="dd"></div>
+      </div>
+      <div class="cur" id="curInfo"></div>
+      <div class="r"><button class="hbtn" id="btnClear">清空，手动填</button></div>
+    </div>
+    <div class="savebar" id="savebar"><b>插件配置</b><span class="meta">读 产品主表 + 产品定价利润表</span><button class="btn pri" id="saveBtn">保存到页面</button><span class="meta" id="saveMsg"></span></div>
+    <div class="banner" id="tallTip" style="display:none">插件框比屏幕还高，往下滑时顶栏会被滚走。请在应用编辑模式里把这个插件组件的高度拖到一屏以内。</div>
+  </div>
+  <div id="main">
+    <div id="banners"></div>
+    <!-- 产品信息大卡（截图用） -->
+    <div class="prod" id="prod"></div>
+
+    <!-- ① 配送费：横向大卡，左输入右结果 -->
+    <div class="card" data-card="fee">
+      <div class="card-h"><button class="fold" title="折叠/展开">▾</button><b>① FBA 配送费</b><span class="meta">2026 费率 · 含 3.5% 燃油附加费（可关）</span>
+        <span class="sum" id="sumFee"></span>
+        <div class="r"><span class="meta">类目</span><div class="mini" id="segCat"><button data-v="na" class="on">非服装</button><button data-v="ap">服装</button></div></div>
+      </div>
+      <div class="card-b split">
+        <div>
+          <div class="sub-h">商品包装尺寸与重量（主表口径：cm / kg）</div>
+          <div class="fg">
+            <div class="f" data-k="L"></div><div class="f" data-k="W"></div><div class="f" data-k="H"></div><div class="f" data-k="kg"></div>
+          </div>
+          <div class="opts">
+            <label id="lblBat"><input type="checkbox" id="optBat"> <span>带电 +$0.11（仅美国）</span></label>
+            <label><input type="checkbox" id="optFuel" checked> 3.5% 燃油和物流附加费（2026-04-17 起）</label>
+          </div>
+          <div class="opts" id="tierPick"></div>
+          <details class="ctn">
+            <summary>📦 外箱超尺寸 / 超重检测（选填）</summary>
+            <div class="in">
+              <div class="fg c5">
+                <div class="f" data-k="cL"></div><div class="f" data-k="cW"></div><div class="f" data-k="cH"></div><div class="f" data-k="cKg"></div><div class="f" data-k="cQty"></div>
+              </div>
+              <div class="chk" id="resCtn"></div>
+            </div>
+          </details>
+        </div>
+        <div class="rpane" id="resFee"></div>
+      </div>
+    </div>
+
+    <!-- ②③：横向大卡，左利润右广告 -->
+    <div class="card" data-card="pa">
+      <div class="card-h"><button class="fold" title="折叠/展开">▾</button><b>② 单件利润 ＋ ③ 广告投入推演</b><span class="meta">口径同多维表「产品定价利润表」/ 腾讯表「成本测算」</span>
+        <span class="sum" id="sumPA"></span>
+        <div class="r" id="seasonTag"></div>
+      </div>
+      <div class="card-b split2">
+        <div class="pane">
+          <div class="pane-h">② 单件利润</div>
+          <div class="sub-h">售价</div>
+          <div class="fg">
+            <div class="f" data-k="price"></div><div class="f" data-k="disc"></div><div class="f" data-k="comm"></div><div class="f" data-k="rate"></div>
+          </div>
+          <div class="sub-h">成本（人民币）与费用</div>
+          <div class="fg">
+            <div class="f" data-k="buy"></div><div class="f" data-k="head"></div><div class="f" data-k="fbaNp"></div><div class="f" data-k="fbaPk"></div>
+          </div>
+          <div class="fg" style="margin-top:8px">
+            <div class="f" data-k="ad"></div><div class="f" data-k="ret"></div>
+          </div>
+          <div class="res" id="resProfit"></div>
+        </div>
+        <div class="pane">
+          <div class="pane-h">③ 广告投入推演 <span class="meta">用 ② 的不含广告单件利润，广告按预算单独扣</span></div>
+          <div class="sub-h">广告</div>
+          <div class="fg c3">
+            <div class="f" data-k="budget"></div><div class="f" data-k="cpc"></div><div class="f" data-k="cvrAd"></div>
+          </div>
+          <div class="sub-h">自然流量</div>
+          <div class="fg c3">
+            <div class="f" data-k="nat"></div><div class="f" data-k="cvrNat"></div>
+          </div>
+          <div class="res" id="resAd"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ④ 定价反推：横向大卡，右上角切换 利润率/投产比 -->
+    <div class="card" data-card="rev">
+      <div class="card-h"><button class="fold" title="折叠/展开">▾</button><b>④ 定价反推</b><span class="meta">对应腾讯表「PD价格计算表」＋ 敏感度表</span>
+        <div class="r"><span class="meta">看</span><div class="mini" id="segMetric"><button data-v="margin" class="on">毛利率</button><button data-v="roi">投产比</button></div></div>
+      </div>
+      <div class="card-b split">
+        <div>
+          <div class="fg c3">
+            <div class="f" data-k="tgtPrice"></div><div class="f" data-k="tgtDisc"></div><div class="f" data-k="tgtM"></div>
+          </div>
+          <div class="res" id="resRev"></div>
+        </div>
+        <div class="rpane" id="resSens"></div>
+      </div>
+    </div>
+
+    <!-- ⑤ 配送费对账：主表现值 vs 2026 规则 -->
+    <div class="card" data-card="audit">
+      <div class="card-h"><button class="fold" title="折叠/展开">▾</button><b>⑤ 配送费对账</b><span class="meta">主表 FBA配送费 vs 按主表尺寸重量算的 2026 值（含带电 $0.11 + 3.5% 附加费）</span>
+        <span class="sum" id="sumAudit"></span>
+        <div class="r">
+          <div class="mini" id="segAudit"><button data-v="diff" class="on">对不上<i></i></button><button data-v="np">其中淡季<i></i></button><button data-v="pk">只差旺季<i></i></button><button data-v="miss">缺尺寸/重量<i></i></button><button data-v="ok">一致<i></i></button><button data-v="all">全部<i></i></button></div>
+          <div class="mini" id="segAuditC"><button data-v="" class="on">全部国家</button><button data-v="US">US</button><button data-v="CA">CA</button></div>
+        </div>
+      </div>
+      <div class="card-b" id="resAudit"></div>
+    </div>
+  </div>
+</div>
+
+<div class="mask" id="mask"><div class="dlg" id="dlg"></div></div>
+<div class="toast" id="toast"></div>
+
+<script>
+'use strict';
+// ====================================================================
+// 2026 美国 FBA 配送费（不含燃油附加费）。来源：GABBX6GZPA8MSZGW，2026-10-16 抓取
+// 危险品表没做（用户 10-16：我们没有危险品）。每行 [上限oz, <$10, $10~50, >$50]；above = 3–20 磅首重价 [<10,10~50,>50] + 每 step oz 加 per
+// ====================================================================
+const SM = [2, 4, 6, 8, 10, 12, 14, 16];
+const LG = [4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44, 48];
+const zip = (ozs, vals) => ozs.map((oz, i) => [oz, ...vals[i]]);
+const OS = (sb, lb, x0, x50, x70, x150) => ({ smallBulky: sb, largeBulky: lb, xl0_50: x0, xl50_70: x50, xl70_150: x70, xl150: x150 });
+const US = {
+  na: {
+    np: { small: zip(SM, [[2.43,3.32,3.58],[2.49,3.42,3.68],[2.56,3.45,3.71],[2.66,3.54,3.80],[2.77,3.68,3.94],[2.82,3.78,4.04],[2.92,3.91,4.17],[2.95,3.96,4.22]]),
+          large: zip(LG, [[2.91,3.73,3.99],[3.13,3.95,4.21],[3.38,4.20,4.46],[3.78,4.60,4.86],[4.22,5.04,5.30],[4.60,5.42,5.68],[4.75,5.57,5.83],[5.00,5.82,6.08],[5.10,5.92,6.18],[5.28,6.10,6.36],[5.44,6.26,6.52],[5.85,6.67,6.93]]),
+          above: { base: [6.15,6.97,7.23], step: 4, per: 0.08 },
+          os: OS([6.78,7.55,7.55],[8.58,9.35,9.35],[25.56,26.33,26.33],[36.55,37.32,37.32],[50.55,51.32,51.32],[194.18,194.95,194.95]) },
+    pk: { small: zip(SM, [[2.62,3.51,3.77],[2.68,3.61,3.87],[2.76,3.65,3.91],[2.86,3.74,4.00],[2.98,3.89,4.15],[3.03,3.99,4.25],[3.14,4.13,4.39],[3.17,4.18,4.44]]),
+          large: zip(LG, [[3.15,3.97,4.23],[3.39,4.21,4.47],[3.66,4.48,4.74],[4.07,4.89,5.15],[4.52,5.34,5.60],[4.91,5.73,5.99],[5.07,5.89,6.15],[5.33,6.15,6.41],[5.47,6.29,6.55],[5.67,6.49,6.75],[5.84,6.66,6.92],[6.26,7.08,7.34]]),
+          above: { base: [6.69,7.51,7.77], step: 4, per: 0.08 },
+          os: OS([7.82,8.59,8.59],[9.62,10.39,10.39],[28.29,29.06,29.06],[39.36,40.13,40.13],[54.97,55.74,55.74],[202.69,203.46,203.46]) },
+  },
+  ap: {
+    np: { small: zip(SM, [[2.62,3.51,3.77],[2.64,3.54,3.80],[2.68,3.59,3.85],[2.81,3.69,3.95],[3.00,3.91,4.17],[3.10,4.09,4.35],[3.20,4.20,4.46],[3.30,4.25,4.51]]),
+          large: zip(LG, [[3.48,4.30,4.56],[3.68,4.50,4.76],[3.90,4.72,4.98],[4.35,5.17,5.43],[5.05,5.87,6.13],[5.22,6.04,6.30],[5.32,6.14,6.40],[5.43,6.25,6.51],[5.78,6.60,6.86],[5.90,6.72,6.98],[5.95,6.77,7.03],[6.08,6.90,7.16]]),
+          above: { base: [6.15,6.97,7.63], step: 8, per: 0.16 } },
+    pk: { small: zip(SM, [[2.85,3.74,4.00],[2.87,3.77,4.03],[2.93,3.84,4.10],[3.06,3.94,4.20],[3.27,4.18,4.44],[3.37,4.36,4.62],[3.49,4.49,4.75],[3.59,4.54,4.80]]),
+          large: zip(LG, [[3.79,4.61,4.87],[4.00,4.82,5.08],[4.23,5.05,5.31],[4.69,5.51,5.77],[5.42,6.24,6.50],[5.59,6.41,6.67],[5.71,6.53,6.79],[5.82,6.64,6.90],[6.22,7.04,7.30],[6.34,7.16,7.42],[6.41,7.23,7.49],[6.54,7.36,7.62]]),
+          above: { base: [6.82,7.64,7.90], step: 8, per: 0.16 } },
+  },
+};
+US.ap.np.os = US.na.np.os; US.ap.pk.os = US.na.pk.os;   // 服装的大件/超大件与非服装同价
+const US_OS_STEP = { smallBulky: [1, 0.38], largeBulky: [1, 0.38], xl0_50: [1, 0.38], xl50_70: [51, 0.75], xl70_150: [71, 0.75], xl150: [151, 0.19] };
+
+// 加拿大（加元，不含燃油附加费）。淡季 = 2026-01-15 起；旺季 = 2025 旺季表（2026 旺季表未公布到抓取页，亚马逊称涨幅同去年）
+const CA = {
+  env: { np: [[100,4.46],[200,4.71],[300,5.01],[400,5.28],[500,5.62]], pk: [[100,4.73],[200,4.99],[300,5.31],[400,5.60],[500,5.95]] },
+  std: { np: [[100,5.92],[200,6.12],[300,6.36],[400,6.73],[500,7.23],[600,7.40],[700,7.71],[800,7.95],[900,8.25],[1000,8.49],[1100,8.58],[1200,8.84],[1300,9.04],[1400,9.29],[1500,9.60]],
+         pk: [[100,6.28],[200,6.49],[300,6.74],[400,7.13],[500,7.65],[600,7.84],[700,8.17],[800,8.43],[900,8.74],[1000,8.99],[1100,9.10],[1200,9.37],[1300,9.58],[1400,9.85],[1500,10.17]],
+         above: { np: 10.32, pk: 11.00, per100: 0.09 } },
+  os: { smallOver: { np: 15.43, pk: 16.77, per500: 0.46 }, mediumOver: { np: 37.78, pk: 41.64, per500: 0.52 },
+        largeOver: { np: 82.20, pk: 89.59, per500: 0.58 }, specialOver: { np: 150.78, pk: 166.85, per500: 0.58 } },
+};
+const FUEL = 0.035, BATTERY = 0.11;   // 带电附加 $0.11/件，只算美国（用户口径，同腾讯表「带电+$0.11」）。顺序同主表现值：基础费×1.035 取整后再 +0.11（5.82×1.035+0.11=6.13）
+// 加拿大不加：主表 CA 18 行里 10 行与「不加带电」一致、0 行与「加带电」一致（含带电款 A2504401-Orange、P00045），2026-10-16 核对
+
+// ====================================================================
+// 输入字段定义：k → [标签, 单位, 来源说明]
+// ====================================================================
+const FIELDS = {
+  L: ['长', 'cm', '主表 长CM'], W: ['宽', 'cm', '主表 宽CM'], H: ['高', 'cm', '主表 高CM'], kg: ['重量', 'kg', '主表 重量kg'],
+  cL: ['外箱长', 'cm', '主表 外箱长CM'], cW: ['外箱宽', 'cm', '主表 外箱宽CM'], cH: ['外箱高', 'cm', '主表 外箱高CM'], cKg: ['整箱毛重', 'kg', '主表 单箱毛重kg'], cQty: ['装箱数', '件', '主表 单箱数量'],
+  price: ['原价', '$', '利润表 原价'], disc: ['折扣', '%', '利润表 折扣'], comm: ['佣金', '%', '主表 佣金比例'], rate: ['汇率', '¥/本币', '主表 汇率'],
+  buy: ['采购成本（不含税）', '¥', '主表'], head: ['头程', '¥/件', '主表 头程费用'], fbaNp: ['FBA 配送费·淡季', '$', '主表 FBA配送费'], fbaPk: ['FBA 配送费·旺季', '$', '主表 FBA配送费（旺季）'],
+  ad: ['广告占比', '% 销售额', '利润表 广告占比-手填'], ret: ['退货率预估', '% 仅参考', '利润表 退货率预估'],
+  budget: ['日广告预算', '$', ''], cpc: ['CPC', '$', ''], cvrAd: ['广告转化率', '%', ''], nat: ['日自然点击', '次', ''], cvrNat: ['自然转化率', '%', ''],
+  tgtPrice: ['目标成交价', '$', ''], tgtDisc: ['计划折扣', '%', ''], tgtM: ['目标毛利率', '%', ''],
+};
+const MONEY_K = ['price', 'fbaNp', 'fbaPk', 'budget', 'cpc', 'tgtPrice'];   // 跟国家变币种的字段
+// 有默认/自动值的字段：没手填时页面自己填（用户 10-16：广告推演给默认值、目标成交价按定价算、毛利率 35% / 投产比 100%）
+// 手填后以手填为准；把格子清空 = 恢复默认
+const AUTO = {
+  budget: [() => 30, '默认 30'], cpc: [() => 1, '默认 1.00'], cvrAd: [() => 10, '默认 10%'],
+  nat: [() => (V('budget') > 0 && V('cpc') > 0 ? r2(V('budget') / V('cpc')) : null), '默认 = 广告点击'],
+  cvrNat: [() => 15, '默认 15%'],
+  tgtPrice: [() => (V('price') != null ? r2(V('price') * (1 - (V('disc') || 0) / 100)) : null), '自动 = ② 成交价'],
+  tgtDisc: [() => 20, '默认 20%'],
+  tgtM: [() => (S.metric === 'roi' ? 100 : 35), ''],
+};
+function applyAuto() {
+  for (const [k, [fn]] of Object.entries(AUTO)) {
+    if (S.manual[k]) continue;
+    const v = fn();
+    S.val[k] = v == null ? '' : String(v);
+    const inp = $(`input[data-k="${k}"]`);
+    if (inp && document.activeElement !== inp) inp.value = S.val[k];
+    markChanged(k);
+  }
+}
+
+// ====================================================================
+// 状态
+// ====================================================================
+const S = {
+  rows: [], pl: {}, mode: 'blank',          // mode: preview | plugin | blank
+  sku: null, ctry: 'US', season: autoSeason(), cat: 'na', metric: 'margin', manual: {}, auditF: 'diff', auditC: '', sel: new Set(),
+  val: {}, orig: {}, rec: null,              // 当前输入值 / 带入时的原值 / 当前主表行
+};
+function autoSeason() {        // 旺季 10-15 ~ 次年 01-14（含首尾），按北京时间的日期（插件硬规矩④）
+  const d = new Date(Date.now() + 8 * 3600e3);
+  const md = (d.getUTCMonth() + 1) * 100 + d.getUTCDate();
+  return (md >= 1015 || md <= 114) ? 'pk' : 'np';
+}
+const $ = (s, el = document) => el.querySelector(s);
+const $$ = (s, el = document) => [...el.querySelectorAll(s)];
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const num = (v) => { if (v === '' || v == null) return null; const n = +v; return Number.isFinite(n) ? n : null; };
+const r2 = (n) => Math.round(n * 100) / 100;
+const f2 = (n, d = 2) => n == null || !Number.isFinite(n) ? '—' : n.toFixed(d);
+const pct = (n, d = 1) => n == null || !Number.isFinite(n) ? '—' : (n * 100).toFixed(d) + '%';
+const sym = () => S.ctry === 'CA' ? 'C$' : '$';
+const V = (k) => num(S.val[k]);
+
+// ====================================================================
+// 数据：行 = 主表一行（SKU×国家），合并利润表的 原价/折扣/广告占比/退货率
+// ====================================================================
+const ctryOf = (r) => { const c = (r['国家'] || []).join('/') || r['国家文本'] || ''; return c.includes('加拿大') ? 'CA' : c.includes('美国') ? 'US' : ''; };
+const clean = (s) => String(s ?? '').replace(/[\s​-‍﻿]+/g, ' ').trim();
+const first = (v) => Array.isArray(v) ? v[0] : v;
+function ingest(pm, pl) {
+  const plIdx = {};
+  for (const p of pl || []) {
+    const c = (first(p['国家']) || '').includes('加拿大') ? 'CA' : 'US';
+    plIdx[clean(p['ASIN']) + '|' + clean(p['匹配SKU'] || p['产品SKU']) + '|' + c] = p;
+  }
+  S.rows = pm.map((r) => ({ ...r, _c: ctryOf(r), _sku: clean(r['领星SKU']), _pl: null }))
+             .filter((r) => r._sku && r._c);
+  for (const r of S.rows) r._pl = plIdx[clean(r['ASIN']) + '|' + r._sku + '|' + r._c] || null;
+}
+function rowFor(sku, c) { return S.rows.find((r) => r._sku === sku && r._c === c) || null; }
+
+// 主表/利润表 → 输入框（百分比字段存小数，显示 %）
+function valsFromRow(r) {
+  const p = r._pl || {}, o = {};
+  const put = (k, v, mul = 1) => { const n = num(v); o[k] = n == null ? '' : String(+(n * mul).toFixed(6)); };
+  put('L', r['长CM']); put('W', r['宽CM']); put('H', r['高CM']); put('kg', r['重量kg']);
+  put('cL', r['外箱长CM']); put('cW', r['外箱宽CM']); put('cH', r['外箱高CM']); put('cKg', r['单箱毛重kg']); put('cQty', r['单箱数量']);
+  put('comm', r['佣金比例'], 100); put('rate', r['汇率']);
+  put('buy', r['采购成本不含税']); put('head', r['头程费用']);
+  put('fbaNp', r['FBA配送费']); put('fbaPk', r['FBA配送费（旺季）']);
+  put('price', p['原价']); put('disc', p['折扣'], 100); put('ad', p['广告占比-手填'], 100); put('ret', p['退货率预估'], 100);
+  return o;
+}
+
+// ====================================================================
+// 配送费计算
+// ====================================================================
+const IN = 2.54, G_LB = 453.59237, G_OZ = 28.349523125;
+function usTier(L, W, H, lb) {   // L≥W≥H，英寸；lb = 商品重量
+  const lg = L + 2 * (W + H);
+  if (lb * 16 <= 16 && L <= 15 && W <= 12 && H <= 0.75) return 'smallStd';
+  if (lb <= 20 && L <= 18 && W <= 14 && H <= 8) return 'largeStd';
+  if (lb <= 50 && L <= 37 && W <= 28 && H <= 20 && lg <= 130) return 'smallBulky';
+  if (lb <= 50 && L <= 59 && W <= 33 && H <= 33 && lg <= 130) return 'largeBulky';
+  return 'xl';
+}
+const US_TIER_CN = { smallStd: '小号标准尺寸', largeStd: '大号标准尺寸', smallBulky: '小号大件', largeBulky: '大号大件',
+  xl0_50: '超大件 0–50 磅', xl50_70: '超大件 50–70 磅', xl70_150: '超大件 70–150 磅', xl150: '超大件 >150 磅' };
+function priceIdx(p) { return p == null ? 1 : p < 10 ? 0 : p > 50 ? 2 : 1; }   // $10 和 $50 本身算 10~50 档
+
+function calcUS({ cm, kg, cat, price }) {
+  const [L, W, H] = cm.map((x) => x / IN).sort((a, b) => b - a);
+  const lb = kg * 1000 / G_LB;
+  let tier = usTier(L, W, H, lb);
+  const steps = [];
+  steps.push(['尺寸', `${L.toFixed(2)} × ${W.toFixed(2)} × ${H.toFixed(2)} in，商品重 ${lb.toFixed(3)} lb（${(lb * 16).toFixed(2)} oz）`]);
+  let dimLb = null, shipLb = lb, min2 = false;
+  if (tier !== 'smallStd') {
+    // 2 英寸最小宽高：大号标准也适用。FAQ 文字只写了大件，但官方 T 恤示例（13×9×0.85"，体积重 1.65 lb）只有按 2" 才算得出
+    let w = W, h = H;
+    if (w < 2) { w = 2; min2 = true; }
+    if (h < 2) { h = 2; min2 = true; }
+    dimLb = L * w * h / 139;
+    shipLb = Math.max(lb, dimLb);
+  }
+  if (tier === 'xl') tier = lb > 150 ? 'xl150' : shipLb <= 50 ? 'xl0_50' : shipLb <= 70 ? 'xl50_70' : shipLb <= 150 ? 'xl70_150' : 'xl150';
+  if (tier === 'xl150') shipLb = lb;
+  steps.push(['尺寸分段', `<b>${US_TIER_CN[tier]}</b>`]);
+  steps.push(['体积重', dimLb == null ? '小号标准尺寸只按商品重量，不算体积重'
+    : `${dimLb.toFixed(3)} lb${min2 ? '（<b>宽或高不足 2 英寸，按 2 英寸算</b>）' : ''} vs 商品重 ${lb.toFixed(3)} lb → 取较大`]);
+  const shipOz = shipLb * 16;
+  steps.push(['发货重量', `<b>${shipLb.toFixed(3)} lb</b>（${shipOz.toFixed(2)} oz）`]);
+  const pi = priceIdx(price);
+  const tbl = US[cat];
+  const fee = (sea) => {
+    const t = tbl[sea];
+    if (tier === 'smallStd' || tier === 'largeStd') {
+      const rows = tier === 'smallStd' ? t.small : t.large;
+      for (const row of rows) if (shipOz <= row[0] + 1e-9) return { base: row[1 + pi], how: `${row[0]} oz 以内档` };
+      if (tier === 'smallStd') return { base: rows[rows.length - 1][1 + pi], how: '16 oz 档' };
+      const n = Math.ceil((shipOz - 48 - 1e-9) / t.above.step);
+      return { base: r2(t.above.base[pi] + n * t.above.per), how: `3 磅首重 ${t.above.base[pi]} + ${n} × ${t.above.per}（每 ${t.above.step} oz）` };
+    }
+    const [firstLb, per] = US_OS_STEP[tier];
+    const n = Math.max(0, Math.ceil(shipLb - 1e-9) - firstLb);
+    const b = t.os[tier][pi];
+    return { base: r2(b + n * per), how: `首重 ${b} + ${n} 磅 × ${per}` };
+  };
+  const tips = [];
+  if (tier === 'largeStd' && H > 0.75 && H <= 1) tips.push(`最短边 ${H.toFixed(2)}"，只超小号标准上限 0.75" 一点点，压薄包装可降到小号标准。`);
+  if (tier === 'largeStd' && L > 15 && L <= 16) tips.push(`最长边 ${L.toFixed(2)}"，接近小号标准上限 15"。`);
+  if (dimLb != null && dimLb > lb * 1.3) tips.push(`体积重 ${dimLb.toFixed(2)} lb 明显大于商品重 ${lb.toFixed(2)} lb，<b>缩小包装</b>能直接降配送费。`);
+  if (tier === 'largeStd' && shipLb > 2.9 && shipLb <= 3.2) tips.push('发货重量卡在 3 磅附近，超过 3 磅后按每 4 oz 递增。');
+  if (tier.startsWith('xl') && (L > 96 || L + 2 * (W + H) > 130)) tips.push('最长边 > 96" 或 长+围长 > 130"：另收特大号处理费（未计入）。');
+  if (price != null && price >= 9 && price < 10) tips.push(`成交价 ${price.toFixed(2)} 走 <$10 低价档；涨到 $10 会切到 $10~50 档，配送费会变高。`);
+  return { tier, tierCN: US_TIER_CN[tier], steps, np: fee('np'), pk: fee('pk'), tips, pi };
+}
+
+function caTier(L, W, H, g) {   // L≥W≥H，厘米
+  const lg = L + 2 * (W + H);
+  if (g <= 500 && L <= 38 && W <= 27 && H <= 2) return 'envelope';
+  if (g <= 9000 && L <= 45 && W <= 35 && H <= 20) return 'standard';
+  if (g <= 32000 && L <= 152 && W <= 76 && lg <= 330) return 'smallOver';
+  if (g <= 68000 && L <= 270 && lg <= 330) return 'mediumOver';
+  if (g <= 68000 && L <= 270 && lg <= 419) return 'largeOver';
+  return 'specialOver';
+}
+const CA_TIER_CN = { envelope: '信封尺寸', standard: '标准尺寸', smallOver: '小号大件', mediumOver: '中号大件', largeOver: '大号大件', specialOver: '特殊大件' };
+function calcCA({ cm, kg }) {
+  const [L, W, H] = [...cm].sort((a, b) => b - a);
+  const g = kg * 1000;
+  const tier = caTier(L, W, H, g);
+  const steps = [];
+  steps.push(['尺寸', `${L.toFixed(1)} × ${W.toFixed(1)} × ${H.toFixed(1)} cm，商品重 ${g.toFixed(0)} g`]);
+  steps.push(['尺寸分段', `<b>${CA_TIER_CN[tier]}</b>`]);
+  const dimG = L * W * H / 5;     // 长×宽×高/5000 = kg
+  steps.push(['体积重', `${dimG.toFixed(0)} g vs 商品重 ${g.toFixed(0)} g → 取较大`]);
+  const raw = Math.max(g, dimG);
+  const unit = (tier === 'envelope' || tier === 'standard') ? 100 : 500;
+  const ship = Math.ceil(raw / unit - 1e-9) * unit;
+  steps.push(['发货重量', `向上取整到 ${unit} g → <b>${ship} g</b>`]);
+  const fee = (sea) => {
+    if (tier === 'envelope' || tier === 'standard') {
+      const rows = CA[tier === 'envelope' ? 'env' : 'std'][sea];
+      for (const [mx, f] of rows) if (ship <= mx) return { base: f, how: `${mx} g 以内档` };
+      if (tier === 'envelope') return { base: rows[rows.length - 1][1], how: '500 g 档' };
+      const a = CA.std.above, n = Math.ceil((ship - 1500) / 100);
+      return { base: r2(a[sea] + n * a.per100), how: `1500 g 首重 ${a[sea]} + ${n} × ${a.per100}（每 100 g）` };
+    }
+    const o = CA.os[tier], n = Math.max(0, ship / 500 - 1);
+    return { base: r2(o[sea] + n * o.per500), how: `首重 500 g ${o[sea]} + ${n} × ${o.per500}` };
+  };
+  const tips = [];
+  if (tier === 'standard' && g <= 500 && H <= 2.5 && L <= 40 && W <= 29) tips.push('尺寸接近信封分段（38×27×2 cm，≤500 g），压缩包装可降到信封价。');
+  if (dimG > g * 1.3) tips.push(`体积重 ${dimG.toFixed(0)} g 明显大于商品重 ${g.toFixed(0)} g，<b>缩小包装</b>能降配送费。`);
+  return { tier, tierCN: CA_TIER_CN[tier], steps, np: fee('np'), pk: fee('pk'), tips };
+}
+const bat = () => (S.ctry === 'US' && $('#optBat').checked) ? BATTERY : 0;
+const withFuel = (b) => r2(($('#optFuel').checked ? r2(b * (1 + FUEL)) : b) + bat());
+
+// ====================================================================
+// 利润计算（一个函数给 ②③④ 共用）
+// ====================================================================
+function profit({ price, disc, comm, rate, buy, head, fba, ad }) {
+  if ([price, comm, rate, buy, head, fba].some((x) => x == null)) return null;
+  const sale = price * (1 - (disc || 0));
+  const adAmt = (ad || 0) * sale;
+  const back = sale * (1 - comm) - fba;                 // 销售回款（本币，不含广告）
+  const gp = back * rate - buy - head - adAmt * rate;   // 毛利 ¥
+  const gpNoAd = back * rate - buy - head;
+  return {
+    sale, adAmt, back, gp, gpNoAd, commAmt: sale * comm,
+    margin: sale > 0 ? gp / (sale * rate) : null,
+    marginNoAd: sale > 0 ? gpNoAd / (sale * rate) : null,      // = 保本 ACOS
+    roi: buy + head > 0 ? gp / (buy + head) : null,
+    realCost: sale - gp / rate,                                 // 实际成本（本币）= 成交价 − 毛利
+    breakEven: (1 - comm - (ad || 0)) > 0 ? (fba * rate + buy + head) / (rate * (1 - comm - (ad || 0))) : null,   // 毛利=0 的成交价
+  };
+}
+function curInputs(season) {
+  return { price: V('price'), disc: V('disc') == null ? 0 : V('disc') / 100, comm: V('comm') == null ? null : V('comm') / 100,
+           rate: V('rate'), buy: V('buy'), head: V('head'), fba: season === 'pk' ? (V('fbaPk') ?? V('fbaNp')) : V('fbaNp'),
+           ad: V('ad') == null ? 0 : V('ad') / 100 };
+}
+
+// ====================================================================
+// 渲染：输入框（只建一次），结果（每次输入重算）
+// ====================================================================
+function buildInputs() {
+  for (const box of $$('.f[data-k]')) {
+    const k = box.dataset.k, [lab, unit, src] = FIELDS[k];
+    box.innerHTML = `<label><span>${lab}</span><span class="u" data-u="${k}">${unit}</span></label>
+      <div class="box"><input type="number" step="any" data-k="${k}" placeholder="${src && src.startsWith('默认') ? src : ''}"></div>
+      <div class="orig src" data-o="${k}">${src && !src.startsWith('默认') ? esc(src) : ''}</div>`;
+  }
+  $('#main').addEventListener('input', (e) => {
+    const k = e.target.dataset?.k; if (!k) return;
+    S.val[k] = e.target.value;
+    if (AUTO[k]) S.manual[k] = e.target.value !== '';
+    markChanged(k); recalc();
+  });
+}
+function fillInputs() {
+  for (const inp of $$('input[data-k]')) inp.value = S.val[inp.dataset.k] ?? '';
+  for (const k of Object.keys(FIELDS)) markChanged(k);
+  for (const k of MONEY_K) { const u = $(`[data-u="${k}"]`); if (u) u.textContent = sym(); }
+}
+function markChanged(k) {
+  const inp = $(`input[data-k="${k}"]`), o = $(`[data-o="${k}"]`); if (!inp || !o) return;
+  const src = FIELDS[k][2];
+  if (AUTO[k]) {
+    const note = k === 'tgtM' ? (S.metric === 'roi' ? '默认 100%' : '默认 35%') : AUTO[k][1];
+    inp.classList.toggle('chg', !!S.manual[k]);
+    o.classList.toggle('src', !S.manual[k]);
+    o.textContent = S.manual[k] ? `手填（清空恢复：${note}）` : note;
+    return;
+  }
+  const has = S.rec && Object.prototype.hasOwnProperty.call(S.orig, k);
+  const ch = has && num(S.val[k]) !== num(S.orig[k]);
+  inp.classList.toggle('chg', !!ch);
+  o.classList.toggle('src', !ch);
+  o.textContent = ch ? `表里原值：${S.orig[k] === '' ? '空' : S.orig[k]}` : (src && !src.startsWith('默认') ? src : '');
+}
+
+function recalc() {
+  const isCA = S.ctry === 'CA', $s = sym();
+  applyAuto();
+  // ---------- ① 配送费 ----------
+  const cm = [V('L'), V('W'), V('H')], kg = V('kg');
+  const p0 = profit({ ...curInputs(S.season) });
+  const priceForTier = p0 ? p0.sale : (V('price') != null ? V('price') * (1 - (V('disc') || 0) / 100) : null);
+  let fee = null;
+  $('#tierPick').innerHTML = isCA ? '' : `<span class="meta">价格档：<b>${priceForTier == null ? '未填售价，按 $10~50' : priceForTier < 10 ? '&lt;$10 低价' : priceForTier > 50 ? '&gt;$50' : '$10~50'}</b>（按 ② 成交价自动判断）</span>`;
+  if (cm.every((x) => x > 0) && kg > 0) {
+    fee = isCA ? calcCA({ cm, kg }) : calcUS({ cm, kg, cat: S.cat, price: priceForTier });
+    fee.npT = withFuel(fee.np.base); fee.pkT = withFuel(fee.pk.base);
+    const box = (sea, t, label) => {
+      const cur = sea === S.season, tabK = sea === 'np' ? 'fbaNp' : 'fbaPk', tabV = num(S.orig[tabK]);
+      const cmp = !S.rec ? '' : tabV == null ? '<span class="tag warn">主表为空</span>'
+        : Math.abs(tabV - t) < 0.005 ? '<span class="tag ok">= 主表</span>' : `<span class="tag ${t > tabV ? 'bad' : 'or'}">主表 ${$s}${f2(tabV)}，差 ${t > tabV ? '+' : ''}${f2(t - tabV)}</span>`;
+      return `<div class="feebox ${cur ? 'on' : ''}"><div class="t"><span>${label}</span>${cur ? '<span class="tag or">当前</span>' : ''}</div>
+        <div class="v">${$s}${f2(t)}</div>
+        <div class="d">${fee[sea].how}：${f2(fee[sea].base)}${$('#optFuel').checked ? ` + 3.5% 附加费 ${f2(t - fee[sea].base - bat())}` : ''}${bat() ? ` + 带电 ${f2(BATTERY)}` : ''}</div>
+        <div class="cmp">${cmp}</div></div>`;
+    };
+    $('#resFee').innerHTML = `<div class="chain">${fee.steps.map(([k, v]) => `<div class="k">${k}</div><div class="v">${v}</div>`).join('')}</div>
+      <div class="fee2">${box('np', fee.npT, '淡季（1.15–10.14）')}${box('pk', fee.pkT, isCA ? '旺季（沿用 2025 旺季表）' : '旺季（2026.10.15–2027.1.14）')}</div>
+      ${fee.tips.length ? `<div class="tips">${fee.tips.map((t) => `<div>💡 ${t}</div>`).join('')}</div>` : ''}
+      <div class="acts">
+        <button class="btn pri" id="bUse">用这两个配送费算利润 →</button>
+        <button class="btn" id="bBackFee" ${S.rec ? '' : 'disabled title="先在顶部选一个 SKU"'}>回填配送费到主表</button>
+        <button class="btn" id="bBackDim" ${S.rec ? '' : 'disabled title="先在顶部选一个 SKU"'}>回填尺寸重量到主表</button>
+      </div>`;
+    $('#bUse').onclick = () => { setVal('fbaNp', fee.npT); setVal('fbaPk', fee.pkT); recalc(); toast('已带入 ② 的淡季/旺季配送费'); };
+    $('#bBackFee').onclick = () => backfill('fee', fee);
+    $('#bBackDim').onclick = () => backfill('dim');
+  } else {
+    $('#resFee').innerHTML = `<div class="meta">填上长、宽、高、重量就会出配送费。${S.rec ? '这个 SKU 在主表里尺寸或重量没填全。' : ''}</div>
+      ${S.rec ? `<div class="acts"><button class="btn" id="bBackDim">回填尺寸重量到主表</button></div>` : ''}`;
+    const b = $('#bBackDim'); if (b) b.onclick = () => backfill('dim');
+  }
+  S.fee = fee;
+  renderCarton();
+
+  // ---------- ② 单件利润 ----------
+  $('#seasonTag').innerHTML = `<span class="tag ${S.season === 'pk' ? 'bad' : 'ok'}">按${S.season === 'pk' ? '旺季' : '淡季'}配送费算</span>`;
+  const p = profit(curInputs(S.season));
+  const pOther = profit(curInputs(S.season === 'pk' ? 'np' : 'pk'));
+  if (!p) {
+    const miss = [['price', '原价'], ['comm', '佣金'], ['rate', '汇率'], ['buy', '采购成本'], ['head', '头程'], ['fbaNp', 'FBA 配送费']].filter(([k]) => V(k) == null).map(([, n]) => n);
+    $('#resProfit').innerHTML = `<div class="meta">还差：${miss.join('、')}</div>`;
+  } else {
+    const cls = (m) => m == null ? '' : m < 0 ? 'neg' : m < 0.15 ? 'mid' : 'pos';
+    const rate = V('rate');
+    $('#resProfit').innerHTML = `<div class="kpis">
+        <div class="kpi hi"><div class="k">毛利 / 件</div><div class="v ${cls(p.margin)}">¥${f2(p.gp)}</div><div class="d">≈ ${$s}${f2(p.gp / rate)}</div></div>
+        <div class="kpi hi"><div class="k">毛利率</div><div class="v ${cls(p.margin)}">${pct(p.margin)}</div><div class="d">${S.season === 'pk' ? '淡季' : '旺季'} ${pOther ? pct(pOther.margin) : '—'}</div></div>
+        <div class="kpi hi"><div class="k">投产比（毛利 ÷ 采购+头程）</div><div class="v ${cls(p.roi)}">${pct(p.roi)}</div><div class="d">货本 ¥${f2(V('buy') + V('head'))}</div></div>
+        <div class="kpi"><div class="k">成交价</div><div class="v">${$s}${f2(p.sale)}</div><div class="d">原价 ${f2(V('price'))} × (1 − ${f2(V('disc') || 0, 1)}%)</div></div>
+        <div class="kpi"><div class="k">销售回款（未扣广告）</div><div class="v">¥${f2(p.back * rate)}</div><div class="d">${$s}${f2(p.back)}</div></div>
+        <div class="kpi"><div class="k">实际成本 / 件</div><div class="v">${$s}${f2(p.realCost)}</div><div class="d">成交价 − 毛利</div></div>
+        <div class="kpi"><div class="k">保本 ACOS（不含广告毛利率）</div><div class="v">${pct(p.marginNoAd)}</div><div class="d">广告占比超过它就亏</div></div>
+        <div class="kpi"><div class="k">保本成交价</div><div class="v">${p.breakEven == null ? '—' : $s + f2(p.breakEven)}</div><div class="d">含当前广告占比</div></div>
+      </div>
+      ${waterfall(p, rate)}
+      <div class="formula">毛利 = (<code>成交价×(1−佣金) − FBA配送费</code>)×汇率 − 采购 − 头程 − <code>广告占比×成交价×汇率</code>。退货率只作参考，不参与计算（与多维表一致）。</div>`;
+  }
+
+  // ---------- ③ 广告推演（广告、自然分开转化率） ----------
+  const budget = V('budget'), cpc = V('cpc'), cvrAd = V('cvrAd') == null ? null : V('cvrAd') / 100;
+  const cvrNat = V('cvrNat') == null ? cvrAd : V('cvrNat') / 100;
+  let adSum = '';
+  if (!p || budget == null || !cpc || !cvrAd) {
+    $('#resAd').innerHTML = `<div class="meta">${!p ? '先把 ② 填完整。' : '填日广告预算、CPC、广告转化率。'}</div>`;
+  } else {
+    const rate = V('rate');
+    const adClicks = budget / cpc, nat = V('nat') ?? adClicks;
+    const adOrders = adClicks * cvrAd, natOrders = nat * cvrNat, orders = adOrders + natOrders;
+    const unitNoAd = p.gpNoAd / rate;             // 不含广告的单件利润（本币）
+    const day = unitNoAd * orders - budget;
+    const sales = p.sale * orders;
+    const cls = day < 0 ? 'neg' : 'pos';
+    adSum = `日利润 <b class="${cls}">${$s}${f2(day)}</b> · 日单 ${f2(orders, 1)} · TACOS ${pct(budget / sales)}`;
+    $('#resAd').innerHTML = `<div class="kpis">
+        <div class="kpi"><div class="k">出单量 / 日</div><div class="v">${f2(orders, 1)}<small>单</small></div><div class="d">广告 ${f2(adOrders, 1)} + 自然 ${f2(natOrders, 1)}</div></div>
+        <div class="kpi"><div class="k">点击 / 日</div><div class="v">${f2(adClicks + nat, 0)}</div><div class="d">广告 ${f2(adClicks, 1)} + 自然 ${f2(nat, 1)}</div></div>
+        <div class="kpi hi"><div class="k">日利润</div><div class="v ${cls}">${$s}${f2(day)}</div><div class="d">¥${f2(day * rate)}</div></div>
+        <div class="kpi hi"><div class="k">月利润（×30）</div><div class="v ${cls}">¥${f2(day * rate * 30, 0)}</div><div class="d">${$s}${f2(day * 30, 0)} · 月单量 ${f2(orders * 30, 0)}</div></div>
+        <div class="kpi"><div class="k">ACOS</div><div class="v">${pct(budget / (p.sale * adOrders))}</div><div class="d">广告费 ÷ 广告销售额</div></div>
+        <div class="kpi"><div class="k">TACOS</div><div class="v">${pct(budget / sales)}</div><div class="d">广告费 ÷ 总销售额 ${$s}${f2(sales)}</div></div>
+        <div class="kpi"><div class="k">广告后投产比</div><div class="v">${pct(day * rate / ((V('buy') + V('head')) * orders))}</div><div class="d">日利润 ÷ (采购+头程)×单量</div></div>
+        <div class="kpi"><div class="k">保本日预算</div><div class="v">${$s}${f2(unitNoAd * orders)}</div><div class="d">流量不变时预算上限</div></div>
+      </div>
+      <div class="formula">出单 = 广告点击×广告转化率 + 自然点击×自然转化率。日利润 = 不含广告单件利润 × 出单量 − 日预算（广告在这里按预算扣，不再扣 ② 的广告占比）。</div>`;
+  }
+  $('#sumPA').innerHTML = p ? `毛利 <b>¥${f2(p.gp)}</b> · 毛利率 <b>${pct(p.margin)}</b> · 投产比 <b>${pct(p.roi)}</b>${adSum ? ' ｜ ' + adSum : ''}` : '未填完整';
+  $('#sumFee').innerHTML = S.fee ? `${S.fee.tierCN} · 淡季 <b>${$s}${f2(S.fee.npT)}</b> · 旺季 <b>${$s}${f2(S.fee.pkT)}</b>` : '未填尺寸重量';
+  renderProd(p);
+
+  // ---------- ④ 定价反推（右上角切 毛利率 / 投产比） ----------
+  const isRoi = S.metric === 'roi', mName = isRoi ? '投产比' : '毛利率';
+  const rows = [];
+  const tp = V('tgtPrice'), td = V('tgtDisc'), tm = V('tgtM');
+  if (tp != null && td != null && td < 100) rows.push(['要挂的原价', `${$s}${f2(tp / (1 - td / 100))}`, `目标成交价 ${f2(tp)} ÷ (1 − ${td}%)`]);
+  const base = curInputs(S.season);
+  if (tm != null && [base.comm, base.rate, base.buy, base.head, base.fba].every((x) => x != null)) {
+    // 毛利 = P×R×(1−佣金−广告) − FBA×R − 采购 − 头程
+    // 目标毛利率 m：毛利 = m×P×R          → P = (FBA×R + 采购+头程) / (R×(1−佣金−广告−m))
+    // 目标投产比 k：毛利 = k×(采购+头程)  → P = (FBA×R + (采购+头程)×(1+k)) / (R×(1−佣金−广告))
+    const cost = base.buy + base.head;
+    const den = base.rate * (1 - base.comm - base.ad - (isRoi ? 0 : tm / 100));
+    const need = den > 0 ? (base.fba * base.rate + cost * (isRoi ? 1 + tm / 100 : 1)) / den : null;
+    if (need != null) {
+      rows.push([`达到目标${mName}的成交价`, `<b>${$s}${f2(need)}</b>`, `含广告占比 ${f2(base.ad * 100, 1)}%、${S.season === 'pk' ? '旺季' : '淡季'}配送费`]);
+      if (td != null && td < 100) rows.push(['对应原价（按计划折扣）', `${$s}${f2(need / (1 - td / 100))}`, `÷ (1 − ${td}%)`]);
+    } else rows.push([`达到目标${mName}的成交价`, '<span class="neg">做不到</span>', '佣金 + 广告占比 + 目标毛利率 ≥ 100%']);
+  }
+  $('#resRev').innerHTML = rows.length ? `<table class="tbl">${rows.map(([a, b, c]) => `<tr><td>${a}</td><td>${b}</td><td class="meta" style="text-align:left">${c}</td></tr>`).join('')}</table>`
+      : `<div class="meta">填目标成交价 + 计划折扣 → 反推原价；填目标${mName} → 用 ② 的成本反推要卖多少钱。</div>`;
+  $('#resSens').innerHTML = sens(base) || '<div class="meta">② 填完整后这里出敏感度表。</div>';
+}
+
+// 产品信息大卡：品名、身份、关键结果（方便截图）
+function renderProd(p) {
+  const r = S.rec, $s = sym();
+  const id = r ? `<div class="pn">${esc(r['品名'] || '（无品名）')}</div>
+      <div class="pids"><span class="big">${esc(r._sku)}</span><span class="tag ${r._c.toLowerCase()}">${r._c === 'CA' ? '🇨🇦 加拿大' : '🇺🇸 美国'}</span>
+        <span class="tag or mono">${esc(r['ASIN'] || '无 ASIN')}</span><span class="tag">${esc(first(r['店铺']) || '无店铺')}</span>
+        <span class="tag">SPU：${esc(clean(r['SPU']) || '未填')}</span>
+        ${(r['带电情况'] || []).length ? `<span class="tag warn">🔋 ${esc((r['带电情况'] || []).join(' / '))}</span>` : ''}
+        ${r._pl ? '' : '<span class="tag bad">利润表无此行：原价/折扣/广告占比需手填</span>'}</div>`
+    : `<div class="pn">手动测算</div><div class="pids"><span class="tag ${S.ctry.toLowerCase()}">${S.ctry === 'CA' ? '🇨🇦 加拿大' : '🇺🇸 美国'}</span><span class="meta">未选 SKU，所有数字为手填</span></div>`;
+  const pk = (k, v, hi) => `<div class="pk ${hi ? 'hi' : ''}"><div class="k">${k}</div><div class="v">${v}</div></div>`;
+  const cls = (m) => m == null ? '' : m < 0 ? 'neg' : m < 0.15 ? 'mid' : 'pos';
+  const fba = curInputs(S.season).fba;
+  const kp = `<div class="pkpi">
+      ${pk('成交价', p ? $s + f2(p.sale) : '—')}
+      ${pk(`FBA·${S.season === 'pk' ? '旺季' : '淡季'}`, fba == null ? '—' : $s + f2(fba))}
+      ${pk('毛利 / 件', p ? `<span class="${cls(p.margin)}">¥${f2(p.gp)}</span>` : '—', 1)}
+      ${pk('毛利率', p ? `<span class="${cls(p.margin)}">${pct(p.margin)}</span>` : '—', 1)}
+      ${pk('投产比', p ? `<span class="${cls(p.roi)}">${pct(p.roi)}</span>` : '—', 1)}
+    </div>`;
+  const img = r && r._img ? `<img src="${esc(r._img)}" alt="">` : '🕯️';
+  if (r && !r._img && !r._imgTried && API.img) { r._imgTried = true; API.img(r).then((u) => { if (u) { r._img = u; if (S.rec === r) renderProd(profit(curInputs(S.season))); } }); }
+  $('#prod').innerHTML = `<div class="pimg">${img}</div><div style="min-width:0">${id}</div>${kp}`;
+}
+
+function waterfall(p, rate) {
+  const parts = [
+    ['佣金', p.commAmt, '#9a9089'], ['FBA 配送费', p.sale * (1 - (V('comm') / 100)) - p.back, '#2f6fd0'], ['广告', p.adAmt, '#b7791f'],
+    ['采购', V('buy') / rate, '#c95f05'], ['头程', V('head') / rate, '#f59a3c'],
+  ];
+  const gp = p.gp / rate;
+  const total = Math.max(p.sale, parts.reduce((s, x) => s + Math.max(0, x[1]), 0));
+  const seg = (n, v, c) => v <= 0 ? '' : `<span style="width:${(v / total * 100).toFixed(2)}%;background:${c}" title="${n} ${f2(v)}">${v / total > 0.08 ? n : ''}</span>`;
+  return `<div class="wf"><div class="bar">${parts.map(([n, v, c]) => seg(n, v, c)).join('')}${gp > 0 ? seg('毛利', gp, '#2a9d4b') : ''}</div>
+    <div class="lg">${parts.map(([n, v, c]) => `<span><i style="background:${c}"></i>${n} ${sym()}${f2(v)}（${pct(v / p.sale, 0)}）</span>`).join('')}
+    <span><i style="background:${gp > 0 ? '#2a9d4b' : '#d9363e'}"></i>毛利 ${sym()}${f2(gp)}（${pct(gp / p.sale, 0)}）</span></div></div>`;
+}
+
+// 敏感度：成交价 × 广告占比 → 毛利率 或 投产比（④ 右上角切换）
+function sens(base) {
+  if ([base.price, base.comm, base.rate, base.buy, base.head, base.fba].some((x) => x == null)) return '';
+  const isRoi = S.metric === 'roi';
+  const sale0 = base.price * (1 - base.disc);
+  const muls = [0.85, 0.9, 0.95, 1, 1.05, 1.1, 1.15], ads = [0, 0.05, 0.1, 0.15, 0.2, 0.3];
+  const color = (m) => isRoi
+    ? (m < 0 ? 'background:#fdeced;color:#d9363e' : m < 0.3 ? 'background:#fff7e0;color:#b7791f' : m < 0.8 ? 'background:#f3f9ec;color:#4d7c1f' : 'background:#e6f6eb;color:#2a9d4b')
+    : (m < 0 ? 'background:#fdeced;color:#d9363e' : m < 0.1 ? 'background:#fff7e0;color:#b7791f' : m < 0.2 ? 'background:#f3f9ec;color:#4d7c1f' : 'background:#e6f6eb;color:#2a9d4b');
+  const cell = (sale, ad) => { const q = profit({ ...base, price: sale, disc: 0, ad }); const m = isRoi ? q.roi : q.margin;
+    return `<td class="h" style="${color(m)}">${pct(m, 0)}</td>`; };
+  return `<div class="sub-h">${isRoi ? '投产比' : '毛利率'}敏感度：成交价 × 广告占比（${S.season === 'pk' ? '旺季' : '淡季'}配送费，配送费不随价格档变化）</div>
+    <div style="overflow-x:auto"><table class="tbl heat"><tr><th>成交价</th>${ads.map((a) => `<th class="c">广告 ${a * 100}%</th>`).join('')}</tr>
+    ${muls.map((m) => `<tr class="${m === 1 ? 'me' : ''}"><td>${sym()}${f2(sale0 * m)}${m === 1 ? ' ← 当前' : ''}</td>${ads.map((a) => cell(sale0 * m, a)).join('')}</tr>`).join('')}</table></div>`;
+}
+
+// ====================================================================
+// ⑤ 配送费对账：每行主表按 2026 规则重算（燃油附加费固定计入，带电按主表「带电情况」）
+// ====================================================================
+function auditRow(r) {
+  const cm = [r['长CM'], r['宽CM'], r['高CM']].map(num), kg = num(r['重量kg']);
+  const tabNp = num(r['FBA配送费']), tabPk = num(r['FBA配送费（旺季）']);
+  const bat = (r._c === 'US' && (r['带电情况'] || []).includes('带电')) ? BATTERY : 0;
+  const pl = r._pl, price = pl && num(pl['原价']) != null ? num(pl['原价']) * (1 - (num(pl['折扣']) || 0)) : null;
+  const o = { r, cm, kg, tabNp, tabPk, bat, price };
+  if (!(cm.every((x) => x > 0) && kg > 0)) { o.st = 'miss'; return o; }
+  const f = r._c === 'CA' ? calcCA({ cm, kg }) : calcUS({ cm, kg, cat: 'na', price });
+  o.tier = f.tierCN;
+  o.band = r._c === 'CA' ? '' : price == null ? '10~50（无售价）' : ['<10', '10~50', '>50'][priceIdx(price)];
+  o.np = r2(r2(f.np.base * (1 + FUEL)) + bat); o.pk = r2(r2(f.pk.base * (1 + FUEL)) + bat);
+  o.dNp = tabNp == null ? null : r2(tabNp - o.np); o.dPk = tabPk == null ? null : r2(tabPk - o.pk);
+  const bad = (d) => d != null && Math.abs(d) >= 0.015;
+  o.canPk = tabPk == null || bad(o.dPk);
+  o.st = (tabNp == null || bad(o.dNp)) ? 'np' : (tabPk == null || bad(o.dPk)) ? 'pk' : 'ok';   // np=淡季对不上；pk=淡季对、只旺季不对或为空
+  return o;
+}
+function renderAudit() {
+  if (!S.rows.length) { $('#resAudit').innerHTML = '<div class="meta">离线版没有主表数据，对账要在飞书里打开。</div>'; $('#sumAudit').textContent = ''; return; }
+  const all = S.rows.map(auditRow);
+  const cnt = (st) => all.filter((o) => (st === 'diff' ? (o.st === 'np' || o.st === 'pk') : o.st === st) && (!S.auditC || o.r._c === S.auditC)).length;
+  $('#sumAudit').innerHTML = `对不上 <b class="neg">${cnt('diff')}</b>（淡季 ${cnt('np')} · 只旺季 ${cnt('pk')}）· 缺尺寸/重量 <b>${cnt('miss')}</b> · 一致 <b class="pos">${cnt('ok')}</b>`;
+  for (const b of $$('#segAudit button')) { const n = b.dataset.v === 'all' ? '' : cnt(b.dataset.v); b.querySelector('i').textContent = n === '' ? '' : ` ${n}`; }
+  for (const b of $$('#segAudit button')) b.classList.toggle('on', b.dataset.v === S.auditF);
+  for (const b of $$('#segAuditC button')) b.classList.toggle('on', b.dataset.v === S.auditC);
+  let list = all.filter((o) => (S.auditF === 'all' || o.st === S.auditF || (S.auditF === 'diff' && (o.st === 'np' || o.st === 'pk'))) && (!S.auditC || o.r._c === S.auditC));
+  list.sort((a, b) => (Math.max(Math.abs(b.dNp ?? 99), Math.abs(b.dPk ?? 0)) - Math.max(Math.abs(a.dNp ?? 99), Math.abs(a.dPk ?? 0))) || a.r._sku.localeCompare(b.r._sku));
+  const cs = (c) => c === 'CA' ? 'C$' : '$';
+  const d = (x) => x == null ? '<span class="meta">—</span>' : Math.abs(x) < 0.015 ? '<span class="pos">0</span>' : `<span class="${x > 0 ? 'dpos' : 'dneg'}">${x > 0 ? '+' : ''}${x.toFixed(2)}</span>`;
+  const v = (x, c) => x == null ? '<span class="tag warn">空</span>' : cs(c) + x.toFixed(2);
+  const rows = list.map((o) => {
+    const r = o.r, c = r._c;
+    const dim = o.st === 'miss' ? `<span class="tag warn">${[['长', o.cm[0]], ['宽', o.cm[1]], ['高', o.cm[2]], ['重量', o.kg]].filter(([, x]) => !(x > 0)).map(([n]) => n).join('/')} 缺</span>`
+      : `${o.cm.join('×')} cm · ${o.kg} kg`;
+    const ck = o.canPk ? `<input type="checkbox" class="pkSel" data-id="${r._id}" ${S.sel.has(r._id) ? 'checked' : ''}>` : '';
+    return `<tr class="${S.sel.has(r._id) ? 'selrow' : ''}"><td class="c">${ck}</td><td class="l"><span class="lnk" data-sku="${esc(r._sku)}" data-c="${c}">${esc(r._sku)}</span></td><td class="c"><span class="tag ${c.toLowerCase()}">${c}</span></td>
+      <td class="nm" title="${esc(r['品名'] || '')}">${esc(r['品名'] || '')}</td><td class="l">${dim}</td>
+      <td class="l">${o.tier || '—'}${o.band ? `<br><span class="meta">${o.band}</span>` : ''}</td><td class="c">${o.bat ? '🔋' : ''}</td>
+      <td>${v(o.tabNp, c)}</td><td>${o.np == null ? '—' : cs(c) + o.np.toFixed(2)}</td><td>${o.st === 'miss' ? '—' : d(o.dNp)}</td>
+      <td>${v(o.tabPk, c)}</td><td>${o.pk == null ? '—' : cs(c) + o.pk.toFixed(2)}</td><td>${o.st === 'miss' ? '—' : d(o.dPk)}</td>
+      <td class="c"><button class="btn" style="height:24px;padding:0 8px" data-sku="${esc(r._sku)}" data-c="${c}">核对 →</button></td></tr>`;
+  }).join('');
+  queueMicrotask(() => { const a = $('#pkAll'); if (!a) return; const can = list.filter((o) => o.canPk); const k = can.filter((o) => S.sel.has(o.r._id)).length;
+    a.checked = can.length > 0 && k === can.length; a.indeterminate = k > 0 && k < can.length; });
+  $('#resAudit').innerHTML = `<div class="audit-s"><span class="meta">差 = 主表 − 计算值，<span class="dpos">红</span>=主表多收，<span class="dneg">蓝</span>=主表少算；差 1 分以内算一致。
+      点 SKU 或「核对 →」会带入上面 ①，可在那里看计算过程、按需单行回填。<br>「只差旺季」大多是主表旺季仍按 <b>2025 旺季表</b>算的（差 −0.05 左右）或旺季为空；「淡季」对不上、且同尺寸的颜色款价格不同的，多半是亚马逊实测尺寸和主表不一致，回填前先看后台实收。</span></div>
+    ${bulkBar(list)}
+    <div class="audit-w"><table class="tbl"><tr><th class="c"><input type="checkbox" id="pkAll" title="全选当前列表里可更新旺季的行"></th><th>SKU</th><th class="c">国家</th><th>品名</th><th>主表尺寸 / 重量</th><th>分段 / 价格档</th><th class="c">带电</th>
+      <th>主表淡季</th><th>算·淡季</th><th>差</th><th>主表旺季</th><th>算·旺季</th><th>差</th><th class="c"></th></tr>${rows || '<tr><td colspan="14" class="meta" style="text-align:center;padding:20px">没有</td></tr>'}</table></div>`;
+}
+// 批量更新旺季配送费：只写「FBA配送费（旺季）」一列，勾哪行写哪行
+function bulkBar(list) {
+  const can = list.filter((o) => o.canPk);
+  const n = [...S.sel].length;
+  S._auditList = list;
+  return `<div class="bulk"><b>批量更新旺季配送费</b>
+    <span class="meta">当前列表 ${can.length} 行可更新（算出的 2026 旺季值与主表不同或主表为空）</span>
+    <button class="btn" id="bSelPk">勾选全部「只差旺季」</button>
+    <button class="btn" id="bSelNone" ${n ? '' : 'disabled'}>清空勾选</button>
+    <button class="btn pri" id="bBulkPk" ${n ? '' : 'disabled'}>更新已勾选 ${n} 行 →</button></div>`;
+}
+function bulkPk() {
+  const all = S.rows.map(auditRow).filter((o) => S.sel.has(o.r._id) && o.canPk && o.pk != null);
+  if (!all.length) return;
+  const cs = (c) => c === 'CA' ? 'C$' : '$';
+  $('#dlg').innerHTML = `<h3>批量更新旺季配送费（${all.length} 行）</h3>
+    <div class="meta">只改产品主表「FBA配送费（旺季）」这一列，按 2026 旺季表（10.15–次年 1.14）+ 3.5% 附加费 + 带电（仅美国）计算。</div>
+    <div style="max-height:360px;overflow:auto;margin-top:8px"><table class="tbl"><tr><th>SKU</th><th class="c">国家</th><th>主表现值</th><th>改成</th></tr>
+    ${all.map((o) => `<tr><td>${esc(o.r._sku)}</td><td class="c"><span class="tag ${o.r._c.toLowerCase()}">${o.r._c}</span></td><td>${o.tabPk == null ? '空' : cs(o.r._c) + o.tabPk.toFixed(2)}</td><td class="new">${cs(o.r._c)}${o.pk.toFixed(2)}</td></tr>`).join('')}</table></div>
+    <div class="foot"><button class="btn" id="dNo">取消</button><button class="btn pri" id="dYes">确认写入 ${all.length} 行</button></div>`;
+  $('#mask').classList.add('open');
+  $('#dNo').onclick = () => $('#mask').classList.remove('open');
+  $('#dYes').onclick = async () => {
+    $('#mask').classList.remove('open');
+    if (S.mode !== 'plugin') { toast(`预览版不写表：插件版会把这 ${all.length} 行的「FBA配送费（旺季）」写进主表`); return; }
+    let ok = 0; const fail = [];
+    for (const o of all) {
+      try { await API.write(o.r._id, { 'FBA配送费（旺季）': o.pk }); o.r['FBA配送费（旺季）'] = o.pk; ok++; S.sel.delete(o.r._id); }
+      catch (e) { fail.push(o.r._sku + ' ' + o.r._c); }
+    }
+    if (S.rec) loadRow(S.rec);
+    renderAudit();
+    toast(`已更新 ${ok} 行${fail.length ? `，失败 ${fail.length} 行：${fail.slice(0, 5).join('、')}` : ''}`);
+  };
+}
+
+function pickRow(sku, c) {
+  S.sku = sku; S.ctry = c; loadRow(rowFor(sku, c));
+  const fee = $('[data-card="fee"]'); fee.classList.remove('closed');
+  $('#main').scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function renderCarton() {
+  const L = V('cL'), W = V('cW'), H = V('cH'), kg = V('cKg'), q = V('cQty');
+  if (![L, W, H, kg].some((x) => x != null)) { $('#resCtn').innerHTML = '<div class="meta">填外箱尺寸和整箱毛重即可检测（美国入库标准箱：单边 ≤ 25"、≤ 50 lb）。</div>'; return; }
+  const d = [L || 0, W || 0, H || 0].sort((a, b) => b - a), lb = (kg || 0) * 1000 / G_LB;
+  const it = (ok, t) => `<div>${ok ? '✅' : '❌'} ${t}</div>`;
+  let h = it(d[0] / IN <= 25, `最长边 ${d[0].toFixed(1)} cm（${(d[0] / IN).toFixed(1)}"）${d[0] / IN <= 25 ? '≤' : '>'} 25"`) +
+          it(lb <= 50, `整箱 ${f2(kg)} kg（${lb.toFixed(1)} lb）${lb <= 50 ? '≤' : '>'} 50 lb`);
+  if (S.ctry === 'CA') h += it((kg || 0) <= 23, `加拿大：单箱 ${f2(kg)} kg ${(kg || 0) <= 23 ? '≤' : '>'} 23 kg`);
+  if (q) h += `<div class="meta">单件分摊毛重 ${f2(kg / q, 3)} kg${V('kg') ? `（单件商品重 ${V('kg')} kg）` : ''}；箱体积 ${(d[0] * d[1] * d[2] / 1e6).toFixed(3)} m³</div>`;
+  $('#resCtn').innerHTML = h;
+}
+
+function setVal(k, v) {
+  S.val[k] = v == null ? '' : String(v);
+  const inp = $(`input[data-k="${k}"]`); if (inp) inp.value = S.val[k];
+  markChanged(k);
+}
+
+// ====================================================================
+// 回填主表（插件版走 SDK；预览版只演示改前改后）
+// ====================================================================
+function backfill(kind, fee) {
+  const r = S.rec; if (!r) return;
+  let ch = [];
+  if (kind === 'fee') ch = [['FBA配送费', r['FBA配送费'], fee.npT], ['FBA配送费（旺季）', r['FBA配送费（旺季）'], fee.pkT]];
+  else ch = [['长CM', r['长CM'], V('L')], ['宽CM', r['宽CM'], V('W')], ['高CM', r['高CM'], V('H')], ['重量kg', r['重量kg'], V('kg')]];
+  ch = ch.filter(([, o, n]) => n != null && num(o) !== n);
+  const who = `${esc(r._sku)} · ${r._c === 'CA' ? '加拿大' : '美国'} · ${esc(first(r['店铺']) || '')}`;
+  if (!ch.length) { toast('和主表一致，不用回填'); return; }
+  $('#dlg').innerHTML = `<h3>${kind === 'fee' ? '回填配送费' : '回填尺寸重量'}到产品主表</h3>
+    <div class="meta">只改这一行：${who}</div>
+    <table class="tbl"><tr><th>字段</th><th>主表现值</th><th>改成</th></tr>
+    ${ch.map(([f, o, n]) => `<tr><td>${f}</td><td>${o ?? '空'}</td><td class="new">${n}</td></tr>`).join('')}</table>
+    ${kind === 'fee' ? `<div class="meta">配送费${$('#optFuel').checked ? '含' : '<b>不含</b>'} 3.5% 燃油附加费，${S.ctry === 'CA' ? '加拿大不收带电费。' : (bat() ? '含带电 $0.11。' : '<b>不含</b>带电 $0.11。')}产品定价利润表按日期自动取淡季/旺季这两列。</div>` : '<div class="meta">同 SKU 其他国家行不会跟着改。</div>'}
+    <div class="foot"><button class="btn" id="dNo">取消</button><button class="btn pri" id="dYes">确认写入</button></div>`;
+  $('#mask').classList.add('open');
+  $('#dNo').onclick = () => $('#mask').classList.remove('open');
+  $('#dYes').onclick = async () => {
+    $('#mask').classList.remove('open');
+    const fields = Object.fromEntries(ch.map(([f, , n]) => [f, n]));
+    if (S.mode !== 'plugin') { toast('预览版不写表：插件版会把这 ' + ch.length + ' 个字段写进主表这一行'); return; }
+    try { await API.write(r._id, fields); Object.assign(r, fields); loadRow(r); renderAudit(); toast('已写入主表'); }
+    catch (e) { toast('写入失败：' + (e.message || e)); }
+  };
+}
+const API = { write: async () => { throw new Error('插件 SDK 未接入'); }, img: null };   // 插件模式启动时替换
+
+// ====================================================================
+// SKU 选择器
+// ====================================================================
+function skuList(q) {
+  q = q.trim().toLowerCase();
+  const m = new Map();
+  for (const r of S.rows) {
+    if (q && ![r._sku, r['ASIN'], r['品名'], r['SPU'], r['MSKU']].some((x) => String(x || '').toLowerCase().includes(q))) continue;
+    const e = m.get(r._sku) || { sku: r._sku, name: r['品名'] || '', spu: clean(r['SPU']) || '（未填 SPU）', cs: new Set() };
+    e.cs.add(r._c); m.set(r._sku, e);
+  }
+  const g = new Map();
+  for (const e of m.values()) { if (!g.has(e.spu)) g.set(e.spu, []); g.get(e.spu).push(e); }
+  return [...g.entries()].sort((a, b) => a[0].localeCompare(b[0], 'zh'));
+}
+function openDD() {
+  const groups = skuList($('#pickIn').value);
+  const dd = $('#dd');
+  dd.innerHTML = groups.length ? groups.map(([spu, list]) => `<div class="g">${esc(spu)}</div>` + list.map((e) =>
+    `<div class="it" data-sku="${esc(e.sku)}"><span class="s">${esc(e.sku)}</span><span class="n">${esc(e.name)}</span>${[...e.cs].sort().reverse().map((c) => `<span class="tag ${c.toLowerCase()}">${c}</span>`).join('')}</div>`).join('')).join('')
+    : '<div class="none">没有匹配的 SKU</div>';
+  dd.classList.add('open');
+}
+function pick(sku) {
+  S.sku = sku;
+  $('#dd').classList.remove('open');
+  $('#pickIn').value = '';
+  if (!rowFor(sku, S.ctry)) S.ctry = rowFor(sku, 'US') ? 'US' : 'CA';
+  loadRow(rowFor(sku, S.ctry));
+}
+function loadRow(r) {
+  S.rec = r;
+  const keep = {};   // 广告推演 / 定价反推 / 外箱 以外的字段跟着行换；推演参数保留
+  for (const k of ['budget', 'cpc', 'cvrAd', 'nat', 'cvrNat', 'tgtPrice', 'tgtDisc', 'tgtM']) keep[k] = S.val[k];
+  if (r) { S.orig = valsFromRow(r); S.val = { ...S.orig, ...keep }; $('#optBat').checked = (r['带电情况'] || []).includes('带电'); }
+  else { S.orig = {}; S.val = { ...keep }; }
+  renderTop(); fillInputs(); recalc();
+}
+function renderTop() {
+  for (const b of $$('#segCtry button')) {
+    b.classList.toggle('on', b.dataset.c === S.ctry);
+    b.disabled = !!S.sku && !rowFor(S.sku, b.dataset.c);
+    b.title = b.disabled ? '这个 SKU 在主表里没有该国家的行' : '';
+  }
+  for (const b of $$('#segSeason button')) b.classList.toggle('on', b.dataset.s === S.season);
+  for (const b of $$('#segCat button')) b.classList.toggle('on', b.dataset.v === S.cat);
+  $('#optBat').disabled = S.ctry === 'CA';
+  $('#lblBat span').textContent = S.ctry === 'CA' ? '带电：加拿大不收附加费' : '带电 +$0.11（仅美国）';
+  $('#lblBat').style.opacity = S.ctry === 'CA' ? .55 : 1;
+  for (const b of $$('#segMetric button')) b.classList.toggle('on', b.dataset.v === S.metric);
+  const tu = $('[data-u="tgtM"]'), tl = $('.f[data-k="tgtM"] label span');
+  if (tu) { tu.textContent = '%'; tl.textContent = S.metric === 'roi' ? '目标投产比' : '目标毛利率'; }
+  const r = S.rec;
+  $('#curInfo').innerHTML = r ? `当前：<b class="mono">${esc(r._sku)}</b>（产品信息见下方大卡）`   // 详细信息在 #prod 大卡里，这里只留一行
+    : `<span>${S.rows.length ? '未选 SKU：所有格子空白，可以随便填来算' : ''}</span>`;
+  $('#pickIn').disabled = !S.rows.length;
+  $('#pickIn').placeholder = S.rows.length ? `选 SKU（${new Set(S.rows.map((x) => x._sku)).size} 个）：搜 领星SKU / ASIN / 品名 / SPU` : '离线版：没有连飞书，直接在下面手填';
+  const auto = autoSeason();
+  $('#heroMeta').textContent = `北京时间 ${new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10)} · 自动判断为${auto === 'pk' ? '旺季' : '淡季'}${S.season !== auto ? '（已手动切换）' : ''}${S.loadInfo ? ` · 主表 ${S.loadInfo.pm} 行 / 利润表 ${S.loadInfo.pl} 行` : ''}`;
+}
+
+function toast(t) { const el = $('#toast'); el.textContent = t; el.classList.add('open'); clearTimeout(toast.h); toast.h = setTimeout(() => el.classList.remove('open'), 3200); }
+
+// ====================================================================
+// 事件 + 启动
+// ====================================================================
+function bind() {
+  $('#segCtry').onclick = (e) => {
+    const c = e.target.closest('button')?.dataset.c; if (!c || e.target.disabled) return;
+    S.ctry = c;
+    if (S.sku) loadRow(rowFor(S.sku, c)); else { renderTop(); fillInputs(); recalc(); }
+  };
+  $('#segSeason').onclick = (e) => { const s = e.target.closest('button')?.dataset.s; if (!s) return; S.season = s; renderTop(); recalc(); };
+  $('#segCat').onclick = (e) => { const v = e.target.closest('button')?.dataset.v; if (!v) return; S.cat = v; renderTop(); recalc(); };
+  $('#optBat').onchange = recalc; $('#optFuel').onchange = recalc;
+  $('#segMetric').onclick = (e) => { const v = e.target.closest('button')?.dataset.v; if (!v || v === S.metric) return; S.metric = v; S.manual.tgtM = false; renderTop(); recalc(); };   // 两个目标含义不同，切换时回到该指标默认值
+  for (const card of $$('.card[data-card]')) {   // 折叠：点卡头（右侧按钮区除外）或 ▾；记在本浏览器
+    const key = 'pc-fold-' + card.dataset.card;
+    try { if (localStorage.getItem(key) === '1') card.classList.add('closed'); } catch (_) {}
+    card.querySelector('.card-h').addEventListener('click', (e) => {
+      if (!e.target.closest('.fold') && e.target.closest('.r')) return;
+      card.classList.toggle('closed');
+      try { localStorage.setItem(key, card.classList.contains('closed') ? '1' : '0'); } catch (_) {}
+    });
+  }
+  $('#btnClear').onclick = () => { S.sku = null; S.val = {}; S.manual = {}; loadRow(null); };
+  const pin = $('#pickIn');
+  pin.onfocus = openDD; pin.oninput = openDD;
+  pin.onkeydown = (e) => {
+    const its = $$('#dd .it'); if (!its.length) return;
+    let i = its.findIndex((x) => x.classList.contains('hl'));
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault(); its[i]?.classList.remove('hl');
+      i = e.key === 'ArrowDown' ? Math.min(its.length - 1, i + 1) : Math.max(0, i - 1);
+      its[i].classList.add('hl'); its[i].scrollIntoView({ block: 'nearest' });
+    } else if (e.key === 'Enter') pick((its[i] || its[0]).dataset.sku);
+    else if (e.key === 'Escape') { $('#dd').classList.remove('open'); pin.blur(); }
+  };
+  $('#dd').onmousedown = (e) => { const it = e.target.closest('.it'); if (it) { e.preventDefault(); pick(it.dataset.sku); } };
+  document.addEventListener('mousedown', (e) => { if (!e.target.closest('.pick')) $('#dd').classList.remove('open'); });
+  $('#segAudit').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; S.auditF = b.dataset.v; renderAudit(); };
+  $('#segAuditC').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; S.auditC = b.dataset.v; renderAudit(); };
+  $('#resAudit').onclick = (e) => {
+    if (e.target.classList.contains('pkSel')) { const id = e.target.dataset.id; e.target.checked ? S.sel.add(id) : S.sel.delete(id); renderAudit(); return; }
+    if (e.target.id === 'pkAll') { const can = (S._auditList || []).filter((o) => o.canPk); const on = e.target.checked; for (const o of can) on ? S.sel.add(o.r._id) : S.sel.delete(o.r._id); renderAudit(); return; }
+    if (e.target.id === 'bSelPk') { for (const o of S.rows.map(auditRow)) if (o.st === 'pk' && o.canPk && (!S.auditC || o.r._c === S.auditC)) S.sel.add(o.r._id); renderAudit(); return; }
+    if (e.target.id === 'bSelNone') { S.sel.clear(); renderAudit(); return; }
+    if (e.target.id === 'bBulkPk') { bulkPk(); return; }
+    const t = e.target.closest('[data-sku]'); if (t) pickRow(t.dataset.sku, t.dataset.c);
+  };
+  $('#mask').onclick = (e) => { if (e.target.id === 'mask') $('#mask').classList.remove('open'); };
+}
+
+// ====================================================================
+// 飞书插件：SDK 加载 / 读表 / 写回 / 保存到页面 / 诊断
+// ====================================================================
+const BASE_TOKEN = 'JGvebyaAYapWtOslxc9cuKYXnwd';   // 灯具组-全流程
+// 第一条 = 应用实际授权的那张（只认第一条）；产品主表另由「数据授权（勿删）」页授权，产品定价利润表另由「数据授权2（勿删）」页授权
+const TABLES = {
+  pl: { id: 'tblliOUMJk5nnJXv', name: '产品定价利润表' },
+  pm: { id: 'tblqksywqgYvywOT', name: '产品主表-灯类+精铺' },
+};
+const PM_FIELDS = ['领星SKU', 'ASIN', 'MSKU', '品名', 'SPU', '店铺', '国家', '国家文本', '带电情况', '图片',
+  '长CM', '宽CM', '高CM', '重量kg', '外箱长CM', '外箱宽CM', '外箱高CM', '单箱毛重kg', '单箱数量',
+  '采购成本不含税', '头程费用', 'FBA配送费', 'FBA配送费（旺季）', '佣金比例', '汇率'];
+const PL_FIELDS = ['ASIN', '产品SKU', '匹配SKU', '国家', '原价', '折扣', '广告占比-手填', '退货率预估'];
+const WRITABLE = ['FBA配送费', 'FBA配送费（旺季）', '长CM', '宽CM', '高CM', '重量kg'];
+// SDK 依次尝试：同目录自带副本 → jsdelivr → unpkg（jsdelivr 在国内会断大 chunk）
+const SDK_URLS = [(() => { try { return new URL('./sdk/index.mjs', location.href).href; } catch (e) { return './sdk/index.mjs'; } })(),   // data:/file: 打开时 new URL 会抛错
+  'https://cdn.jsdelivr.net/npm/@lark-base-open/js-sdk@1.0.2/dist/index.mjs',
+  'https://unpkg.com/@lark-base-open/js-sdk@1.0.2/dist/index.mjs'];
+let SDK = null;
+const TB = {}, META = {};
+async function loadSdk() {
+  const errs = [];
+  for (const u of SDK_URLS) {
+    try {
+      $('#heroMeta').textContent = '正在加载飞书 SDK… ' + (u.startsWith('http') ? new URL(u).host : '自带副本');
+      return await Promise.race([import(u), new Promise((_, rej) => setTimeout(() => rej(new Error('超时 12s')), 12000))]);
+    } catch (e) { errs.push(`${u}\n   → ${e && e.message ? e.message : e}`); }
+  }
+  throw Object.assign(new Error('飞书 SDK 三个来源都没加载上：\n' + errs.join('\n')), { sdk: true });
+}
+const FT = { 1: 'text', 2: 'number', 3: 'select', 4: 'multi', 7: 'checkbox', 17: 'attachment', 19: 'formula', 20: 'formula', 13: 'text', 15: 'text' };
+function cell(v) {
+  if (v == null) return null;
+  if (typeof v === 'number' || typeof v === 'string' || typeof v === 'boolean') return v;
+  if (Array.isArray(v)) {
+    if (!v.length) return null;
+    if (v.every((x) => x && typeof x === 'object' && 'text' in x && !('id' in x))) return v.map((x) => x.text ?? '').join('');
+    if (v.length === 1) return cell(v[0]);
+    return v.map(cell).join('、');
+  }
+  if (typeof v === 'object') { if ('text' in v) return v.text; if ('name' in v) return v.name; if ('value' in v) return cell(v.value); }
+  return String(v);
+}
+// SDK 单元格 → 与导出 ndjson 同形（单选/多选一律数组，页面里用 first() / join / includes）
+function fromSdk(tk, name, v) {
+  const t = (META[tk][name] || {}).type;
+  if (t === 'multi') return (v || []).map((x) => x.text ?? x.name ?? String(x));
+  if (t === 'select') return v ? [v.text ?? v.name ?? cell(v)] : [];
+  if (t === 'attachment') return Array.isArray(v) ? v.filter((x) => x && x.token) : [];
+  if (t === 'number') return num(cell(v));
+  if (t === 'formula') { const c = cell(v); return c != null && c !== '' && Number.isFinite(+c) && /^-?[\d.]+(e-?\d+)?$/i.test(String(c)) ? +c : c; }
+  return cell(v);
+}
+async function readTable(tk, fields) {
+  const t = await SDK.bitable.base.getTableById(TABLES[tk].id);
+  TB[tk] = t;
+  META[tk] = {};
+  for (const f of await t.getFieldMetaList()) META[tk][f.name] = { id: f.id, type: FT[f.type] || 'text' };
+  const missing = fields.filter((w) => !META[tk][w]);
+  const rows = [];
+  let pageToken;
+  for (let guard = 0; guard < 100; guard++) {
+    const res = await t.getRecordsByPage({ pageSize: 200, pageToken });
+    for (const r of res.records) {
+      const o = { _id: r.recordId };
+      for (const w of fields) if (META[tk][w]) o[w] = fromSdk(tk, w, r.fields[META[tk][w].id]);
+      rows.push(o);
+    }
+    $('#heroMeta').textContent = `正在读取${TABLES[tk].name}… 已读 ${rows.length} 行`;
+    if (!res.hasMore) break;
+    pageToken = res.pageToken;
+  }
+  return { rows, missing };
+}
+// 写主表一行：先读最新值，别人刚改过同一格就停下（不覆盖）
+async function writePm(rid, fields) {
+  const t = TB.pm, m = META.pm, r = S.rows.find((x) => x._id === rid);
+  const rec = await t.getRecordById(rid);
+  const conflicts = [];
+  for (const f of Object.keys(fields)) {
+    if (!WRITABLE.includes(f) || !m[f]) throw new Error(`不允许写或主表缺字段「${f}」`);
+    const fresh = fromSdk('pm', f, rec.fields[m[f].id]);
+    if (r && num(fresh) !== num(r[f])) conflicts.push(`「${f}」已被别人改成 ${fresh ?? '空'}（页面读到的是 ${r[f] ?? '空'}）`);
+  }
+  if (conflicts.length) { if (r) for (const f of Object.keys(fields)) r[f] = fromSdk('pm', f, rec.fields[m[f].id]); throw new Error(conflicts.join('；') + '。已停下没写，页面已换成最新值。'); }
+  const out = {};
+  for (const [f, v] of Object.entries(fields)) out[m[f].id] = v == null ? null : Number(v);
+  await t.setRecord(rid, { fields: out });
+}
+async function fetchImg(r) {
+  const att = r['图片'] || [];
+  if (!att.length || !TB.pm || !META.pm['图片']) return null;
+  try { const u = await TB.pm.getCellAttachmentUrls([att[0].token], META.pm['图片'].id, r._id); return u && u[0]; } catch (e) { return null; }
+}
+function setupSave() {
+  const dash = SDK && SDK.dashboard;
+  let st = '';
+  try { st = dash && dash.state; } catch (e) { st = '读取失败'; }
+  if (dash && typeof dash.saveConfig === 'function' && st !== 'View' && st !== 'FullScreen') {
+    $('#savebar').classList.add('show');
+    $('#saveMsg').textContent = `（插件状态：${st || '未知'}）`;
+    $('#saveBtn').onclick = async () => {
+      $('#saveBtn').disabled = true; $('#saveMsg').textContent = '保存中…';
+      try {
+        const ok = await dash.saveConfig({
+          dataConditions: Object.values(TABLES).map((t) => ({ tableId: t.id, baseToken: BASE_TOKEN, dataRange: { type: 'ALL' }, series: 'COUNTA' })),
+          customConfig: { page: 'profit-calc', version: 1 },
+        });
+        $('#saveMsg').textContent = ok === false ? '保存失败，请重试' : '已保存 ✔';
+      } catch (e) { $('#saveMsg').textContent = '保存失败：' + (e && e.message ? e.message : e); }
+      finally { $('#saveBtn').disabled = false; }
+    };
+  } else if (dash && dash.setRendered) dash.setRendered().catch(() => {});
+}
+async function diagnose() {
+  const res = [];
+  const t = async (name, fn) => {
+    try {
+      const v = await Promise.race([fn(), new Promise((_, rej) => setTimeout(() => rej(new Error('超时 8s')), 8000))]);
+      let shown; try { shown = typeof v === 'string' ? v : JSON.stringify(v); } catch (x) { shown = String(v); }
+      res.push(['✔', name, String(shown).slice(0, 300)]); return v;
+    } catch (e) { res.push(['✘', name, e && e.message ? e.message : String(e)]); return undefined; }
+  };
+  const { bitable, dashboard } = SDK;
+  await t('dashboard.state', async () => dashboard.state);
+  await t('dashboard.getConfig', () => dashboard.getConfig());
+  for (const tk of Object.keys(TABLES)) {
+    const tb = await t(`getTableById ${TABLES[tk].name}`, () => bitable.base.getTableById(TABLES[tk].id));
+    if (tb) await t(`getRecordsByPage ${TABLES[tk].name}`, () => tb.getRecordsByPage({ pageSize: 2 }));
+  }
+  return `<div class="card"><div class="card-b"><b>接口诊断</b> <span class="meta">请把这块整体截图发回</span><table class="tbl" style="margin-top:6px">${res.map((r) =>
+    `<tr><td style="width:24px">${r[0]}</td><td class="l">${esc(r[1])}</td><td class="l meta" style="white-space:normal">${esc(r[2])}</td></tr>`).join('')}</table></div></div>`;
+}
+function layoutCheck() {
+  const tall = innerHeight > (screen.availHeight || screen.height || 1080) + 40;
+  $('#tallTip').style.display = tall && S.mode === 'plugin' ? '' : 'none';
+}
+window.addEventListener('resize', layoutCheck);
+
+async function boot() {
+  buildInputs(); bind();
+  const P = window.PRELOAD;
+  const inFeishu = window.parent !== window;   // 飞书插件运行在 iframe 里；直接打开文件 = 离线版
+  try {
+    if (P && P.pm) { ingest(P.pm, P.pl); S.mode = 'preview'; }
+    else if (inFeishu) {
+      SDK = await loadSdk();
+      setupSave();
+      const pm = await readTable('pm', PM_FIELDS);
+      let pl = { rows: [], missing: [] };
+      try { pl = await readTable('pl', PL_FIELDS); }
+      catch (e) { pl.err = e && e.message ? e.message : String(e); }   // 利润表读不到不影响主表功能，降级提示
+      ingest(pm.rows, pl.rows);
+      S.mode = 'plugin';
+      API.write = writePm;
+      API.img = fetchImg;
+      const warn = [];
+      if (pm.missing.length) warn.push(`产品主表缺字段：${pm.missing.join('、')}`);
+      if (pl.missing.length) warn.push(`产品定价利润表缺字段：${pl.missing.join('、')}`);
+      if (pl.err) warn.push(`产品定价利润表读取失败（原价/折扣/广告占比需手填）：${pl.err}`);
+      S.loadInfo = { pm: pm.rows.length, pl: pl.rows.length, warn };
+    }
+  } catch (e) {
+    const msg = esc(e && e.message ? e.message : e);
+    $('#heroMeta').textContent = '';
+    $('#banners').innerHTML = `<div class="banner err">加载失败：${msg}</div>` + (SDK ? await diagnose().catch(() => '')
+      : '<div class="banner">没拿到飞书 SDK，所以也没有「保存到页面」按钮。请截图发回；可以先试：插件 ⋮ → 刷新，或把网址末尾的 ?v=数字 加 1 再保存。</div>');
+    loadRow(null); renderAudit(); return;
+  }
+  $('#banners').innerHTML = S.mode === 'preview'
+    ? `<div class="banner blue">本地预览版：数据是 ${esc(P.at || '')} 导出的产品主表 ${S.rows.length} 行 + 产品定价利润表快照；「回填主表」只演示改前改后，不会写表。</div>`
+    : S.mode === 'plugin' ? (S.loadInfo.warn.length ? `<div class="banner">${S.loadInfo.warn.map(esc).join('<br>')}</div>` : '')
+    : '<div class="banner">离线版：没有连飞书，所有格子空白，手填即算；回填按钮不可用。</div>';
+  loadRow(null);
+  renderAudit();
+  layoutCheck();
+}
+boot();
+</script>
+</body>
+</html>
