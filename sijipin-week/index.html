@@ -327,7 +327,7 @@ const GOAL_FIELDS = ['产品目标', '经营策略', '关键指标'];          /
 const REVIEW_FIELDS = ['竞品动态', '问题和归因', '计划操作'];       // 本周复盘（3 项都填 = 已填）
 const BOSS_FIELDS = ['建议操作'];                                   // 主管填
 const TEXT_FIELDS = [...GOAL_FIELDS, ...REVIEW_FIELDS, ...BOSS_FIELDS];
-const NUM_EDIT = ['周目标销量'];
+const NUM_EDIT = [];   // 周目标销量 2026-10-16 起是公式（产品目标总表 月目标 / ASIN 预估按天拆到周），页面只读
 // 只读数字（存储）字段；CVR/ACOS 等比率是经营表的公式字段，插件里读到的是带格式的值（如「8.8%」），改在页面按同一公式算（见 normRow）
 const WK_NUM = ['有效天数', '启用', '销量', '订单量', '销售额', '总点击数', '广告展示数', '广告点击', '广告花费', '广告销售额', '广告订单量', '直接广告订单',
   '毛利', '毛利率', '退货量', '周目标销量'];
@@ -339,7 +339,7 @@ const DAY_NUM = ['销量', '订单量', '销售额', 'Sessions', '广告曝光�
 const TABLES = {
   // view：「插件-近9周（经营表页面用，勿删）」= 启用=1 且 距今周数<=8（约 700 行）；视图被删时自动退回读全表
   wk: { id: 'tblbSnNiUOOLlZwu', name: '四季品经营表', view: 'vewL1VwST4', fields: [
-    '周报键', '层级', 'ASIN', '国家文本', '周起始日', '周状态', '_SPU键', '负责人', '主图ASIN', ...WK_NUM.filter((f) => f !== '周目标销量'),
+    '周报键', '层级', 'ASIN', '国家文本', '周起始日', '周状态', '_SPU键', '负责人', '主图ASIN', ...WK_NUM,
     '红绿灯', '亮灯原因', ...NUM_EDIT, ...TEXT_FIELDS] },
   // view：「插件-近66天（经营表页面用，勿删）」= 公式字段 _经营表页面=1（近66天 且 产品主表勾了「进四季品经营表」，约 5000 行；全表 1.8 万行太慢）
   day: { id: 'tblKAoK9pN3cWI9t', name: '每日数据表-灯', view: 'vew7B6MlLH', fields: ['日期', 'ASIN', '国家', '店铺', '维度', ...DAY_NUM] },
@@ -348,10 +348,11 @@ const TABLES = {
   ov: { id: 'tbl23j9fj1autV9a', name: 'ASIN库存概况-灯', fields: ['记录键', 'ASIN', '国家', 'FBA可售', 'FBA预留', '近30天日均', '数据更新日'] },
   ship: { id: 'tblDvoc2YSab7TMr', name: 'FBA在途货件明细-灯', fields: ['ASIN', '国家', '货件号', '发货量', '已收量', '预计到仓日'] },
   bh: { id: 'tblBymnJvmClZQdy', name: '销量预估-备货表', fields: ['领星SKU', '国家', 'ASIN', '本地仓可用', '采购在途', '生产天数', '头程天数', '安全天数', '发货备货天数', '采购备货天数',
-    '单箱数量', '头程渠道', ...Array.from({ length: 12 }, (_, i) => `${i + 1}月日均`)] },
+    '单箱数量', '头程渠道'] },
   sv: { id: 'tblXt1ki1ZvR2o8U', name: '备货计划-页面存档', fields: ['记录键', '方案数据', '更新时间'] },
-  // 月销量目标：四季品-月度子行，目标键 = SPU|国家|YYYYMM，「当月销量」= 该月目标销量（运营手填）
-  tg: { id: 'tblE3XbKD8PUEX7Y', name: '产品目标总表-灯', fields: ['目标键', '当月销量'] },
+  // 月销量目标：四季品-月度行，目标键 = SPU|国家|YYYYMM，「当月销量」= 子 ASIN 预估月销量之和（公式）
+  // ASIN 预估：四季品-ASIN预估行，目标键 = ASIN|国家|YYYYMM，「预估日均」= 库存趋势的日销（2026-10-16 起取代备货表 X月日均）
+  tg: { id: 'tblE3XbKD8PUEX7Y', name: '产品目标总表-灯', fields: ['目标键', '目标类型', 'ASIN', '国家文本', '销售年月', '当月销量', '预估日均'] },
   ch: { id: 'tblxl08WV9pLwxdi', name: '头程渠道时效', fields: ['物流渠道', '国家', '运输方式', '标准时效天数', '历史样本数', '启用'] },
 };
 const CAL_DAYS = 120;   // 库存趋势看未来 120 天
@@ -660,8 +661,22 @@ let INV = { ov: {}, ships: {}, o: {} }, BH = null, MTG = {};
 const first = (v) => String(cell(v) ?? '').split('、')[0];
 const msDay = (v) => { if (v == null || v === '') return ''; const n = dn(typeof v === 'number' ? v : Date.parse(v)); const d = ud(n);
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`; };
-function buildInv(ov, ship, bh, sv, ch) {
+// 产品目标总表 ASIN 预估 → ASIN|国家 → 12 格月日均（下标 = 月份-1，只取本月起 7 个月窗口，与备货表滚动日均同口径）
+function fcMonths(tg) {
+  const now = new Date(Date.now() + 8 * 3600000), y = now.getUTCFullYear(), m = now.getUTCMonth(), win = {};
+  for (let k = 0; k < 7; k++) { const mm = (m + k) % 12, yy = y + Math.floor((m + k) / 12); win[`${yy}${String(mm + 1).padStart(2, '0')}`] = mm; }
+  const out = {};
+  for (const t of tg) {
+    if (first(t['目标类型']) !== '四季品-ASIN预估') continue;
+    const ym = String(cell(t['销售年月']) ?? ''); if (!(ym in win)) continue;
+    const k = `${first(t['ASIN'])}|${first(t['国家文本'])}`;
+    (out[k] = out[k] || Array(12).fill(0))[win[ym]] = Math.round(n0(t['预估日均']) * 100) / 100;
+  }
+  return out;
+}
+function buildInv(ov, ship, bh, sv, ch, tg = []) {
   INV = { ov: {}, ships: {}, o: {} };
+  const FC = fcMonths(tg);
   for (const o of ov) INV.ov[o['记录键'] || `${o['ASIN']}|${cell(o['国家'])}`] = o;
   for (const x of ship) { const k = `${first(x['ASIN'])}|${first(x['国家'])}`; (INV.ships[k] = INV.ships[k] || []).push(x); }
   // 备货表(SKU×国家) 按 ASIN×国家 汇总；第 1 行 = 主SKU（-8.5 副款排后）
@@ -672,7 +687,7 @@ function buildInv(ov, ship, bh, sv, ch) {
     const main = rows[0], o = INV.ov[k] || {}, [asin, country] = k.split('|');
     const sum = (f) => rows.reduce((t, r) => t + n0(r[f]), 0);
     INV.o[k] = { key: k, asin, country, fba: n0(o['FBA可售']), res: n0(o['FBA预留']), local: sum('本地仓可用'), po: sum('采购在途'),
-      months: Array.from({ length: 12 }, (_, i) => Math.round(sum(`${i + 1}月日均`) * 100) / 100),
+      months: FC[k] || Array(12).fill(0),
       prod: n0(main['生产天数']), freight: n0(main['头程天数']), safety: n0(main['安全天数']), shipCover: n0(main['发货备货天数']), poCover: n0(main['采购备货天数']),
       box: n0(main['单箱数量']) || 1, channel: first(main['头程渠道']) || null,
       ships: (INV.ships[k] || []).filter((x) => n0(x['发货量']) - n0(x['已收量']) > 0)
@@ -694,7 +709,7 @@ function buildInv(ov, ship, bh, sv, ch) {
   BH = makeBH(chans, EDIT);
 }
 const KIND = { ship: '货件', overdue: '逾期未收', plan: '预发货', sug: '建议货件' };
-// 一个 ASIN×国家 未来 120 天：直接用备货计划页的 model()（在途 + 勾选的预发货 + 勾选的建议货件；日销 = 方案里的月日均/自定义时段，没存方案用备货表）
+// 一个 ASIN×国家 未来 120 天：直接用备货计划页的 model()（在途 + 勾选的预发货 + 勾选的建议货件；日销 = 方案里的月日均/自定义时段，没存方案用产品目标总表的 ASIN 预估）
 function invCalendar(k) {
   const o = INV.o[k], ov = INV.ov[k] || {};
   const transit = (INV.ships[k] || []).reduce((s2, x) => s2 + Math.max(0, n0(x['发货量']) - n0(x['已收量'])), 0);
@@ -932,7 +947,7 @@ function basisOf(e, r) {
   const lv = (x) => ['green', 'yellow', 'red'][x];
   const items = [];
   if (tgt > 0) { const q = sales / tgt; items.push({ k: '销量', c: lv(q >= 1 ? 0 : q >= 0.8 ? 1 : 2), v: `达成 ${pct(q, 0)}`, rule: '周目标达成 ≥100% 绿 · ≥80% 黄 · 否则红' }); }
-  else if (last > 0) { const q = sales / last; items.push({ k: '销量', c: lv(q >= 0.9 ? 0 : q >= 0.7 ? 1 : 2), v: `环比 ${q >= 1 ? '+' : ''}${pct(q - 1, 0)}`, rule: '未填周目标时比上周：≥-10% 绿 · ≥-30% 黄 · 否则红' }); }
+  else if (last > 0) { const q = sales / last; items.push({ k: '销量', c: lv(q >= 0.9 ? 0 : q >= 0.7 ? 1 : 2), v: `环比 ${q >= 1 ? '+' : ''}${pct(q - 1, 0)}`, rule: '没有周目标（该月没有月目标）时比上周：≥-10% 绿 · ≥-30% 黄 · 否则红' }); }
   else items.push({ k: '销量', c: 'green', v: '无参照', rule: '没有周目标也没有上周销量，不判' });
   const tac = r['TACOS'];
   items.push({ k: '广告', c: lv(!(r['广告花费'] > 0) || tac == null ? 0 : tac <= 0.15 ? 0 : tac <= 0.2 ? 1 : 2), v: `TACOS ${pct(tac)}`, rule: 'TACOS ≤15% 绿 · ≤20% 黄 · 否则红' });
@@ -959,7 +974,7 @@ function monthOf(e) {
 function monthBarHtml(e) {
   const mo = monthOf(e), tgt = MTG[`${e.spu}|${e.country}|${mo.ym}`];
   const label = `${mo.m + 1}月销量目标`;
-  if (tgt == null) return `<div class="mbar" data-mbar="${esc(e.key)}"><div class="mbar-h"><b>${label}</b><span class="meta">未填（产品目标总表）</span></div></div>`;
+  if (tgt == null) return `<div class="mbar" data-mbar="${esc(e.key)}"><div class="mbar-h"><b>${label}</b><span class="meta">未填（产品目标总表：各 ASIN 预估日均都空）</span></div></div>`;
   if (!DAY_READY) return `<div class="mbar" data-mbar="${esc(e.key)}"><div class="mbar-h"><b>${label} ${fmtN(tgt)}</b><span class="meta">每日数据读取中…</span></div><div class="pbar"><i style="width:0"></i></div></div>`;
   const latest = DAYS[DAYS.length - 1], upto = Math.min(mo.last, latest);
   const keys = Object.values(ENT).filter((a) => a.layer === 'ASIN' && a.spu === e.spu && a.country === e.country).map((a) => `${a.asin}|${a.country}`);
@@ -978,14 +993,17 @@ function refreshMonthBars() {
 
 // 目标带：大字展示，✎ 才出输入框（改动进 DRAFT，卡片「保存」统一写回）
 const GOALS = [
-  { f: '周目标销量', ph: '未填 · 按环比判灯', num: true },
+  { f: '周目标销量', ph: '无月目标 · 按环比判灯', num: true, ro: true },   // 公式：月目标按天拆到周，只读
   { f: '产品目标', ph: '如：月销 2K+，毛利 20%' },
   { f: '经营策略', ph: '如：拓展变体、拓展泛词' },
   { f: '关键指标', ph: '如：销量、利润率' },
 ];
 function goalHtml(r, g, extra = '') {
   const v = val(r, g.f), dirty = `${r._id}|${g.f}` in DRAFT;
-  const shown = g.num ? (num(v) != null ? fmtN(num(v)) : '') : String(v || '');
+  const shown = g.num ? (num(v) ? fmtN(num(v)) : '') : String(v || '');
+  if (g.ro) return `<div class="goal gnum ro" data-goal="${g.f}" title="产品目标总表的月销量目标按天平摊到这一周（跨月分别算再相加），不能手改；要改请改 ASIN 预估日均">
+    <div class="goal-h"><span>${g.f} <small style="font-weight:normal;color:var(--sub)">· 月目标按天拆</small></span></div>
+    <div class="goal-v${shown ? '' : ' none'}">${shown ? esc(shown) : esc(g.ph)}${extra}</div></div>`;
   return `<div class="goal${dirty ? ' dirty' : ''}${g.num ? ' gnum' : ''}" data-goal="${g.f}">
     <div class="goal-h"><span>${g.f}</span><button class="gedit" data-gedit title="编辑">✎</button></div>
     <div class="goal-v${shown ? '' : ' none'}">${shown ? esc(shown) : esc(g.ph)}${extra}</div>
@@ -1044,7 +1062,7 @@ function cardHtml(x) {
 // 复盘卡片的库存条：口径同产品表现页的 120 天预测
 function invStripHtml(e) {
   const cal = invFor(e), ds = cal.days;
-  const avg = ds.slice(0, 30).reduce((a, d) => a + d.sales, 0) / 30;   // 未来30天预估日均（备货计划方案 / 备货表月日均）
+  const avg = ds.slice(0, 30).reduce((a, d) => a + d.sales, 0) / 30;   // 未来30天预估日均（备货计划方案 / 目标总表 ASIN 预估日均）
   const days = avg > 0 ? cal.start / avg : null;
   const cls = days == null ? '' : days < 42 ? 'bad' : days < 72 ? 'warn' : '';   // <头程35+上架7 = 补不上；<72 = 低于安全线（同 ASIN库存页标红口径）
   const firstShort = ds.find((d) => d.short > 0.5);
@@ -1144,6 +1162,7 @@ function bindCard(x) {
   });
   el.querySelectorAll('.goal').forEach((g) => {
     const inp = g.querySelector('[data-f]'), f = g.dataset.goal;
+    if (!inp) return;   // 只读目标（周目标销量）
     const open = () => { el.querySelectorAll('.goal.editing').forEach((o) => o !== g && o.querySelector('[data-gok]').click()); g.classList.add('editing'); if (inp.tagName === 'TEXTAREA') grow(inp); inp.focus(); };
     g.querySelector('[data-gedit]').onclick = open;
     g.querySelector('.goal-v').ondblclick = open;
@@ -1357,7 +1376,7 @@ function renderPerf(main) {
     </div></div>
     ${moduleHtml('ch1', '产品表现', PERF, state.pmSel, state.pmR, 'pm', pts, c)}
     ${moduleHtml('ch2', '广告表现', ADM, state.adSel, state.adR, 'ad', pts, c)}
-    <div class="card0"><div class="mod-h"><b>库存趋势 · 未来 ${CAL_DAYS} 天</b><span class="meta">口径与「四季品备货计划」页一致：起点 = FBA 可售+预留，每天减去预估销量；货件按预计到仓日入库（逾期未收算明天到）；预发货计划、勾选的建议货件、预估日均都取备货计划页保存的方案，没存方案用销量预估-备货表的月日均</span></div>
+    <div class="card0"><div class="mod-h"><b>库存趋势 · 未来 ${CAL_DAYS} 天</b><span class="meta">口径与「四季品备货计划」页一致：起点 = FBA 可售+预留，每天减去预估销量；货件按预计到仓日入库（逾期未收算明天到）；预发货计划、勾选的建议货件、预估日均都取备货计划页保存的方案，没存方案用产品目标总表的 ASIN 预估日均</span></div>
       ${invChips(cal)}
       <div id="ch3"></div>
       ${cal.missing ? `<div class="note">⚠ ${esc(cal.missing)} 在 ASIN库存概况 里没有库存行，按 0 起算。</div>` : ''}
@@ -1570,8 +1589,8 @@ window.addEventListener('resize', layoutCheck); layoutCheck();
 // ===== 启动 =====
 function finish(wk, day, pm, src, inv = {}) {
   build(wk.map((r) => normRow('wk', r)), day.map((r) => normRow('day', r)), pm);
-  buildInv(inv.ov || [], inv.ship || [], inv.bh || [], inv.sv || [], inv.ch || []);
-  MTG = {}; for (const t of inv.tg || []) { const v = num(cell(t['当月销量'])); if (t['目标键'] && v != null) MTG[cell(t['目标键'])] = v; }
+  buildInv(inv.ov || [], inv.ship || [], inv.bh || [], inv.sv || [], inv.ch || [], inv.tg || []);
+  MTG = {}; for (const t of inv.tg || []) { const v = num(cell(t['当月销量'])); if (t['目标键'] && v > 0 && first(t['目标类型']) === '四季品-月度') MTG[cell(t['目标键'])] = v; }
   state.week = DEFAULT_WEEK;
   const nSpu = Object.values(ENT).filter((e) => e.layer === 'SPU').length;
   $('meta').textContent = `${nSpu} 个 SPU×国家 · ${src}`;

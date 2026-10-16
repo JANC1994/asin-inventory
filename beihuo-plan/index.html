@@ -219,7 +219,7 @@
     <button id="saveBtn">保存到页面</button>
     <span class="meta" id="saveMsg"></span>
   </div>
-  <div class="preview-note">数据实时读取多维表（销量预估-备货表 / ASIN库存概况-灯 / FBA在途货件明细-灯 / 头程渠道时效）。④⑤⑥ 里改的预估、参数、发货计划先只存在你自己的浏览器里；④预估和⑤参数点「同步到多维表」才写回备货表、全组可见，⑥发货计划不同步。</div>
+  <div class="preview-note">数据实时读取多维表（销量预估-备货表 / 产品目标总表 / ASIN库存概况-灯 / FBA在途货件明细-灯 / 头程渠道时效）。④⑤⑥ 里改的预估、参数、发货计划先只存在你自己的浏览器里；④预估点「同步到多维表」写回产品目标总表、⑤参数写回备货表，全组可见，⑥发货计划不同步。</div>
   <div class="top">
     <div class="picker">
       <input id="q" placeholder="输入 ASIN / 品名 / SKU 搜索，选一个 ASIN×国家（仅四季品）" autocomplete="off">
@@ -637,9 +637,9 @@ function render() {
 
   // ④ 6 个月销量预估（effMonths＝含自定义时段后每月实际采用的销量，本月从今天算起）
   const effMonths = winMonths.map((w, i) => { const a = i === 0 ? today0 : dayOf(w.y, w.m, 1), b = dayOf(w.y, w.m + 1, 0); let s = 0; for (let d = a; d <= b; d++) s += m.fcOf(d); return s; });
-  const c4 = `<div class="card"><h3>④ 未来 6 个月销量预估 <small>填「预估日均」，月销量自动算；默认值＝销量预估-备货表的月日均（10–12 月目前是 9 月占位）</small></h3>
+  const c4 = `<div class="card"><h3>④ 未来 6 个月销量预估 <small>填「预估日均」，月销量自动算；默认值＝产品目标总表的 ASIN 预估日均（四季品月目标 = 各 ASIN 预估之和，备货表也按它算）</small></h3>
     <div style="overflow-x:auto"><table class="tbl fc"><thead><tr><th></th>${winMonths.map((w) => `<th>${w.y}-${String(w.m + 1).padStart(2, '0')}</th>`).join('')}<th>合计</th></tr></thead><tbody>
-      <tr><td>备货表月日均</td>${dflt.months.map((v) => `<td>${fmtN(v, 2)}</td>`).join('')}<td></td></tr>
+      <tr><td>目标总表预估日均</td>${dflt.months.map((v) => `<td>${fmtN(v, 2)}</td>`).join('')}<td></td></tr>
       <tr><td><b>预估日均（可填）</b></td>${p.months.map((v, i) => `<td><input class="num ${n0(v) !== n0(dflt.months[i]) ? 'changed' : ''} ${!n0(v) && o.d30 > 0 ? 'zero' : ''}" data-m="${i}" type="number" min="0" step="0.1" value="${v ?? ''}"></td>`).join('')}<td></td></tr>
       <tr><td>预估月销量</td>${p.months.map((v, i) => { const w = winMonths[i]; const nd = daysIn(w.y, w.m); const rest = i === 0 ? nd - D(today0) + 1 : nd;
         return `<td>${fmtN(n0(v) * nd)}${i === 0 ? `<div class="meta">剩余 ${rest} 天 ${fmtN(n0(v) * rest)}</div>` : ''}</td>`; }).join('')}
@@ -650,13 +650,13 @@ function render() {
     <div class="btns"><button class="btn" data-act="d30">全部填 30 天日均（${fmtN(o.d30, 1)}）</button><button class="btn" data-act="d7">全部填 7 天日均（${fmtN(o.d7, 1)}）</button>
       <button class="btn" data-act="resetM">恢复备货表值</button>
       <button class="btn primary" data-act="syncM">⇪ 同步到多维表</button>
-      <span class="meta" id="syncMsg">${esc(SYNC_MSG[o.key] || '把 6 个月预估写回销量预估-备货表（主SKU行；-8.5 副款行写 0）。勾选的自定义时段会按天折算进月日均一起写入；页面上的原始预估和时段会自动「保存到页面」，下次打开趋势图不变')}</span></div>
-    <div class="sub-h" style="margin-top:18px">按时段自定义日均 <small>不按月份：给任意一段日期指定日均（如大促、断档恢复期、新品爬坡），落在时段内的天优先用它，其余天仍用上面的月均；时段重叠时下面的行优先。勾选才生效，日历/趋势图/建议货件/断货日全部按它重算；点上方「同步到多维表」后，备货表拿到的是折算后的月日均（月内平摊），本页仍按时段逐日算并自动保存</small></div>
+      <span class="meta" id="syncMsg">${esc(SYNC_MSG[o.key] || '把 6 个月预估日均写回产品目标总表（本 ASIN 的预估行；备货表、月目标、周目标都随之重算）。勾选的自定义时段会按天折算进月日均一起写入；页面上的原始预估和时段会自动「保存到页面」，下次打开趋势图不变')}</span></div>
+    <div class="sub-h" style="margin-top:18px">按时段自定义日均 <small>不按月份：给任意一段日期指定日均（如大促、断档恢复期、新品爬坡），落在时段内的天优先用它，其余天仍用上面的月均；时段重叠时下面的行优先。勾选才生效，日历/趋势图/建议货件/断货日全部按它重算；点上方「同步到多维表」后，产品目标总表拿到的是折算后的月日均（月内平摊），本页仍按时段逐日算并自动保存</small></div>
     ${m.periods.length ? `<div class="scroll"><table class="tbl plan"><thead><tr><th style="width:28px"></th><th>开始日期</th><th>结束日期</th><th class="num">日均销量</th><th class="num">天数</th><th class="num">时段销量</th><th class="num">对比月均</th><th></th></tr></thead><tbody>
       ${m.periods.map((x) => { const nd = x.valid ? x.b - x.a + 1 : 0; let base = 0; if (x.valid) for (let d = x.a; d <= x.b; d++) base += m.monthOf(d);
         const tot = nd * n0(x.daily); const diff = tot - base;
         return `<tr class="${x.on !== false && x.valid ? 'on' : ''}">
-        <td>${x.folded ? '<span class="meta" title="已折算进月日均并写回备货表，不再重复计算">已折算</span>' : `<input type="checkbox" data-per="${x.i}" data-f="on" ${x.on !== false ? 'checked' : ''}>`}</td>
+        <td>${x.folded ? '<span class="meta" title="已折算进月日均并写回产品目标总表，不再重复计算">已折算</span>' : `<input type="checkbox" data-per="${x.i}" data-f="on" ${x.on !== false ? 'checked' : ''}>`}</td>
         <td><input class="num" style="width:140px;text-align:left" type="date" data-per="${x.i}" data-f="from" value="${esc(x.from || '')}"></td>
         <td><input class="num" style="width:140px;text-align:left" type="date" data-per="${x.i}" data-f="to" value="${esc(x.to || '')}"></td>
         <td class="num"><input class="num" type="number" min="0" step="0.1" data-per="${x.i}" data-f="daily" value="${x.daily ?? ''}"></td>
@@ -919,8 +919,10 @@ const SDK_URL = 'https://cdn.jsdelivr.net/npm/@lark-base-open/js-sdk@1.0.2/dist/
 const BASE_TOKEN = 'JGvebyaAYapWtOslxc9cuKYXnwd';   // 灯具组-全流程
 const TABLES = {
   bh: { id: 'tblBymnJvmClZQdy', name: '销量预估-备货表', fields: ['领星SKU', '国家', 'ASIN', '品名', '店铺', 'SPU', '负责人', 'FBA可售', '本地仓可用', '采购在途',
-    '生产天数', '头程天数', '安全天数', '发货备货天数', '采购备货天数', '单箱数量', '头程渠道', ...Array.from({ length: 12 }, (_, i) => `${i + 1}月日均`),
+    '生产天数', '头程天数', '安全天数', '发货备货天数', '采购备货天数', '单箱数量', '头程渠道',
     '建议发货量', '建议采购量', '预计断货日', '本周动作'] },
+  // ④预估日均：产品目标总表「四季品-ASIN预估」行（ASIN|国家|YYYYMM），2026-10-16 起取代备货表 X月日均（已删）
+  tg: { id: 'tblE3XbKD8PUEX7Y', name: '产品目标总表-灯', fields: ['目标键', '目标类型', 'ASIN', '国家文本', '销售年月', '预估日均'] },
   master: { id: 'tblqksywqgYvywOT', name: '产品主表-灯类+精铺', fields: ['领星SKU', '国家文本', '销售季分类'] },
   ov: { id: 'tbl23j9fj1autV9a', name: 'ASIN库存概况-灯', fields: ['记录键', '品名', '图片URL', '店铺', '近7天日均', '近14天日均', '近30天日均',
     'FBA可售', 'FBA预留', 'FBA入库中', 'FBA在途', 'FBA计划入库', '数据更新日'] },
@@ -979,8 +981,25 @@ async function readTable(key) {
 const msDay = (v) => (v == null || v === '' || isNaN(v)) ? '' : fmtFull(dn(v));   // 日期字段（毫秒）→ 'YYYY-MM-DD'
 const first = (v) => String(v ?? '').split('、')[0];
 
+// 产品目标总表 ASIN 预估行 → ASIN|国家 → { months: 12 格（下标=月份-1，本月起 7 个月窗口）, tg: {YYYYMM: {id, v}} }
+function fcRows(tg) {
+  const now = new Date(Date.now() + 8 * 3600000), y = now.getUTCFullYear(), m = now.getUTCMonth(), win = {};
+  for (let k = 0; k < 7; k++) { const mm = (m + k) % 12, yy = y + Math.floor((m + k) / 12); win[`${yy}${String(mm + 1).padStart(2, '0')}`] = mm; }
+  const out = {};
+  for (const t of tg) {
+    if (first(t['目标类型']) !== '四季品-ASIN预估') continue;
+    const ym = String(t['销售年月'] ?? ''); if (!(ym in win)) continue;
+    const k = `${first(t.ASIN)}|${first(t['国家文本'])}`, o = (out[k] ??= { months: Array(12).fill(0), tg: {} });
+    const v = t['预估日均'] == null || t['预估日均'] === '' ? null : Number(t['预估日均']);
+    o.months[win[ym]] = v == null ? 0 : Math.round(v * 100) / 100;
+    o.tg[ym] = { id: t._id, v };
+  }
+  return out;
+}
+
 // 备货表(SKU×国家) 按 ASIN×国家 汇总，只要四季品（产品主表 销售季分类）
 function buildData(T) {
+  const FC = fcRows(T.tg || []);
   const season = {};
   for (const r of T.master) season[`${r['领星SKU']}|${r['国家文本']}`] = String(r['销售季分类'] || '').split('、');
   const ovk = {};
@@ -1008,12 +1027,13 @@ function buildData(T) {
     const sum = (f) => rows.reduce((t, r) => t + n0(r[f]), 0);
     out.push({ key: k, asin, country, name: o['品名'] || main['品名'], img: o['图片URL'], store: o['店铺'] || main['店铺'], spu: main.SPU, owner: first(main['负责人']),
       skus: rows.map((r) => r['领星SKU']),
-      rows: rows.map((r) => ({ id: r._id, sku: r['领星SKU'], months: Array.from({ length: 12 }, (_, i) => n0(r[`${i + 1}月日均`])),
+      tg: (FC[k] || {}).tg || {},
+      rows: rows.map((r) => ({ id: r._id, sku: r['领星SKU'],
         p: Object.fromEntries(Object.entries(PARAM_FIELDS).map(([k, f]) => [k, n0(r[f])])) })),   // 第 1 行＝主SKU
       d7: n0(o['近7天日均']), d14: n0(o['近14天日均']), d30: n0(o['近30天日均']),
       fba: n0(o['FBA可售']), res: n0(o['FBA预留']), recv: n0(o['FBA入库中']), fbaTransit: n0(o['FBA在途']), plan: n0(o['FBA计划入库']),
       local: sum('本地仓可用'), po: sum('采购在途'),
-      months: Array.from({ length: 12 }, (_, i) => Math.round(sum(`${i + 1}月日均`) * 100) / 100),
+      months: ((FC[k] || {}).months || Array(12).fill(0)).slice(),
       prod: n0(main['生产天数']), freight: n0(main['头程天数']), safety: n0(main['安全天数']), shipCover: n0(main['发货备货天数']), poCover: n0(main['采购备货天数']),
       box: n0(main['单箱数量']) || 1, channel: first(main['头程渠道']) || null,
       tbl: { '建议发货量': sum('建议发货量'), '建议采购量': sum('建议采购量'), '预计断货日': main['预计断货日'], '本周动作': main['本周动作'] },
@@ -1036,7 +1056,7 @@ async function loadLive() {
   const keys = Object.keys(TABLES);
   // 核心表读不到直接报错；头程渠道表读不到只降级（没有渠道建议）
   const res = await Promise.all(keys.map((k) => readTable(k).catch((e) => {
-    if (k === 'ch' || k === 'sv') { WARN.push(`${TABLES[k].name} 读不到（${e && e.message ? e.message : e}）`); return []; }
+    if (k === 'ch' || k === 'sv' || k === 'tg') { WARN.push(`${TABLES[k].name} 读不到（${e && e.message ? e.message : e}）`); return []; }
     throw new Error(`${TABLES[k].name}：${e && e.message ? e.message : e}`);
   })));
   const T = Object.fromEntries(keys.map((k, i) => [k, res[i]]));
@@ -1074,41 +1094,35 @@ async function saveArchive(o) {
   return `✔ ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')} 已保存到页面（换电脑、清缓存都在；备货表没有改动）`;
 }
 
-// ===== ④「同步到多维表」：把 6 个月预估日均写回 销量预估-备货表（主SKU行写值，-8.5 等副款行写 0，与「库存按 ASIN 算」口径一致） =====
+// ===== ④「同步到多维表」：把 6 个月预估日均写回 产品目标总表 的「四季品-ASIN预估」行（ASIN|国家|YYYYMM）；
+//       备货表滚动日均、SPU 月目标（当月销量）、周目标销量都是公式，随之重算。预估行由每日任务补齐，页面不建行 =====
 async function syncMonthsToBase(o, months, nPer = 0) {
-  const ids = META.bh || {};
-  const miss = winMonths.map((w) => `${w.m + 1}月日均`).filter((n) => !ids[n]);
-  if (miss.length) throw new Error(`备货表找不到字段：${miss.join('、')}`);
-  const plan = [];
-  o.rows.forEach((r, ri) => {
-    const fields = {}, items = [];
-    winMonths.forEach((w, i) => {
-      const name = `${w.m + 1}月日均`;
-      const nv = ri === 0 ? Math.round(n0(months[i]) * 100) / 100 : 0;
-      if (Math.abs(nv - r.months[w.m]) > 1e-6) { fields[ids[name]] = nv; items.push({ name, from: fmtN(r.months[w.m], 2), to: fmtN(nv, 2) }); }
-    });
-    if (items.length) plan.push({ r, fields, items });
+  const ids = META.tg || {};
+  if (!ids['预估日均']) throw new Error('读不到产品目标总表的「预估日均」：请在插件 ⋮→配置 里重新点一次「保存到页面」授权，并在应用权限配置里给角色开这张表的「可编辑」');
+  const plan = [], miss = [];
+  winMonths.forEach((w, i) => {
+    const ym = `${w.y}${String(w.m + 1).padStart(2, '0')}`, t = o.tg[ym];
+    const nv = Math.round(n0(months[i]) * 100) / 100;
+    if (!t) { miss.push(`${w.y}-${String(w.m + 1).padStart(2, '0')}`); return; }
+    if (t.v == null || Math.abs(nv - t.v) > 1e-6) plan.push({ w, t, nv, item: { name: `${w.y}-${String(w.m + 1).padStart(2, '0')} 预估日均`, from: t.v == null ? '空' : fmtN(t.v, 2), to: fmtN(nv, 2) } });
   });
-  if (!plan.length) return '✔ 多维表里已经是这些值，无需同步';
-  if (!await askConfirm({ title: '同步预估日均到「销量预估-备货表」',
-    sub: `${o.asin} · ${o.country} · 共 ${plan.length} 行、${plan.reduce((s, x) => s + x.items.length, 0)} 个月份。${nPer ? `已把 ${nPer} 个自定义时段按天折算进月日均，同步后这些时段标为「已折算」。` : ''}写入后全组可见，备货表公式会随之重算。`,
-    rows: plan.map((x) => ({ title: x.r.sku, tag: x.r === o.rows[0] ? '主SKU' : '副款，写 0', items: x.items })) })) return null;
-  const table = await SDK.bitable.base.getTableById(TABLES.bh.id);
-  await table.setRecords(plan.map((x) => ({ recordId: x.r.id, fields: x.fields })));
-  // 回读校验，并更新页面内存（「备货表月日均」那一行随之变成新值）
-  const nameById = Object.fromEntries(Object.entries(ids).map(([n, id]) => [id, n]));
+  if (miss.length) throw new Error(`产品目标总表还没有 ${o.asin}·${o.country} 的 ${miss.join('、')} 预估行（每天自动补行；刚勾进备货表的产品明天再同步）`);
+  if (!plan.length) return '✔ 产品目标总表里已经是这些值，无需同步';
+  if (!await askConfirm({ title: '同步预估日均到「产品目标总表」',
+    sub: `${o.asin} · ${o.country} · ${plan.length} 个月份。${nPer ? `已把 ${nPer} 个自定义时段按天折算进月日均，同步后这些时段标为「已折算」。` : ''}写入后全组可见：备货表建议量、SPU 月目标、周目标销量会随之重算。`,
+    rows: [{ title: `${o.asin} · ${o.country}`, tag: 'ASIN 预估行', items: plan.map((x) => x.item) }] })) return null;
+  const table = await SDK.bitable.base.getTableById(TABLES.tg.id);
+  await table.setRecords(plan.map((x) => ({ recordId: x.t.id, fields: { [ids['预估日均']]: x.nv } })));
+  // 回读校验，并更新页面内存（「目标总表预估日均」那一行随之变成新值）
   let bad = 0;
   for (const x of plan) {
-    for (const [fid, v] of Object.entries(x.fields)) {
-      const got = n0(cell(await table.getCellValue(fid, x.r.id)));
-      if (Math.abs(got - v) > 0.005) bad++;
-      x.r.months[Number(nameById[fid].replace('月日均', '')) - 1] = got;
-    }
+    const got = n0(cell(await table.getCellValue(ids['预估日均'], x.t.id)));
+    if (Math.abs(got - x.nv) > 0.005) bad++;
+    x.t.v = got; o.months[x.w.m] = got;
   }
-  o.months = Array.from({ length: 12 }, (_, i) => Math.round(o.rows.reduce((s, r) => s + r.months[i], 0) * 100) / 100);
   const now = new Date(); const hm = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-  return bad ? `⚠ ${hm} 已写入 ${plan.length} 行，但有 ${bad} 个值回读不一致，请到备货表核对`
-             : `✔ ${hm} 已同步到多维表（${plan.length} 行 · ${plan.reduce((s, x) => s + x.diffs.length, 0)} 个月份）；备货表的建议量/断货日等公式会随之重算`;
+  return bad ? `⚠ ${hm} 已写入 ${plan.length} 个月份，但有 ${bad} 个值回读不一致，请到产品目标总表核对`
+             : `✔ ${hm} 已同步到产品目标总表（${plan.length} 个月份）；备货表建议量、月目标、周目标会随之重算`;
 }
 
 // ===== ⑤「同步到多维表」：把 5 个时效参数写回 销量预估-备货表（本 ASIN×国家 的所有 SKU 行写同一值） =====
