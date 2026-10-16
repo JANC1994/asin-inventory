@@ -92,6 +92,7 @@
   /* 目标：三个框 + 进度行 */
   .goals { flex: 1; min-width: 0; }
   .gboxes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .gboxes.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .gbox { background: #fffaf3; border: 1px solid var(--or-soft2); border-top: 3px solid var(--or); border-radius: 8px;
           padding: 5px 10px 6px; font-size: 12.5px; line-height: 1.5; min-height: 54px; }
   .gbox .k { color: var(--or-d); font-weight: 700; font-size: 12px; display: block; }
@@ -496,9 +497,9 @@ function spuGoalBox(spu, items, D) {
 function asinGoalBox(v) {
   if (v.e.season !== '季节品') return '<div class="spacer"></div>';
   const g = CAMP[`${v.e.asin}|${v.e.ctry}`];
-  if (!g) return `<div class="goals"><div class="gboxes">${gbox('产品目标')}${gbox('关键指标')}${gbox('阶段目标')}</div><div class="prog">季节品追踪表没有这个 ASIN 的战役行</div></div>`;
+  if (!g) return `<div class="goals"><div class="gboxes two">${gbox('产品目标')}${gbox('关键指标')}</div><div class="prog">季节品追踪表没有这个 ASIN 的战役行</div></div>`;
   const st = g['当前阶段'] || '', avg = st ? num(g[st + '日均']) : 0;
-  return `<div class="goals"><div class="gboxes">${gbox('产品目标', g['产品目标'])}${gbox('关键指标', g['关键指标'])}${gbox((st || '阶段') + '目标', st ? g[st + '目标'] : '')}</div>
+  return `<div class="goals"><div class="gboxes two">${gbox('产品目标', g['产品目标'])}${gbox('关键指标', g['关键指标'])}</div>
     <div class="prog"><span>当前 <b>${esc(st || '—')}</b>${g[st] ? `（${esc(g[st])}）` : ''}</span>${avg ? `<span>阶段日均目标 <b>${avg}</b></span><span>今日 <b class="${v.t.units >= avg ? 'good' : 'bad'}">${v.t.units}</b></span>` : '<span>阶段日均未填</span>'}<span>7天均 <b>${v.a7.units.toFixed(1)}</b></span></div></div>`;
 }
 
