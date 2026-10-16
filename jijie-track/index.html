@@ -78,21 +78,35 @@
   .judge { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
   .jg-h { display: flex; justify-content: space-between; align-items: center; font-size: 12.5px; font-weight: 700; color: var(--or-d); }
   .judge .reason { flex: 1; font-size: 13px; }
+  /* 右栏：今日分析分框 */
+  .big-ana { display: flex; flex-direction: column; gap: 10px; }
+  .big-ana .ana-h { margin-bottom: 0; }
+  .ag { border: 1px solid var(--line); border-radius: 10px; background: #fcfaf7; padding: 8px 10px 10px; }
+  .ag-t { font-size: 12px; font-weight: 700; color: var(--sub); margin-bottom: 6px; letter-spacing: .5px; }
+  .ag-b { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .af { background: #fff; border: 1px solid var(--line2); border-radius: 8px; padding: 7px 10px 8px; min-width: 0; }
+  .af.blank { border-style: dashed; background: #fffdfa; }
+  .af.goal-cur { grid-column: 1 / -1; background: linear-gradient(135deg, #fff6ec, #fff1e2); border-color: var(--or-soft2); }
+  .af-k { font-size: 12px; font-weight: 700; color: var(--or-d); margin-bottom: 2px; }
+  .af-v { font-size: 14.5px; font-weight: 700; color: var(--ink); line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+  .af.blank .af-v { font-size: 13px; font-weight: 400; color: #c3b8ad; }
+  .af textarea { display: none; width: 100%; box-sizing: border-box; min-height: 56px; resize: vertical; border: 1px solid var(--or-soft2); border-radius: 6px;
+                 padding: 5px 7px; font: 600 14px/1.5 inherit; font-family: inherit; color: var(--ink); background: #fffdfa; }
+  .af textarea:focus { outline: none; border-color: var(--or); background: #fff; box-shadow: 0 0 0 2px rgba(240,122,18,.12); }
+  .af textarea.dirty { border-color: #f2b705; background: #fffbea; }
+  .pc.editing .af textarea { display: block; } .pc.editing .af:not(.goal-cur):not(.yest-box) .af-v { display: none; }
+  .pc.editing .af.blank { border-style: solid; }
+  .af.yest-box { background: var(--grey-soft); border-color: var(--line); }
+  .af.yest-box .af-k { color: var(--sub); }
+  .af.yest-box .af-v { font-size: 13px; font-weight: 500; }
+  @media (max-width: 560px) { .ag-b { grid-template-columns: 1fr; } }
   /* 今日分析加大加粗 */
   .pc.big .ana-h b { font-size: 15px; }
-  .pc.big .ana-list { gap: 10px 14px; }
-  .pc.big .ana-item .k { font-size: 12px; font-weight: 600; color: var(--or-d); }
-  .pc.big .ana-list .t { font-size: 14.5px; font-weight: 700; color: var(--ink); line-height: 1.5; }
-  .pc.big .ana-list .t.none { font-size: 13px; font-weight: 400; color: #c3b8ad; }
-  .pc.big .ana-edit label { font-size: 12px; font-weight: 600; color: var(--or-d); }
-  .pc.big .ana-edit textarea { font-size: 14px; font-weight: 600; }
   .pc-col { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
   .pc-col.fill { border-left: 1px dashed var(--line2); padding-left: 16px; align-self: stretch; }
   .pc.big .ana { border-top: 0; padding-top: 0; }
   .pc.big .ana-h .acts { display: flex; align-items: center; gap: 6px; }
   .pc.big .ana-h [data-msg] { font-size: 11.5px; color: var(--sub); }
-  .pc.big .ana-list .t { white-space: normal; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
-  .pc.big .ana-edit textarea { min-height: 52px; }
   .curgoal { background: linear-gradient(135deg, #fff6ec, #fff1e2); border: 1px solid var(--or-soft2); border-radius: 10px; padding: 8px 12px; font-size: 13px; line-height: 1.55; white-space: pre-wrap; }
   .curgoal span { display: block; font-size: 11.5px; color: var(--or-d); font-weight: 700; }
   .goalbox .goals { border-top: 0; padding: 0; gap: 6px; }
@@ -253,18 +267,6 @@
   .ana { border-top: 1px dashed var(--line2); padding-top: 10px; }
   .ana-h { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; gap: 8px; }
   .ana-h b { font-size: 12.5px; color: var(--or-d); }
-  .ana-list { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; }
-  .ana-item { min-width: 0; }
-  .ana-item .k { color: var(--sub); font-size: 11px; }
-  .ana-item .t { font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .ana-item .t.none { color: #c3b8ad; }
-  .ana-edit { display: none; grid-template-columns: 1fr 1fr; gap: 6px 10px; }
-  .pc.editing .ana-edit { display: grid; } .pc.editing .ana-list { display: none; }
-  .ana-edit label { display: block; color: var(--sub); font-size: 11px; }
-  .ana-edit textarea { width: 100%; min-height: 44px; resize: vertical; border: 1px solid var(--line2); border-radius: 6px; padding: 5px 7px;
-                       font: 12.5px/1.45 inherit; font-family: inherit; color: var(--ink); background: #fffdfa; }
-  .ana-edit textarea:focus { outline: none; border-color: var(--or); background: #fff; box-shadow: 0 0 0 2px rgba(240,122,18,.12); }
-  .ana-edit textarea.dirty { border-color: #f2b705; background: #fffbea; }
   .btn { height: 28px; padding: 0 14px; border: 1px solid var(--or); border-radius: 7px; background: #fff; color: var(--or-d); cursor: pointer; font-size: 12.5px; white-space: nowrap; }
   .btn.primary { background: var(--or); color: #fff; }
   .btn:disabled { opacity: .5; cursor: default; }
@@ -277,7 +279,7 @@
   .savebar { display: none; align-items: center; gap: 12px; background: #fff7e8; border: 1px solid #ffd591; border-radius: 8px; padding: 10px 14px; margin-bottom: 10px; }
   .savebar.show { display: flex; }
   .savebar button { height: 32px; padding: 0 16px; border: 0; border-radius: 6px; background: var(--or); color: #fff; font-size: 14px; cursor: pointer; }
-  @media (max-width: 520px) { .grid { grid-template-columns: 1fr; } .kpis { grid-template-columns: repeat(2, 1fr); } .ana-list, .ana-edit { grid-template-columns: 1fr; } }
+  @media (max-width: 520px) { .grid { grid-template-columns: 1fr; } .kpis { grid-template-columns: repeat(2, 1fr); } }
 </style>
 </head>
 <body>
@@ -700,22 +702,22 @@ function bigCardHtml(x) {
   let plan;
   if (target) plan = goalsHtml(x);
   else {
-    const view = ANA_FIELDS.map((f) => {
-      const v = t[f] ? String(t[f]).replace(/\s+/g, ' ') : '';
-      return `<div class="ana-item"><div class="k">${esc(f)}</div><div class="t${v ? '' : ' none'}" title="${esc(v)}">${v ? esc(v) : '未填'}</div></div>`;
-    }).join('');
-    const edit = ANA_FIELDS.map((f) => {
+    // 每个字段一个框：看的时候显示文字，点「记动作」后同一个框里变成输入框
+    const box = (f) => {
+      const v = t[f] ? String(t[f]).trim() : '';
       const prevV = x.prev && x.prev[f] ? `昨日：${x.prev[f]}` : '';
-      return `<div><label>${esc(f)}</label><textarea data-f="${esc(f)}" placeholder="${esc(prevV)}">${esc(t[f] || '')}</textarea></div>`;
-    }).join('');
+      return `<div class="af${v ? '' : ' blank'}"><div class="af-k">${esc(f)}</div>
+        <div class="af-v">${v ? esc(v) : '未填'}</div>
+        <textarea data-f="${esc(f)}" placeholder="${esc(prevV)}">${esc(t[f] || '')}</textarea></div>`;
+    };
     const yest = x.prev && x.prev['计划操作'] ? esc(String(x.prev['计划操作']).trim()) : '—';
-    const cur = x.hasStage && c[x.stage + '目标'] ? `<div class="curgoal"><span>${esc(x.stage)}目标</span>${esc(c[x.stage + '目标'])}</div>` : '';
-    plan = `${cur}<div class="ana">
+    const cur = x.hasStage && c[x.stage + '目标'] ? `<div class="af goal-cur"><div class="af-k">${esc(x.stage)}目标（阶段）</div><div class="af-v">${esc(c[x.stage + '目标'])}</div></div>` : '';
+    plan = `<div class="ana big-ana">
         <div class="ana-h"><b>今日分析 · ${dateTxt}</b><span class="acts"><span data-msg></span>${x.today ? `<button class="btn" data-edit>记动作</button><button class="btn primary" data-save style="display:none">保存</button>` : ''}</span></div>
-        <div class="ana-list">${view}</div>
-        <div class="ana-edit">${edit}</div>
-      </div>
-      <div class="foot"><span class="yest">昨日计划：<b>${yest}</b></span></div>`;
+        <div class="ag"><div class="ag-t">目标</div><div class="ag-b">${box('产品目标')}${box('关键指标')}${cur}</div></div>
+        <div class="ag"><div class="ag-t">问题与动作</div><div class="ag-b">${box('竞品动态')}${box('当前问题+归因')}${box('计划操作')}${box('建议操作')}</div></div>
+        <div class="af yest-box"><div class="af-k">昨日计划</div><div class="af-v">${yest}</div></div>
+      </div>`;
   }
   const prog = num(t['_当日销售进度值']), w = Math.min(100, Math.max(0, (prog || 0) * 100));
   const sale0 = num(t['今日销量']), tgt0 = x.hasStage && x.target != null ? fmtN(x.target, 1) : '—';
