@@ -62,7 +62,30 @@
   .pc.big { padding: 16px 18px 16px 22px; gap: 12px; }
   .pc.big .pc-img { width: 72px; height: 72px; }
   .pc.big .pc-title b { font-size: 16px; }
-  .pc-body { display: grid; grid-template-columns: minmax(320px, .95fr) minmax(330px, 1.05fr) minmax(320px, 1.1fr); gap: 16px; align-items: start; }
+  .pc-body, .pc-top { display: grid; grid-template-columns: minmax(320px, .95fr) minmax(330px, 1.05fr) minmax(320px, 1.1fr); gap: 16px; align-items: start; }
+  .pc-top { align-items: stretch; padding-bottom: 12px; border-bottom: 1px dashed var(--line2); }
+  .pc-top .pc-head { align-self: center; min-width: 0; }
+  .prog-big { background: #fcfaf7; border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; display: flex; flex-direction: column; justify-content: center; gap: 6px; min-width: 0; }
+  .pg-h { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 12.5px; color: var(--sub); font-weight: 600; }
+  .pg-h small { font-weight: normal; }
+  .pg-h b { font-size: 26px; line-height: 1; color: var(--or-d); font-variant-numeric: tabular-nums; }
+  .pg-h b.ok { color: var(--green); }
+  .pg-bar { position: relative; height: 14px; border-radius: 7px; background: #efe6dc; overflow: hidden; }
+  .pg-bar i { display: block; height: 100%; background: linear-gradient(90deg, #f59a3c, #f07a12); border-radius: 7px; }
+  .pg-bar em { position: absolute; right: 6px; top: 0; font-size: 10.5px; line-height: 14px; color: #fff; font-style: normal; font-weight: 700; }
+  .pg-s { font-size: 12px; color: var(--sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pg-s b { color: var(--ink); }
+  .judge { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+  .jg-h { display: flex; justify-content: space-between; align-items: center; font-size: 12.5px; font-weight: 700; color: var(--or-d); }
+  .judge .reason { flex: 1; font-size: 13px; }
+  /* 今日分析加大加粗 */
+  .pc.big .ana-h b { font-size: 15px; }
+  .pc.big .ana-list { gap: 10px 14px; }
+  .pc.big .ana-item .k { font-size: 12px; font-weight: 600; color: var(--or-d); }
+  .pc.big .ana-list .t { font-size: 14.5px; font-weight: 700; color: var(--ink); line-height: 1.5; }
+  .pc.big .ana-list .t.none { font-size: 13px; font-weight: 400; color: #c3b8ad; }
+  .pc.big .ana-edit label { font-size: 12px; font-weight: 600; color: var(--or-d); }
+  .pc.big .ana-edit textarea { font-size: 14px; font-weight: 600; }
   .pc-col { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
   .pc-col.fill { border-left: 1px dashed var(--line2); padding-left: 16px; align-self: stretch; }
   .pc.big .ana { border-top: 0; padding-top: 0; }
@@ -77,8 +100,8 @@
   .goalbox .goal label { width: auto; padding-top: 0; }
   .goalbox .goal textarea { border: 1px solid var(--line); background: #fffdfa; min-height: 44px; }
   .goalbox .pfoot { padding: 6px 0 0; }
-  @media (max-width: 1380px) { .pc-body { grid-template-columns: 1fr 1fr; } .pc-col.fill { grid-column: 1 / -1; border-left: 0; padding-left: 0; border-top: 1px dashed var(--line2); padding-top: 10px; } }
-  @media (max-width: 760px) { .pc-body { grid-template-columns: 1fr; } }
+  @media (max-width: 1380px) { .pc-body, .pc-top { grid-template-columns: 1fr 1fr; } .pc-col.fill, .pc-top .judge { grid-column: 1 / -1; } .pc-col.fill { border-left: 0; padding-left: 0; border-top: 1px dashed var(--line2); padding-top: 10px; } }
+  @media (max-width: 760px) { .pc-body, .pc-top { grid-template-columns: 1fr; } }
   @media (max-width: 900px) { .lib { grid-template-columns: 1fr; } .side { position: static; max-height: 220px; } }
   .meta { color: var(--sub); font-size: 12px; }
   .err { color: var(--red); white-space: pre-wrap; }
@@ -661,11 +684,10 @@ function bigCardHtml(x) {
         ${kpi('阶段达成率', pct(ach), ach != null && ach < 0.8 && x.hasStage ? 'bad' : '')}
         ${kpi('应达 / 累计', `${fmtN(num(c['应达销量']))}<small> / ${fmtN(num(c['累计销量']))}</small>`)}</div>`;
   } else {
-    const sale = num(t['今日销量']), tacos = num(t['今日TACOS']), margin = num(t['今日利润率']), prog = num(t['_当日销售进度值']);
+    const sale = num(t['今日销量']), tacos = num(t['今日TACOS']), margin = num(t['今日利润率']);
     const tgt = x.hasStage ? (x.target != null ? fmtN(x.target, 1) : '<span class="tbd" title="战役行该阶段日均未填">未填</span>') : '—';
     data = `<div class="sec-t">当日数据 <span class="meta">${dateTxt}</span></div><div class="kpis">
         ${kpi('日销量 / 目标', `${fmtN(sale)} <small>/ ${tgt}</small>`)}
-        ${kpi('当日销售进度', `${pct(prog)}<div class="pbar"><i style="width:${Math.min(100, Math.max(0, (prog || 0) * 100))}%"></i></div>`)}
         ${kpi('本周至今', TBD)}
         ${kpi('日TACoS', pct(tacos, 1), tacos != null && tacos > 0.25 ? 'bad' : '')}
         ${kpi('利润率', pct(margin, 1), margin != null && margin < 0 ? 'bad' : '')}
@@ -673,8 +695,7 @@ function bigCardHtml(x) {
         ${kpi('应达 / 累计', `${fmtN(num(c['应达销量']))}<small> / ${fmtN(num(c['累计销量']))}</small>`)}
         ${kpi('近7日均量', fmtN(num(c['近7日均量']), 1))}</div>`;
   }
-  data += `<div class="reason ${x.light}">${esc(t['红绿灯原因'] || c['红绿灯原因'] || '（表里无红绿灯原因）')}</div>
-    <div><div class="sec-t">近 7 天 <span class="meta">柱色 = 当天红绿灯 · 虚线 = 当前阶段日均目标</span></div>${week7(x)}</div>`;
+  data += `<div><div class="sec-t">近 7 天 <span class="meta">柱色 = 当天红绿灯 · 虚线 = 当前阶段日均目标</span></div>${week7(x)}</div>`;
   // 右栏：目标和计划
   let plan;
   if (target) plan = goalsHtml(x);
@@ -696,13 +717,25 @@ function bigCardHtml(x) {
       </div>
       <div class="foot"><span class="yest">昨日计划：<b>${yest}</b></span></div>`;
   }
+  const prog = num(t['_当日销售进度值']), w = Math.min(100, Math.max(0, (prog || 0) * 100));
+  const sale0 = num(t['今日销量']), tgt0 = x.hasStage && x.target != null ? fmtN(x.target, 1) : '—';
   return `<div class="pc big ${x.light}" data-id="${esc(c._id)}">
-    <div class="pc-head">
-      <div class="pc-img" data-img="${esc(c._id)}">${x.pm && x.pm._imgData ? `<img src="${x.pm._imgData}" alt="">` : '无图'}</div>
-      <div class="pc-title"><b title="${esc(c['品名'])}">${esc(c['品名'] || c['领星SKU'])}</b>
-        <div class="mono">${esc(c['ASIN'] || '—')} · ${esc(c['国家文本'] || '—')} · ${esc(c['店铺'] || '—')} · ${esc(c['领星SKU'] || '')}</div>
-        <div class="tags">${tags}</div></div>
-      <span class="light ${x.light}">${esc(x.lightTxt || '未判灯')}</span>
+    <div class="pc-top">
+      <div class="pc-head">
+        <div class="pc-img" data-img="${esc(c._id)}">${x.pm && x.pm._imgData ? `<img src="${x.pm._imgData}" alt="">` : '无图'}</div>
+        <div class="pc-title"><b title="${esc(c['品名'])}">${esc(c['品名'] || c['领星SKU'])}</b>
+          <div class="mono">${esc(c['ASIN'] || '—')} · ${esc(c['国家文本'] || '—')} · ${esc(c['店铺'] || '—')} · ${esc(c['领星SKU'] || '')}</div>
+          <div class="tags">${tags}</div></div>
+      </div>
+      <div class="prog-big" title="表字段 当日销售进度（${dateTxt}）">
+        <div class="pg-h"><span>当日销售进度 <small>${dateTxt}</small></span><b class="${prog != null && prog >= 1 ? 'ok' : ''}">${pct(prog)}</b></div>
+        <div class="pg-bar"><i style="width:${w}%"></i>${prog > 1 ? '<em>超额</em>' : ''}</div>
+        <div class="pg-s">日销量 <b>${fmtN(sale0)}</b> / 当前阶段日均目标 <b>${tgt0}</b>${x.stage ? ` · ${esc(x.stage)}` : ''}</div>
+      </div>
+      <div class="judge">
+        <div class="jg-h"><span>判断依据</span><span class="light ${x.light}">${esc(x.lightTxt || '未判灯')}</span></div>
+        <div class="reason ${x.light}">${esc(t['红绿灯原因'] || c['红绿灯原因'] || '（表里无红绿灯原因）')}</div>
+      </div>
     </div>
     <div class="pc-body">
       <div class="pc-col">${stagePlan(x, { open: true, title: target ? '阶段目标（销量）' : '阶段预估销量', avgLab: '日均', estLab: target ? '销量目标' : '预估' })}${invHtml(x)}</div>
