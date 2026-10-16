@@ -419,7 +419,7 @@ function normRow(key, r) {
 }
 
 let SDK = null;
-const TBLS = {}, FIDS = {}, DIAG = { missing: {}, read: {} };
+const TBLS = {}, FIDS = {}, DIAG = { missing: {}, read: {}, err: {}, sample: {} };
 async function readTable(key) {
   const cfg = TABLES[key];
   const table = await SDK.bitable.base.getTableById(cfg.id);
@@ -436,6 +436,10 @@ async function readTable(key) {
     try { res = await table.getRecordsByPage(q); } catch (e) {
       if (!useView) throw e;
       console.warn('按视图读取失败，改读全表', e); useView = false; rows.length = 0; pageToken = undefined; continue;
+    }
+    if ((key === 'pm' || key === 'ov') && !DIAG.sample[cfg.name] && res.records.length) {
+      const r0 = res.records[0].fields;
+      DIAG.sample[cfg.name] = Object.fromEntries(['ASIN', '国家', '国家文本', '记录键', '品名', 'FBA可售'].filter((n) => idByName[n]).map((n) => [n, r0[idByName[n]]]));
     }
     if (key === 'wk' && !DIAG.raw && res.records.length) {
       const r0 = res.records[0].fields;
@@ -667,6 +671,13 @@ function model(o, opt = {}) {
 }
 // ===== 备货计划模型 END =====
 const n0 = (v) => num(cell(v)) ?? 0;
+function ctry(v) {
+  const t = String(cell(v) ?? '').trim();
+  if (/加拿大|\bCA\b|Canada/i.test(t)) return '加拿大';
+  if (/美国|\bUS\b|USA|United States/i.test(t)) return '美国';
+  return t;
+}
+const asinOf = (v) => String(cell(v) ?? '').trim().split(/[、,\s]/)[0];
 let INV = { ov: {}, ships: {}, o: {} }, BH = null, MTG = {};
 const first = (v) => String(cell(v) ?? '').split('、')[0];
 const msDay = (v) => { if (v == null || v === '') return ''; const n = dn(typeof v === 'number' ? v : Date.parse(v)); const d = ud(n);
@@ -687,7 +698,7 @@ function fcMonths(tg) {
 function buildInv(ov, ship, bh, sv, ch, tg = []) {
   INV = { ov: {}, ships: {}, o: {} };
   const FC = fcMonths(tg);
-  for (const o of ov) INV.ov[o['记录键'] || `${o['ASIN']}|${cell(o['国家'])}`] = o;
+  for (const o of ov) { const k = o['ASIN'] && o['国家'] ? `${asinOf(o['ASIN'])}|${ctry(o['国家'])}` : String(cell(o['记录键']) ?? ''); if (k) INV.ov[k] = o; }
   for (const x of ship) { const k = `${first(x['ASIN'])}|${first(x['国家'])}`; (INV.ships[k] = INV.ships[k] || []).push(x); }
   // 备货表(SKU×国家) 按 ASIN×国家 汇总；第 1 行 = 主SKU（-8.5 副款排后）
   const groups = {};
@@ -756,7 +767,7 @@ function build(wk, day, pm) {
   }
   PM = {}; COST = {};
   for (const p of pm) {
-    const k = `${p['ASIN']}|${p['国家文本']}`;
+    const k = `${asinOf(p['ASIN'])}|${ctry(p['国家']) || ctry(p['国家文本'])}`;   // 用下拉字段「国家」，不靠公式「国家文本」
     if (!PM[k] || (!PM[k]['图片'] && p['图片'])) PM[k] = p;
     // 成本口径同 X24 周报脚本：单件货成 =（采购成本不含税+头程费用）÷汇率；同 ASIN+国家多行时取成本填齐的那行
     const ok = ['采购成本不含税', '头程费用', 'FBA配送费', '佣金比例', '汇率'].every((f) => p[f] != null && p[f] !== '') && n0(p['汇率']) > 0;
@@ -1058,7 +1069,7 @@ function cardHtml(x) {
           ${METRICS.map((m) => { const a = r[m.f], b = prev ? prev[m.f] : null;
             return `<tr><td>${m.k}</td><td>${m.fmt(a, c)}</td><td>${prev ? m.fmt(b, c) : '—'}</td><td>${chgHtml(m, a, b)}</td></tr>`; }).join('')}
         </tbody></table>
-        ${asins.length ? `<div class="col-t">ASIN 明细（${asins.length} 个，点品名看趋势）</div>${asinTblHtml(asins, c, e.spu)}` : ''}
+        ${asins.length ? `<div class="col-t">ASIN 明细（${asins.length} 个，点名称看趋势）</div>${asinTblHtml(asins, c, e.spu)}` : ''}
       </div>
       <div class="pc-col fill">
         <div class="sec"><div class="sec-t">本周复盘 <span class="meta">3 项都填 = 已填</span></div>
@@ -1222,6 +1233,23 @@ function bindCard(x) {
 function grow(t) { if (!t.offsetWidth) return; t.style.height = 'auto'; t.style.height = t.scrollHeight + 2 + 'px'; }   // 看不见（宽 0）时不量，免得量出巨高
 // 宽度变了（窗口/插件框缩放）要重新量输入框高度
 let growT; window.addEventListener('resize', () => { clearTimeout(growT); growT = setTimeout(() => { setStickyH(); document.querySelectorAll('.fld textarea, .goal.editing textarea').forEach((t) => { if (!t.closest('.pc-col.fill .sec:not(.boss)')) grow(t); }); }, 150); });
+// 自查：产品主表（品名/图片/成本）和 ASIN库存概况（可售库存）读不到或对不上时，在页面顶部直接说明，截图即可定位
+function showHealth() {
+  if (window.__SNAPSHOT__) return;
+  const asins = Object.values(ENT).filter((e) => e.layer === 'ASIN');
+  const hitPm = asins.filter((e) => PM[`${e.asin}|${e.country}`]).length, hitOv = asins.filter((e) => INV.ov[`${e.asin}|${e.country}`]).length;
+  const bad = [];
+  for (const [t, hit] of [[TABLES.pm.name, hitPm], [TABLES.ov.name, hitOv]]) {
+    if (DIAG.err[t]) bad.push(`「${t}」读取失败：${DIAG.err[t]}`);
+    else if (!hit) bad.push(`「${t}」读到 ${DIAG.read[t] ?? 0} 行，但和经营表 ${asins.length} 个 ASIN 一个都没对上`);
+  }
+  if (!bad.length) return;
+  const show = (v) => { try { return JSON.stringify(v); } catch (e) { return String(v); } };
+  $('main').insertAdjacentHTML('afterbegin', `<div class="card0" style="border-color:#ffd591;background:#fffaf0"><b style="color:#b25e00">⚠ 有数据没读到（品名、图片或可售库存会显示为空）</b> <span class="meta">请把这块整体截图发回</span>
+    <ul style="margin:6px 0 4px;padding-left:18px">${bad.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>
+    <pre style="white-space:pre-wrap;font-size:11px;margin:0;color:var(--sub)">${esc(show({ 读取行数: DIAG.read, 缺字段: { pm: DIAG.missing[TABLES.pm.name], ov: DIAG.missing[TABLES.ov.name] }, 第一行原始值: DIAG.sample, 经营表ASIN样本: asins.slice(0, 2).map((e) => e.asin + '|' + e.country) }))}</pre></div>`);
+}
+
 // 侧栏高度 = 屏高 − 顶栏高
 function setStickyH() { document.documentElement.style.setProperty('--stickyH', ($('sticky').offsetHeight + 24) + 'px'); }
 
@@ -1606,6 +1634,7 @@ function finish(wk, day, pm, src, inv = {}) {
   const nSpu = Object.values(ENT).filter((e) => e.layer === 'SPU').length;
   $('meta').textContent = `${nSpu} 个 SPU×国家 · ${src}`;
   renderTop(); render(); setStickyH();
+  showHealth();
   if (/debug/.test(location.search)) $('main').insertAdjacentHTML('afterbegin', `<div class="card0"><b>自查（?debug）</b><pre style="white-space:pre-wrap;font-size:11px;margin:6px 0 0">${esc(JSON.stringify({ read: DIAG.read, missing: DIAG.missing, raw: DIAG.raw }, null, 1))}</pre></div>`);
   if (!nSpu) $('main').insertAdjacentHTML('afterbegin', `<div class="card0"><b>没有读到可显示的 SPU —— 自查信息</b> <span class="meta">请截图发回</span>
     <pre style="white-space:pre-wrap;font-size:11px">${esc(JSON.stringify({ read: DIAG.read, missing: DIAG.missing, sample: wk.slice(0, 2) }, null, 1))}</pre></div>`);
@@ -1619,9 +1648,9 @@ try {
     setupSave();
     const wk = await readTable('wk');
     let pm = [];
-    try { pm = await readTable('pm'); } catch (e) { console.warn('产品主表读不到，卡片不显示图片和毛利', e); }
+    try { pm = await readTable('pm'); } catch (e) { DIAG.err[TABLES.pm.name] = e && e.message ? e.message : String(e); console.warn('产品主表读不到，卡片不显示图片和毛利', e); }
     const inv = {};
-    for (const k of ['ov', 'ship', 'bh', 'sv', 'ch', 'tg']) { try { inv[k] = await readTable(k); } catch (e) { inv[k] = []; console.warn(`${TABLES[k].name} 读不到，库存预测不完整`, e); } }
+    for (const k of ['ov', 'ship', 'bh', 'sv', 'ch', 'tg']) { try { inv[k] = await readTable(k); } catch (e) { inv[k] = []; DIAG.err[TABLES[k].name] = e && e.message ? e.message : String(e); console.warn(`${TABLES[k].name} 读不到，库存预测不完整`, e); } }
     DAY_LOADING = true;
     finish(wk, [], pm, '取数：四季品经营表 + 产品主表 + 备货计划五表', inv);
     const meta0 = $('meta').textContent;
