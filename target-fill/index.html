@@ -169,7 +169,11 @@
   .sg-h b::before { content: attr(data-i); display: inline-block; width: 16px; height: 16px; line-height: 16px; text-align: center; border-radius: 50%;
                     background: var(--or); color: #fff; font-size: 10.5px; margin-right: 5px; vertical-align: 1px; }
   .sg.off .sg-h b::before { background: #cfc5bb; }
-  .sg-h .dt { font-size: 12px; color: var(--sub); margin-left: auto; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .sg-h .dt { font-size: 12px; color: var(--sub); margin-left: auto; white-space: nowrap; font-variant-numeric: tabular-nums; cursor: pointer; border-radius: 5px; padding: 0 4px; user-select: none; }
+  .sg-h .dt:hover { background: var(--or-soft); color: var(--or-d); box-shadow: 0 0 0 1px var(--or-soft2); }
+  .sg-h { flex-wrap: wrap; }
+  .dted { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-left: auto; font-size: 12px; }
+  .dted .in { width: 128px; padding: 2px 4px; }
   .sg .row { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--sub); white-space: nowrap; }
   .sg .row .in { width: 80px; }
   .sg .row b { color: var(--ink); font-variant-numeric: tabular-nums; }
@@ -213,14 +217,15 @@ const BASE_TOKEN = 'JGvebyaAYapWtOslxc9cuKYXnwd';   // 灯具组-全流程
 const STAGES = ['起量期', '爆发期', '高峰期', '消退期', '清仓期'];
 const Y_TEXT = ['产品目标', '经营策略', '关键指标'];        // 四季品 SPU 父行（年级）必填
 const M_TEXT = ['经营策略', '关键指标'];                    // 四季品 月度行 必填（月销量目标 = ASIN 预估之和，自动）
+const DATES = ['起量期开始', '爆发期开始', '高峰期开始', '消退期开始', '清仓期开始', '清仓期结束'];   // 季节品本品时段（空 = 用节奏日历）
 const NUMS = ['当月销量', '预估日均', '预估月销量', '总库存数量', ...STAGES.map((s) => s + '日均'), '预估销量-整季', '库存差额'];
 const TABLES = {
   // 第一张 = saveConfig 授权表；其余两张靠应用页「数据授权（勿删）」「数据授权2（勿删）」的列表组件授权
   tg: { id: 'tblE3XbKD8PUEX7Y', name: '产品目标总表-灯', fields: [
     '目标键', '目标类型', 'ASIN', '国家文本', 'SPU', '品名', '负责人', '销售年月', '销售年份', '销售季分类', '销量最高ASIN',
     ...Y_TEXT, '当月销量', '预估日均', '预估月销量', '总库存数量',
-    ...STAGES.map((s) => s + '日均'), ...STAGES.map((s) => s + '目标'), '预估销量-整季', '库存差额'] },
-  cal: { id: 'tblxuyiS9rZYiZPW', name: '季节节奏日历', fields: ['对应销售季分类', '销售年份', '国家', '当前阶段', '起量期开始', ...STAGES, ...STAGES.map((s) => s + '天数')] },
+    ...STAGES.map((s) => s + '日均'), ...STAGES.map((s) => s + '目标'), '预估销量-整季', '库存差额', ...DATES] },
+  cal: { id: 'tblxuyiS9rZYiZPW', name: '季节节奏日历', fields: ['对应销售季分类', '销售年份', '国家', '当前阶段', ...DATES, ...STAGES, ...STAGES.map((s) => s + '天数')] },
   pm: { id: 'tblqksywqgYvywOT', name: '产品主表-灯类+精铺', fields: ['ASIN', '国家文本', '图片'] },
 };
 
@@ -234,6 +239,12 @@ const txt = (v) => String(v ?? '').trim();
 const store = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
 const toast = (m) => { const t = $('toast'); t.textContent = m; t.classList.add('show'); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('show'), 2400); };
 const short = (s) => String(s || '').replace(/^(季节品|节日品)-/, '');
+const DAY = 86400000;
+const dn = (ms) => Math.floor((Number(ms) + BJ) / DAY);                      // 北京天序号
+const msOf = (n) => n * DAY - BJ;                                            // 北京 0 点的时间戳（写回日期字段）
+const ymdOf = (n) => new Date(n * DAY).toISOString().slice(0, 10);
+const mdOf = (n) => { const d = new Date(n * DAY); return `${d.getUTCMonth() + 1}.${d.getUTCDate()}`; };
+const TODAY = dn(Date.now());
 const daysIn = (ym) => new Date(Date.UTC(+ym.slice(0, 4), +ym.slice(4), 0)).getUTCDate();
 const ymLabel = (ym) => `${ym.slice(2, 4)}年${+ym.slice(4)}月`;
 const NOW = new Date(Date.now() + BJ), CUR_YM = `${NOW.getUTCFullYear()}${String(NOW.getUTCMonth() + 1).padStart(2, '0')}`;   // 北京本月
@@ -256,6 +267,7 @@ function cell(v) {
 }
 function norm(name, v) {
   if (name === '图片') return Array.isArray(v) ? v.filter((x) => x && typeof x === 'object' && x.token) : [];
+  if (DATES.includes(name)) { if (v == null || v === '') return null; const t = typeof v === 'number' ? v : Date.parse(cell(v)); return isNaN(t) ? null : t; }
   const c = cell(v);
   if (NUMS.includes(name) || name.endsWith('天数')) return num(c);
   return c == null ? null : String(c);
@@ -349,7 +361,26 @@ function needSJ(e) {
   }
   return items;
 }
-const stageOn = (x, s) => !x.cal || (num(x.cal[s + '天数']) || 0) > 0;     // 没有节奏日历时五段都要填
+// 本品时段：目标行 6 个日期有值就用它（运营双击改的），否则用节奏日历；B = [起量,爆发,高峰,消退,清仓开始, 清仓结束] 的北京天序号
+const toMs = (v) => { if (v == null || v === '') return null; const t = typeof v === 'number' ? v : (isNaN(+v) ? Date.parse(v) : +v); return isNaN(t) ? null : t; };
+const own = (x) => toMs(val(x.r, '起量期开始')) != null;
+function bounds(x, src) {
+  const from = src || (own(x) ? x.r : null);
+  const get = (f) => { const t = toMs(from ? (src ? src[f] : val(x.r, f)) : (x.cal ? x.cal[f] : null)); return t == null ? null : dn(t); };
+  const B = DATES.map(get);
+  if (B[2] == null) B[2] = B[3];                                              // 没有高峰期 = 高峰 0 天
+  return B.every((b) => b != null) ? B : null;
+}
+const stDays = (B, i) => !B ? null : Math.max(0, i < 4 ? B[i + 1] - B[i] : B[5] - B[4] + 1);
+const stRange = (B, i) => !B || !stDays(B, i) ? '—' : `${mdOf(B[i])}-${mdOf(i < 4 ? B[i + 1] - 1 : B[5])}`;
+function curStage(B) {
+  if (!B) return null;
+  if (TODAY < B[0]) return '未开始';
+  for (let i = 0; i < 4; i++) if (TODAY < B[i + 1]) return STAGES[i];
+  return TODAY <= B[5] ? STAGES[4] : '已结束';
+}
+const stageOn = (x, s) => { const B = bounds(x); return !B || stDays(B, STAGES.indexOf(s)) > 0; };     // 没有时段时五段都要填
+const estOf = (x) => { const B = bounds(x); return STAGES.reduce((t, st, i) => t + (num(val(x.r, st + '日均')) || 0) * (stDays(B, i) || 0), 0); };
 function needJJ(x) {
   const items = [{ ok: filled(x.r, '总库存数量'), what: '总库存数量' }];
   for (const s of STAGES) if (stageOn(x, s)) { items.push({ ok: filled(x.r, s + '日均'), what: s + '日均' }); items.push({ ok: filled(x.r, s + '目标'), what: s + '目标' }); }
@@ -481,28 +512,55 @@ function blockSJ(e) {
 }
 
 // ===== ⑩ 渲染：季节品 =====
+let STEDIT = null;   // 正在改时段的 {rid, i}
 function cardJJ(x) {
-  const r = x.r, s = stat(needJJ(x)), cur = x.cal && x.cal['当前阶段'];
-  const est = STAGES.reduce((t, st) => t + (num(val(r, st + '日均')) || 0) * (x.cal ? (num(x.cal[st + '天数']) || 0) : 0), 0);
+  const r = x.r, s = stat(needJJ(x)), B = bounds(x), cur = curStage(B), mine = own(x);
+  const est = estOf(x);
   const stock = num(val(r, '总库存数量')), diff = stock != null ? stock - est : null;
   const stg = STAGES.map((st, i) => {
-    const on = stageOn(x, st), days = x.cal ? num(x.cal[st + '天数']) || 0 : null;
+    const on = stageOn(x, st), days = stDays(B, i);
     const avg = num(val(r, st + '日均'));
-    return `<div class="sg${on ? '' : ' off'}${cur === st ? ' cur' : ''}"><div class="sg-h"><b data-i="${i + 1}">${st}</b><span class="dt">${x.cal ? esc(x.cal[st] || '—') : '无节奏日历'}${days != null ? ` · ${days} 天` : ''}</span></div>
+    const ed = STEDIT && STEDIT.rid === r._id && STEDIT.i === i;
+    const dt = ed ? `<span class="dted"><input type="date" class="in" data-ds value="${B && days ? ymdOf(B[i]) : B ? ymdOf(B[i]) : ''}"><span>至</span><input type="date" class="in" data-de value="${B && days ? ymdOf(i < 4 ? B[i + 1] - 1 : B[5]) : ''}">
+        <button class="btn sm pri" data-dok="${r._id}">确定</button><button class="btn sm" data-dno>取消</button><span class="derr meta" style="color:var(--red)"></span></span>`
+      : `<span class="dt" data-dedit="${r._id}|${i}" title="双击修改本品这个阶段的起止日期（相邻阶段的边界会跟着动）">${B ? `${stRange(B, i)} · ${days} 天` : '无时段，双击设置'}</span>`;
+    return `<div class="sg${on ? '' : ' off'}${cur === st ? ' cur' : ''}"><div class="sg-h"><b data-i="${i + 1}">${st}</b>${dt}</div>
       ${on ? `<div class="row">日均 ${inp(r, st + '日均', { ph: '日均' })}</div>
         <div class="row">阶段销量 <b data-calc="stg" data-rid="${r._id}" data-st="${st}">${avg != null && days != null ? fmtN(avg * days) : '—'}</b>${cur === st ? ' <span class="tag or">当前</span>' : ''}</div>
         ${inp(r, st + '目标', { ta: true, rows: 3, ph: '这个阶段要达成什么，如：冲进类目前 50 / ACOS 压到 30%' })}`
-        : '<div class="meta">本季没有这个阶段，不用填</div>'}</div>`;
+        : '<div class="meta">本品没有这个阶段（0 天），不用填；双击日期可加回来</div>'}</div>`;
   }).join('');
+  const dirtyDates = DATES.some((f) => dk(r._id, f) in DRAFT);
+  const src = mine ? `<span class="tag ${dirtyDates ? 'bad' : 'or'}" title="本品时段和节奏日历不同，存在目标总表这一行">自定义时段${dirtyDates ? '（未保存）' : ''}</span><button class="btn sm" data-dreset="${r._id}" title="清掉本品时段，回到季节节奏日历">恢复日历</button>`
+    : `<span class="tag" title="双击阶段日期可改成本品自己的时段">节奏日历时段</span>`;
   return `<div class="sc" id="c-${r._id}"><div class="sc-top">
       <div class="img" data-img="${esc(x.imgKey)}">${imgTag(x.imgKey)}</div>
       <div><div class="nm2">${esc(r['品名'] || '（品名空）')}</div>
-        <div class="ids"><span class="asin">${esc(r['ASIN'])}</span><span class="tag or">${esc(x.country)}</span>${x.owners.map((o) => `<span class="tag">${esc(o)}</span>`).join('')}<span class="tag">${esc(short(x.season))}</span>${progHtml(s)}</div>
-        ${x.cal ? '' : '<div class="meta" style="color:var(--red);margin-top:4px">⚠ 季节节奏日历里没有这个分类×年份×国家，阶段天数未知，五段都要填</div>'}</div>
+        <div class="ids"><span class="asin">${esc(r['ASIN'])}</span><span class="tag or">${esc(x.country)}</span>${x.owners.map((o) => `<span class="tag">${esc(o)}</span>`).join('')}<span class="tag">${esc(short(x.season))}</span>${src}${progHtml(s)}</div>
+        ${B ? '' : '<div class="meta" style="color:var(--red);margin-top:4px">⚠ 节奏日历里没有这个分类×年份×国家，也没设本品时段：双击任一阶段日期设置，否则五段都要填</div>'}</div>
       <div class="kv"><div><div class="k">总库存数量<b style="color:var(--red)">*</b></div>${inp(r, '总库存数量', { ph: '件' })}</div>
         <div><div class="k">整季预估销量</div><div class="v" data-calc="est" data-rid="${r._id}">${fmtN(est)}</div></div>
         <div><div class="k">库存差额（＋多备／－不够）</div><div class="v ${diff == null ? '' : diff < 0 ? 'neg' : 'pos'}" data-calc="diff" data-rid="${r._id}">${diff == null ? '—' : (diff > 0 ? '+' : '') + fmtN(diff)}</div></div></div>
     </div><div class="stg">${stg}</div></div>`;
+}
+function rerenderCard(rid) {
+  const x = JJ.find((i) => i.r._id === rid), el = $('c-' + rid);
+  if (!x || !el) return render();
+  el.outerHTML = cardJJ(x); bind(); refreshDirtyBar(); refreshSide(); loadImages();
+}
+// 改第 i 段起止：边界 B[i] = 开始，B[i+1] = 结束+1（清仓段改 B[5] = 结束）；相邻段跟着伸缩，不许压成负天数
+function applyStage(x, i, start, end) {
+  const B0 = bounds(x);
+  // 没有任何时段（日历也没有）：只建这一段，前面各段 0 天、后面各段 0 天
+  const B = B0 ? B0.slice() : [0, 1, 2, 3, 4].map((k) => (k <= i ? start : end + 1)).concat([end]);
+  B[i] = start;
+  if (i < 4) B[i + 1] = end + 1; else B[5] = end;
+  if (end < start) return '结束日期不能早于开始日期';
+  for (let k = 0; k < 4; k++) if (B[k + 1] < B[k]) return `会把「${STAGES[k]}」压成负天数，请先改相邻阶段`;
+  if (B[5] < B[4] - 1) return '会把「清仓期」压成负天数，请先改相邻阶段';
+  DATES.forEach((f, k) => setDraft(x.r, f, msOf(B[k])));
+  saveDraft();
+  return null;
 }
 
 // ===== ⑪ 总渲染 =====
@@ -524,7 +582,7 @@ function render() {
     if (!all.some((a) => a.key === state.spu.jijie)) state.spu.jijie = all[0].key;
     const sel = all.find((a) => a.key === state.spu.jijie);
     folded.delete(sel.season);
-    right = `<div class="blk-h" style="background:none;border:0;padding:0 2px 8px"><span class="ttl">${esc(sel.p.spu)}</span><span class="tag">${esc(short(sel.season))}</span><span class="meta">${sel.p.l.length} 个 ASIN×国家 · 天数为 0 的阶段不用填 · 橙色上边框 = 当前阶段</span>${progHtml(sel.p.s)}</div>`
+    right = `<div class="blk-h" style="background:none;border:0;padding:0 2px 8px"><span class="ttl">${esc(sel.p.spu)}</span><span class="tag">${esc(short(sel.season))}</span><span class="meta">${sel.p.l.length} 个 ASIN×国家 · 双击阶段日期可改本品时段 · 天数为 0 的阶段不用填 · 橙色上边框 = 当前阶段</span>${progHtml(sel.p.s)}</div>`
       + sel.p.l.map(cardJJ).join('');
   }
   $('main').innerHTML = `<div class="dirtybar" id="dirtybar"></div>${list.length ? `<div class="lib"><nav class="side" id="side">${renderSide(list)}</nav><section class="one" id="right">${right}</section></div>` : right}`;
@@ -553,6 +611,24 @@ function bind() {
   m.querySelectorAll('.in').forEach((el) => {
     el.oninput = () => onEdit(el);
     el.onchange = () => refreshSide();
+  });
+  m.querySelectorAll('[data-dedit]').forEach((d) => d.ondblclick = () => {
+    const [rid, i] = d.dataset.dedit.split('|'); STEDIT = { rid, i: +i }; rerenderCard(rid);
+    const box = $('c-' + rid), ip = box && box.querySelector('[data-ds]'); if (ip) ip.focus();
+  });
+  m.querySelectorAll('[data-dno]').forEach((b) => b.onclick = () => { const rid = STEDIT && STEDIT.rid; STEDIT = null; if (rid) rerenderCard(rid); });
+  m.querySelectorAll('[data-dok]').forEach((b) => b.onclick = () => {
+    const rid = b.dataset.dok, box = b.closest('.dted'), x = JJ.find((i) => i.r._id === rid);
+    const ds = box.querySelector('[data-ds]').value, de = box.querySelector('[data-de]').value;
+    if (!ds || !de) { box.querySelector('.derr').textContent = '开始、结束都要选'; return; }
+    const err = applyStage(x, STEDIT.i, dn(Date.parse(ds + 'T00:00:00+08:00')), dn(Date.parse(de + 'T00:00:00+08:00')));
+    if (err) { box.querySelector('.derr').textContent = err; return; }
+    STEDIT = null; rerenderCard(rid); toast('时段已改（还没保存）');
+  });
+  m.querySelectorAll('[data-dreset]').forEach((b) => b.onclick = () => {
+    const x = JJ.find((i) => i.r._id === b.dataset.dreset);
+    if (!confirm('清掉这个产品自己的时段，回到季节节奏日历？')) return;
+    DATES.forEach((f) => setDraft(x.r, f, null)); saveDraft(); STEDIT = null; rerenderCard(x.r._id);
   });
   m.querySelectorAll('[data-fillright]').forEach((b) => b.onclick = () => {
     const [spu, c, asin] = b.dataset.fillright.split('|');
@@ -590,9 +666,8 @@ function recalc() {
       return;
     }
     const x = JJ.find((i) => i.r._id === n.dataset.rid); if (!x) return;
-    const days = (st) => x.cal ? num(x.cal[st + '天数']) || 0 : 0;
-    const est = STAGES.reduce((t, st) => t + (num(val(x.r, st + '日均')) || 0) * days(st), 0);
-    if (k === 'stg') { const v = num(val(x.r, n.dataset.st + '日均')); n.textContent = v != null && x.cal ? fmtN(v * days(n.dataset.st)) : '—'; }
+    const B = bounds(x), est = estOf(x);
+    if (k === 'stg') { const v = num(val(x.r, n.dataset.st + '日均')), d = stDays(B, STAGES.indexOf(n.dataset.st)); n.textContent = v != null && d != null ? fmtN(v * d) : '—'; }
     if (k === 'est') n.textContent = fmtN(est);
     if (k === 'diff') { const s = num(val(x.r, '总库存数量')), d = s != null ? s - est : null; n.textContent = d == null ? '—' : (d > 0 ? '+' : '') + fmtN(d); n.className = 'v ' + (d == null ? '' : d < 0 ? 'neg' : 'pos'); }
   });
