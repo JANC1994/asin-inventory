@@ -49,6 +49,36 @@
   .ldot.red { background: #e5483f; } .ldot.yellow { background: #f5c518; } .ldot.green { background: #34c759; }
   .si.on .ldot { box-shadow: 0 0 0 2px #fff; }
   .one { min-width: 0; }
+  .one .grid { display: flex; flex-direction: column; gap: 14px; }
+  .side-g + .side-g { border-top: 1px dashed var(--line2); margin-top: 4px; padding-top: 4px; }
+  .side-gh { display: flex; align-items: center; gap: 6px; width: 100%; border: 0; background: none; padding: 6px 8px; cursor: pointer; font: inherit; color: var(--ink); text-align: left; border-radius: 8px; }
+  .side-gh:hover { background: #faf4ec; }
+  .side-gh i { font-style: normal; color: var(--or); width: 12px; transition: transform .12s; }
+  .side-gh b { flex: 1; min-width: 0; font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .side-gh span { font-size: 11px; color: var(--sub); white-space: nowrap; }
+  .side-g.fold .side-gh i { transform: rotate(-90deg); }
+  .side-g.fold .side-gb { display: none; }
+  /* 横向大卡片 */
+  .pc.big { padding: 16px 18px 16px 22px; gap: 12px; }
+  .pc.big .pc-img { width: 72px; height: 72px; }
+  .pc.big .pc-title b { font-size: 16px; }
+  .pc-body { display: grid; grid-template-columns: minmax(320px, .95fr) minmax(330px, 1.05fr) minmax(320px, 1.1fr); gap: 16px; align-items: start; }
+  .pc-col { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+  .pc-col.fill { border-left: 1px dashed var(--line2); padding-left: 16px; align-self: stretch; }
+  .pc.big .ana { border-top: 0; padding-top: 0; }
+  .pc.big .ana-h .acts { display: flex; align-items: center; gap: 6px; }
+  .pc.big .ana-h [data-msg] { font-size: 11.5px; color: var(--sub); }
+  .pc.big .ana-list .t { white-space: normal; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
+  .pc.big .ana-edit textarea { min-height: 52px; }
+  .curgoal { background: linear-gradient(135deg, #fff6ec, #fff1e2); border: 1px solid var(--or-soft2); border-radius: 10px; padding: 8px 12px; font-size: 13px; line-height: 1.55; white-space: pre-wrap; }
+  .curgoal span { display: block; font-size: 11.5px; color: var(--or-d); font-weight: 700; }
+  .goalbox .goals { border-top: 0; padding: 0; gap: 6px; }
+  .goalbox .goal { flex-direction: column; gap: 2px; }
+  .goalbox .goal label { width: auto; padding-top: 0; }
+  .goalbox .goal textarea { border: 1px solid var(--line); background: #fffdfa; min-height: 44px; }
+  .goalbox .pfoot { padding: 6px 0 0; }
+  @media (max-width: 1380px) { .pc-body { grid-template-columns: 1fr 1fr; } .pc-col.fill { grid-column: 1 / -1; border-left: 0; padding-left: 0; border-top: 1px dashed var(--line2); padding-top: 10px; } }
+  @media (max-width: 760px) { .pc-body { grid-template-columns: 1fr; } }
   @media (max-width: 900px) { .lib { grid-template-columns: 1fr; } .side { position: static; max-height: 220px; } }
   .meta { color: var(--sub); font-size: 12px; }
   .err { color: var(--red); white-space: pre-wrap; }
@@ -238,7 +268,7 @@
   <div class="hero hero-top">
     <div class="hero-t">
       <h2>季节品每日追踪</h2>
-      <p class="desc">每张卡 = 一个季节品链接（SKU×国家）。左侧按 SPU 列出（红灯多的排前），点哪个 SPU 右边就显示它的产品卡。红黄绿灯和原因由系统每天按追踪表判定；
+      <p class="desc">每张卡 = 一个季节品链接（SKU×国家）。左侧按 SPU 列出（红灯多的排前），按销售季分组可折叠，点哪个 SPU 右边就显示它每个产品的横向大卡（左：阶段预估+库存，中：数据，右：目标和计划）。红黄绿灯和原因由系统每天按追踪表判定；
         「今日分析」点「记动作」可直接写回多维表；「红/黄未分析」= 当天亮红/黄灯、但竞品动态/问题归因/计划/建议操作都还没填的产品。
         切到「目标填写」：按产品填各阶段日均目标（阶段销量目标 = 日均 × 天数），并看当前状态和近 7 天表现。数据来源：季节品追踪表，每天更新。</p>
     </div>
@@ -475,52 +505,6 @@ function renderOwner() {
 
 const kpi = (k, v, cls = '') => `<div class="kpi"><div class="k">${k}</div><div class="v ${cls}">${v}</div></div>`;
 
-function cardHtml(x) {
-  const c = x.c, t = x.today || {};
-  const sale = num(t['今日销量']), tacos = num(t['今日TACOS']), margin = num(t['今日利润率']), prog = num(t['_当日销售进度值']);
-  const days = num(c['剩余可售天数']), fba = num(c['FBA可售']), inb = num(c['FBA在途入库']);
-  const dateTxt = x.today ? fmtD(dn(x.today['日期'])) : '无日行';
-  const stale = '';
-  const tgt = x.hasStage ? (x.target != null ? fmtN(x.target, 1) : '<span class="tbd" title="战役行该阶段日均未填">未填</span>') : '—';
-  const view = ANA_FIELDS.map((f) => {
-    const v = t[f] ? String(t[f]).replace(/\s+/g, ' ') : '';
-    return `<div class="ana-item"><div class="k">${esc(f)}</div><div class="t${v ? '' : ' none'}" title="${esc(v)}">${v ? esc(v) : '未填'}</div></div>`;
-  }).join('');
-  const edit = ANA_FIELDS.map((f) => {
-    const prevV = x.prev && x.prev[f] ? `昨日：${x.prev[f]}` : '';
-    return `<div><label>${esc(f)}</label><textarea data-f="${esc(f)}" placeholder="${esc(prevV)}">${esc(t[f] || '')}</textarea></div>`;
-  }).join('');
-  const yest = x.prev && x.prev['计划操作'] ? esc(String(x.prev['计划操作']).trim()) : '—';
-  return `<div class="pc ${x.light}" data-id="${esc(c._id)}">
-    <div class="pc-head">
-      <div class="pc-img" data-img="${esc(c._id)}">${x.pm && x.pm._imgData ? `<img src="${x.pm._imgData}" alt="">` : '无图'}</div>
-      <div class="pc-title"><b title="${esc(c['品名'])}">${esc(c['品名'] || c['领星SKU'])}</b>
-        <div class="mono">${esc(c['ASIN'] || '—')} · ${esc(c['国家文本'] || '—')} · ${esc(c['店铺'] || '—')}</div>
-        <div class="tags"><span class="tag">${esc(x.stage || '—')}</span><span class="tag g">${esc(x.season)}</span>${c['销售状态'] ? `<span class="tag g">${esc(c['销售状态'])}</span>` : ''}${stale}${isTodo(x) ? '<span class="tag todo">未分析</span>' : ''}</div></div>
-      <span class="light ${x.light}">${esc(x.lightTxt || '未判灯')}</span>
-    </div>
-    <div class="kpis">
-      ${kpi(`日销量 / 目标`, `${fmtN(sale)} <small>/ ${tgt}</small>`)}
-      ${kpi('当日销售进度', `${pct(prog)}<div class="pbar"><i style="width:${Math.min(100, Math.max(0, (prog || 0) * 100))}%"></i></div>`)}
-      ${kpi('本周至今', TBD)}
-      ${kpi('日TACoS', pct(tacos, 1), tacos != null && tacos > 0.25 ? 'bad' : '')}
-      ${kpi('利润率', pct(margin, 1), margin != null && margin < 0 ? 'bad' : '')}
-      ${kpi('可售天数', days != null ? fmtN(days) : '—')}
-      ${kpi('FBA可售', fmtN(fba))}
-      ${kpi('在途', fmtN(inb))}
-    </div>
-    ${invHtml(x)}
-    <div class="reason ${x.light}">${esc((x.today && x.today['红绿灯原因']) || c['红绿灯原因'] || '（表里无红绿灯原因）')}</div>
-    <div class="ana">
-      <div class="ana-h"><b>今日分析 · ${dateTxt}</b><span data-msg></span></div>
-      <div class="ana-list">${view}</div>
-      <div class="ana-edit">${edit}</div>
-    </div>
-    ${stagePlan(x)}
-    <div class="foot"><span class="yest">昨日计划：<b>${yest}</b></span>
-      <span class="acts">${x.today ? `<button class="btn" data-edit>记动作</button><button class="btn primary" data-save style="display:none">保存</button>` : ''}</span></div>
-  </div>`;
-}
 
 // 按 SPU 分行：每个 SPU 一行（行内卡片自动换行），红灯多的 SPU 排前
 const LORDER = { red: 0, yellow: 1, green: 2, none: 3, ended: 4 };
@@ -533,24 +517,46 @@ function spuGroups(list) {
   return keys.map((k) => [k, g[k].sort((a, b) => LORDER[a.light] - LORDER[b.light] || (num(a.today && a.today['_当日销售进度值']) ?? 9) - (num(b.today && b.today['_当日销售进度值']) ?? 9))]);
 }
 // 左侧 SPU 栏 + 右侧当前 SPU 的卡片（同 四季品经营复盘 / 产品主表 页的布局）
+// 按销售季分类分组（红灯多的季排前），组内再按 SPU 分组；选中键 = 销售季||SPU
+function seasonGroups(list) {
+  const g = {};
+  list.forEach((x) => (g[x.season] = g[x.season] || []).push(x));
+  return Object.keys(g).sort((a, b) => lcnt(g[b], 'red') - lcnt(g[a], 'red') || lcnt(g[b], 'yellow') - lcnt(g[a], 'yellow') || a.localeCompare(b))
+    .map((se) => [se, spuGroups(g[se])]);
+}
+const selKey = (se, spu) => `${se}||${spu}`;
+let FOLD = new Set(); try { FOLD = new Set(JSON.parse(store.get('stp.fold') || '[]')); } catch (e) {}
 function libHtml(list, cardFn) {
-  const groups = spuGroups(list);
-  if (!groups.some(([k]) => k === state.spu)) state.spu = groups[0][0];
+  const seasons = seasonGroups(list);
+  const all = seasons.flatMap(([se, gs]) => gs.map(([k, xs]) => [selKey(se, k), se, k, xs]));
+  if (!all.some(([key]) => key === state.spu)) state.spu = all[0][0];
   const target = state.mode === 'target';
-  const side = groups.map(([k, xs]) => {
+  const item = ([key, , k, xs]) => {
     const worst = xs.reduce((w, x) => LORDER[x.light] < LORDER[w] ? x.light : w, 'ended');
     const sub = target ? `${xs.length} 个 · 未填 ${xs.filter((x) => !isFilled(x)).length}`
       : `${xs.length} 个 · 🔴${lcnt(xs, 'red')} 🟡${lcnt(xs, 'yellow')}${xs.filter(isTodo).length ? ` · 未分析 ${xs.filter(isTodo).length}` : ''}`;
     const f = xs[0], img = (f.pm && f.pm._imgData) || f.imgUrl;
-    return `<button class="si${k === state.spu ? ' on' : ''}" data-spu="${esc(k)}" title="${esc(k)}">
+    return `<button class="si${key === state.spu ? ' on' : ''}" data-spu="${esc(key)}" title="${esc(k)}">
       <span class="si-img" data-simg="${esc(f.c._id)}">${img ? `<img src="${esc(img)}" alt="">` : '无图'}</span>
       <span class="sn">${esc(k)}<small>${sub}</small></span><span class="ldot ${worst}"></span></button>`;
+  };
+  const selSe = all.find(([key]) => key === state.spu)[1];
+  const side = seasons.map(([se, gs]) => {
+    const xs = gs.flatMap(([, v]) => v), fold = FOLD.has(se) && se !== selSe;
+    const sum = target ? `未填 ${xs.filter((x) => !isFilled(x)).length}` : `🔴${lcnt(xs, 'red')} 🟡${lcnt(xs, 'yellow')}`;
+    return `<div class="side-g${fold ? ' fold' : ''}"><button class="side-gh" data-fold="${esc(se)}"><i>▾</i><b>${esc(se)}</b><span>${gs.length} SPU · ${sum}</span></button>
+      <div class="side-gb">${all.filter(([, s2]) => s2 === se).map(item).join('')}</div></div>`;
   }).join('');
-  const sel = groups.find(([k]) => k === state.spu);
-  return `<div class="lib"><nav class="side" id="side"><div class="side-h"><span>SPU</span><span>${groups.length}</span></div>${side}</nav>
-    <section class="one">${spuSection(sel[0], sel[1], cardFn)}</section></div>`;
+  const sel = all.find(([key]) => key === state.spu);
+  return `<div class="lib"><nav class="side" id="side"><div class="side-h"><span>销售季 · SPU</span><span>${all.length}</span></div>${side}</nav>
+    <section class="one">${spuSection(sel[2], sel[3], cardFn, sel[1])}</section></div>`;
 }
 function bindLib() {
+  $('main').querySelectorAll('[data-fold]').forEach((b) => b.onclick = () => {
+    const se = b.dataset.fold, g = b.parentElement;
+    if (g.classList.toggle('fold')) FOLD.add(se); else FOLD.delete(se);
+    store.set('stp.fold', JSON.stringify([...FOLD]));
+  });
   $('main').querySelectorAll('.si').forEach((b) => b.onclick = () => {
     state.spu = b.dataset.spu;
     const st = $('side').scrollTop; render(); $('side').scrollTop = st;
@@ -558,15 +564,19 @@ function bindLib() {
   });
 }
 // 要显示的卡 + 每个 SPU 第一张（侧栏缩略图）都去取图
-const imgTargets = (list) => { const gs = spuGroups(list); const sel = gs.find(([k]) => k === state.spu); return [...(sel ? sel[1] : []), ...gs.map(([, xs]) => xs[0])]; };
+const imgTargets = (list) => {
+  const all = seasonGroups(list).flatMap(([se, gs]) => gs.map(([k, xs]) => [selKey(se, k), xs]));
+  const sel = all.find(([key]) => key === state.spu);
+  return [...(sel ? sel[1] : []), ...all.map(([, xs]) => xs[0])];
+};
 
-function spuSection(k, xs, cardFn = cardHtml) {
+function spuSection(k, xs, cardFn = bigCardHtml, season = '') {
   {
     const cnt = lcnt;
     const sum = LIGHTS.filter((l) => cnt(xs, l.key)).map((l) => `<span class="sd"><i style="background:${l.color}"></i>${cnt(xs, l.key)}</span>`).join('');
     const meta = [...new Set(xs.map((x) => x.stage))].join(' / ');
     const seg = LIGHTS.filter((l) => cnt(xs, l.key)).map((l) => `<i style="flex:${cnt(xs, l.key)};background:${l.key === 'none' ? '#e3ddd6' : l.color}" title="${l.label} ${cnt(xs, l.key)}"></i>`).join('');
-    return `<section class="spu"><div class="spu-h"><b>${esc(k)}</b><span class="meta">${xs.length} 个 · ${esc(meta)}</span>${sum}<span class="lbar">${seg}</span></div>
+    return `<section class="spu"><div class="spu-h"><b>${esc(k)}</b><span class="meta">${season ? esc(season) + ' · ' : ''}${xs.length} 个 · ${esc(meta)}</span>${sum}<span class="lbar">${seg}</span></div>
       <div class="grid">${xs.map(cardFn).join('')}</div></section>`;
   }
 }
@@ -631,36 +641,114 @@ function week7(x) {
     <div class="w7-s">${kpi(`${ds.length}天销量`, fmtN(sum))}${kpi('日均', fmtN(sum / ds.length, 1))}${kpi('TACoS', sales ? pct(ad / sales, 1) : '—', sales && ad / sales > 0.25 ? 'bad' : '')}${kpi('红灯天数', `${reds}<small> / ${ds.length}</small>`, reds ? 'bad' : '')}</div></div>`;
 }
 
-function targetCardHtml(x) {
-  const c = x.c, t = x.today || {};
-  const miss = missingStages(x), filled = isFilled(x);
-  const fillTag = filled ? '<span class="tag ok">已填写</span>'
-    : needStages(x).length ? `<span class="tag todo" title="未填：${miss.join('、')}">未填 ${miss.length} 个阶段</span>` : '<span class="tag todo" title="季节节奏日历里没有这个季节/年份/国家的阶段日期">无节奏日历</span>';
-  const ach = num(c['阶段达成率']);
-  return `<div class="pc ${x.light}" data-id="${esc(c._id)}">
+
+// ===== 横向大卡片：左 = 阶段预估 + 库存；中 = 数据（当日指标/原因/近7天）；右 = 目标和计划 =====
+function bigCardHtml(x) {
+  const c = x.c, t = x.today || {}, target = state.mode === 'target';
+  const dateTxt = x.today ? fmtD(dn(x.today['日期'])) : '无日行';
+  let tags = `<span class="tag">${esc(x.stage || '—')}</span><span class="tag g">${esc(x.season)}</span>${c['销售状态'] ? `<span class="tag g">${esc(c['销售状态'])}</span>` : ''}`;
+  if (target) {
+    const miss = missingStages(x);
+    tags += isFilled(x) ? '<span class="tag ok">已填写</span>'
+      : needStages(x).length ? `<span class="tag todo" title="未填：${miss.join('、')}">未填 ${miss.length} 个阶段</span>` : '<span class="tag todo" title="季节节奏日历里没有这个季节/年份/国家的阶段日期">无节奏日历</span>';
+  } else if (isTodo(x)) tags += '<span class="tag todo">未分析</span>';
+  // 中栏：数据
+  let data;
+  if (target) {
+    const ach = num(c['阶段达成率']);
+    data = `<div class="sec-t">当前状态 <span class="meta">${dateTxt}</span></div><div class="stat-row">
+        ${kpi('当前阶段', esc(x.stage || '—'))}
+        ${kpi('阶段达成率', pct(ach), ach != null && ach < 0.8 && x.hasStage ? 'bad' : '')}
+        ${kpi('应达 / 累计', `${fmtN(num(c['应达销量']))}<small> / ${fmtN(num(c['累计销量']))}</small>`)}</div>`;
+  } else {
+    const sale = num(t['今日销量']), tacos = num(t['今日TACOS']), margin = num(t['今日利润率']), prog = num(t['_当日销售进度值']);
+    const tgt = x.hasStage ? (x.target != null ? fmtN(x.target, 1) : '<span class="tbd" title="战役行该阶段日均未填">未填</span>') : '—';
+    data = `<div class="sec-t">当日数据 <span class="meta">${dateTxt}</span></div><div class="kpis">
+        ${kpi('日销量 / 目标', `${fmtN(sale)} <small>/ ${tgt}</small>`)}
+        ${kpi('当日销售进度', `${pct(prog)}<div class="pbar"><i style="width:${Math.min(100, Math.max(0, (prog || 0) * 100))}%"></i></div>`)}
+        ${kpi('本周至今', TBD)}
+        ${kpi('日TACoS', pct(tacos, 1), tacos != null && tacos > 0.25 ? 'bad' : '')}
+        ${kpi('利润率', pct(margin, 1), margin != null && margin < 0 ? 'bad' : '')}
+        ${kpi('阶段达成率', pct(num(c['阶段达成率'])))}
+        ${kpi('应达 / 累计', `${fmtN(num(c['应达销量']))}<small> / ${fmtN(num(c['累计销量']))}</small>`)}
+        ${kpi('近7日均量', fmtN(num(c['近7日均量']), 1))}</div>`;
+  }
+  data += `<div class="reason ${x.light}">${esc(t['红绿灯原因'] || c['红绿灯原因'] || '（表里无红绿灯原因）')}</div>
+    <div><div class="sec-t">近 7 天 <span class="meta">柱色 = 当天红绿灯 · 虚线 = 当前阶段日均目标</span></div>${week7(x)}</div>`;
+  // 右栏：目标和计划
+  let plan;
+  if (target) plan = goalsHtml(x);
+  else {
+    const view = ANA_FIELDS.map((f) => {
+      const v = t[f] ? String(t[f]).replace(/\s+/g, ' ') : '';
+      return `<div class="ana-item"><div class="k">${esc(f)}</div><div class="t${v ? '' : ' none'}" title="${esc(v)}">${v ? esc(v) : '未填'}</div></div>`;
+    }).join('');
+    const edit = ANA_FIELDS.map((f) => {
+      const prevV = x.prev && x.prev[f] ? `昨日：${x.prev[f]}` : '';
+      return `<div><label>${esc(f)}</label><textarea data-f="${esc(f)}" placeholder="${esc(prevV)}">${esc(t[f] || '')}</textarea></div>`;
+    }).join('');
+    const yest = x.prev && x.prev['计划操作'] ? esc(String(x.prev['计划操作']).trim()) : '—';
+    const cur = x.hasStage && c[x.stage + '目标'] ? `<div class="curgoal"><span>${esc(x.stage)}目标</span>${esc(c[x.stage + '目标'])}</div>` : '';
+    plan = `${cur}<div class="ana">
+        <div class="ana-h"><b>今日分析 · ${dateTxt}</b><span class="acts"><span data-msg></span>${x.today ? `<button class="btn" data-edit>记动作</button><button class="btn primary" data-save style="display:none">保存</button>` : ''}</span></div>
+        <div class="ana-list">${view}</div>
+        <div class="ana-edit">${edit}</div>
+      </div>
+      <div class="foot"><span class="yest">昨日计划：<b>${yest}</b></span></div>`;
+  }
+  return `<div class="pc big ${x.light}" data-id="${esc(c._id)}">
     <div class="pc-head">
       <div class="pc-img" data-img="${esc(c._id)}">${x.pm && x.pm._imgData ? `<img src="${x.pm._imgData}" alt="">` : '无图'}</div>
       <div class="pc-title"><b title="${esc(c['品名'])}">${esc(c['品名'] || c['领星SKU'])}</b>
-        <div class="mono">${esc(c['ASIN'] || '—')} · ${esc(c['国家文本'] || '—')} · ${esc(c['店铺'] || '—')}</div>
-        <div class="tags"><span class="tag">${esc(x.stage || '—')}</span><span class="tag g">${esc(x.season)}</span>${fillTag}</div></div>
+        <div class="mono">${esc(c['ASIN'] || '—')} · ${esc(c['国家文本'] || '—')} · ${esc(c['店铺'] || '—')} · ${esc(c['领星SKU'] || '')}</div>
+        <div class="tags">${tags}</div></div>
       <span class="light ${x.light}">${esc(x.lightTxt || '未判灯')}</span>
     </div>
-    <div>
-      <div class="sec-t">当前状态 <span class="meta">${x.today ? fmtD(dn(x.today['日期'])) : '无日行'} · ${esc(c['销售状态'] || '')}</span></div>
-      <div class="stat-row">
-        ${kpi('当前阶段', esc(x.stage || '—'))}
-        ${kpi('阶段达成率', pct(ach), ach != null && ach < 0.8 && x.hasStage ? 'bad' : '')}
-        ${kpi('应达 / 累计', `${fmtN(num(c['应达销量']))}<small> / ${fmtN(num(c['累计销量']))}</small>`)}
-      </div>
-      <div class="reason ${x.light}" style="margin-top:8px">${esc(t['红绿灯原因'] || '（表里无红绿灯原因）')}</div>
+    <div class="pc-body">
+      <div class="pc-col">${stagePlan(x, { open: true, title: target ? '阶段目标（销量）' : '阶段预估销量', avgLab: '日均', estLab: target ? '销量目标' : '预估' })}${invHtml(x)}</div>
+      <div class="pc-col">${data}</div>
+      <div class="pc-col fill">${plan}</div>
     </div>
-    ${invHtml(x)}
-    <div>
-      <div class="sec-t">近 7 天 <span class="meta">柱色 = 当天红绿灯 · 虚线 = 当前阶段日均目标</span></div>
-      ${week7(x)}
-    </div>
-    ${stagePlan(x, { open: true, goals: true, title: '阶段目标', avgLab: '日均', estLab: '销量目标' })}
   </div>`;
+}
+
+// 目标页右栏：5 个阶段文字目标（写战役行 X期目标）
+function goalsHtml(x) {
+  const c = x.c;
+  return `<div class="goalbox"><div class="sec-t">阶段文字目标 <span class="meta">当前阶段加粗</span></div>
+    <div class="goals">${STAGES.map((st) => `<div class="goal${st === x.stage ? ' cur' : ''}"><label>${st}目标</label>
+      <textarea data-goal="${st}" rows="2" placeholder="这个阶段要达成什么，如：冲进类目前 50 / 广告 ACOS 压到 30%">${esc(c[st + '目标'] || '')}</textarea></div>`).join('')}</div>
+    <div class="pfoot"><span data-gmsg>点文字即可修改</span><button class="btn primary" data-gsave style="display:none">保存文字目标</button></div></div>`;
+}
+function bindGoals(el, x) {
+  const box = el.querySelector('.goalbox');
+  if (!box) return;
+  const goals = [...box.querySelectorAll('[data-goal]')], btn = box.querySelector('[data-gsave]'), msg = box.querySelector('[data-gmsg]');
+  const fit = (ta) => { ta.style.height = 'auto'; ta.style.height = Math.max(44, ta.scrollHeight + 2) + 'px'; };
+  const refresh = () => {
+    const n = goals.filter((g) => { const ch = g.value !== (x.c[g.dataset.goal + '目标'] || ''); g.classList.toggle('dirty', ch); return ch; }).length;
+    btn.style.display = n ? '' : 'none'; msg.textContent = n ? `改了 ${n} 处，记得保存` : '点文字即可修改';
+  };
+  goals.forEach((g) => { g.oninput = () => { fit(g); refresh(); }; requestAnimationFrame(() => fit(g)); });
+  btn.onclick = async () => {
+    if (!TBLS.track) { msg.textContent = '预览模式不能写回'; return; }
+    const fields = {}, changed = goals.filter((g) => g.classList.contains('dirty'));
+    for (const g of changed) {
+      const fid = FIDS.track[g.dataset.goal + '目标'];
+      if (!fid) { msg.textContent = `表里找不到字段「${g.dataset.goal}目标」`; return; }
+      fields[fid] = g.value.trim() ? [{ type: 'text', text: g.value }] : null;
+    }
+    btn.disabled = true; msg.textContent = '保存中…';
+    try {
+      await TBLS.track.setRecord(x.c._id, { fields });
+      changed.forEach((g) => { x.c[g.dataset.goal + '目标'] = g.value; });
+      render();
+      const m = document.querySelector(`.pc[data-id="${x.c._id}"] [data-gmsg]`); if (m) m.textContent = `已保存 ${changed.length} 处 ✔`;
+    } catch (e) {
+      msg.textContent = '保存失败：' + (e && e.message ? e.message : e) + '（应用数据权限要对追踪表开「可编辑」）';
+      btn.disabled = false;
+    }
+  };
 }
 
 // 阶段预估：输入联动 + 写回战役行的 X期日均
@@ -768,7 +856,7 @@ function render() {
     $('filters').innerHTML = `<div class="bar1">${fchips}</div>
       ${sChips ? `<div class="schips">${sChips}</div>` : ''}
       <div class="schips"><span class="flab">阶段</span>${stChips}</div>`;
-    $('main').innerHTML = tShown.length ? libHtml(tShown, targetCardHtml) : `<div class="empty">没有符合条件的产品</div>`;
+    $('main').innerHTML = tShown.length ? libHtml(tShown, bigCardHtml) : `<div class="empty">没有符合条件的产品</div>`;
     bindLib();
     $('filters').querySelectorAll('[data-fill]').forEach((b) => b.onclick = () => { state.fill = b.dataset.fill; render(); });
     $('filters').querySelectorAll('[data-season]').forEach((b) => b.onclick = () => { state.season = b.dataset.season; state.stage = 'all'; render(); });
@@ -784,7 +872,7 @@ function render() {
     ${sChips ? `<div class="schips">${sChips}</div>` : ''}
     <div class="schips"><span class="flab">阶段</span>${stChips}</div>`;
   $('main').innerHTML = `${hist}
-    ${shown.length ? libHtml(shown, cardHtml) : `<div class="empty">没有符合条件的产品</div>`}`;
+    ${shown.length ? libHtml(shown, bigCardHtml) : `<div class="empty">没有符合条件的产品</div>`}`;
   bindLib();
   $('filters').querySelectorAll('[data-light]').forEach((b) => b.onclick = () => { state.light = b.dataset.light; render(); });
   $('filters').querySelectorAll('[data-season]').forEach((b) => b.onclick = () => { state.season = b.dataset.season; state.stage = 'all'; state.light = 'all'; render(); });
@@ -797,7 +885,7 @@ function render() {
 // ===== ⑤ 今日分析写回日行 =====
 function bindCard(el) {
   const x = LIST().find((k) => k.c._id === el.dataset.id);
-  if (x) bindPlan(el, x);
+  if (x) { bindPlan(el, x); bindGoals(el, x); }
   if (!x || !x.today || state.mode === 'target') return;
   const tas = [...el.querySelectorAll('textarea')];
   const editBtn = el.querySelector('[data-edit]'), saveBtn = el.querySelector('[data-save]'), msg = el.querySelector('[data-msg]');
