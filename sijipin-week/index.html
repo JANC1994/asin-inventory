@@ -205,7 +205,11 @@
   .w8-b.cur i { background: var(--or); } .w8-b.cur .n { color: var(--or-d); font-weight: 700; }
   .w8-b.run i { background: repeating-linear-gradient(45deg, #f6c597 0 4px, #fbe3cc 4px 8px); }
   .w8-x { display: flex; gap: 5px; margin-top: 3px; }
-  .w8-x span { flex: 1; text-align: center; font-size: 10px; color: var(--sub); }
+  .w8-x span { flex: 1; text-align: center; font-size: 10px; color: var(--sub); line-height: 1.25; }
+  .w8-x span b { display: block; font-size: 11px; color: var(--ink); } .w8-x span.cur b { color: var(--or-d); }
+  .wkb { flex: none; display: flex; flex-direction: column; align-items: center; justify-content: center; min-width: 64px; padding: 6px 10px; border-radius: 10px;
+         background: var(--or); color: #fff; line-height: 1.15; box-shadow: 0 2px 6px rgba(240,122,18,.25); }
+  .wkb b { font-size: 20px; letter-spacing: .5px; } .wkb span { font-size: 11px; opacity: .92; white-space: nowrap; }
 
   .sec { padding-top: 2px; }
   .sec + .sec { border-top: 1px dashed var(--line2); padding-top: 8px; }
@@ -365,6 +369,12 @@ const dn = (ms) => Math.floor((Number(ms) + BJ) / DAY);   // 北京时间天序�
 const ud = (n) => new Date(n * DAY);
 const fmtD = (n) => { const d = ud(n); return `${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`; };
 const WKD = '日一二三四五六';
+// 周数：自然周 周日~周六（同 X24 建周行的锚点 2025-12-28 周日），含 1 月 1 日的那一周 = 第 1 周（亚马逊美国后台同口径）
+function weekNo(w) {
+  const y = ud(w + 6).getUTCFullYear(), j1 = Math.floor(Date.UTC(y, 0, 1) / DAY), a = j1 - ud(j1).getUTCDay();
+  return { y, n: Math.floor((w - a) / 7) + 1 };
+}
+const wkLabel = (w) => `W${weekNo(w).n}`;
 // 数字：兼容 SDK 返回的格式化文本（「8.8%」「1,234」「$21.78」「C$5」）
 function num(v) {
   if (v == null || v === '' || typeof v === 'boolean') return null;
@@ -842,7 +852,7 @@ function renderTop() {
   if (state.owner && !cnt[state.owner]) state.owner = '';
   $('owner').onchange = (e) => { state.owner = e.target.value; store.set('swp.owner', state.owner); renderTop(); render(); };
   // 周
-  $('week').innerHTML = WEEKS.map(({ w, st }) => `<option value="${w}"${w === state.week ? ' selected' : ''}>${fmtD(w)} ~ ${fmtD(w + 6)}　${st || ''}${w === DEFAULT_WEEK ? '（上一完整周）' : ''}</option>`).join('');
+  $('week').innerHTML = WEEKS.map(({ w, st }) => `<option value="${w}"${w === state.week ? ' selected' : ''}>${wkLabel(w)} 周　${fmtD(w)} ~ ${fmtD(w + 6)}　${st || ''}${w === DEFAULT_WEEK ? '（上一完整周）' : ''}</option>`).join('');
   $('week').onchange = (e) => { state.week = Number(e.target.value); renderTop(); render(); };
   $('week').style.display = state.mode === 'perf' ? 'none' : '';
   // 国家
@@ -927,7 +937,7 @@ function w8Html(e) {
   return `<div class="w8"><div class="w8-t"><span>近 8 周销量</span><span>${pts.some((p) => p.r['周状态'] === '进行中') ? '斜纹 = 本周进行中' : ''}</span></div>
     <div class="w8-bars">${pts.map((p) => { const v = p.r['销量'] || 0;
       return `<div class="w8-b${p.w === state.week ? ' cur' : ''}${p.r['周状态'] === '进行中' ? ' run' : ''}" title="${fmtD(p.w)}~${fmtD(p.w + 6)}　销量 ${fmtN(v)}"><span class="n">${fmtN(v)}</span><i style="height:${Math.max(2, v / max * 100)}%"></i></div>`; }).join('')}</div>
-    <div class="w8-x">${pts.map((p) => `<span>${fmtD(p.w)}</span>`).join('')}</div></div>`;
+    <div class="w8-x">${pts.map((p) => `<span title="${fmtD(p.w)}~${fmtD(p.w + 6)}"${p.w === state.week ? ' class="cur"' : ''}><b>${wkLabel(p.w)}</b>${fmtD(p.w)}</span>`).join('')}</div></div>`;
 }
 
 const val = (r, f) => { const k = `${r._id}|${f}`; return k in DRAFT ? DRAFT[k] : (r[f] ?? ''); };
@@ -1024,9 +1034,10 @@ function cardHtml(x) {
   return `<div class="pc ${x.light}" data-id="${r._id}" data-key="${esc(e.key)}">
     <div class="pc-head">
       <div class="pc-img" data-img="${esc(e.key)}">${imgTag(e)}</div>
+      <div class="wkb" title="${weekNo(state.week).y} 年第 ${weekNo(state.week).n} 周（周日~周六，美国日期）"><b>${wkLabel(state.week)}</b><span>${fmtD(state.week)}~${fmtD(state.week + 6)}</span></div>
       <div class="pc-title"><b title="${esc(e.spu)}">${esc(e.spu)}</b>
         <div class="tags"><span class="tag">${esc(c)}</span><span class="tag g">${esc(r['负责人'] || '未填负责人')}</span>
-          <span class="tag g">${fmtD(state.week)}~${fmtD(state.week + 6)} ${esc(r['周状态'] || '')}${r['有效天数'] != null && r['有效天数'] < 7 ? ` ${r['有效天数']}天` : ''}</span>
+          <span class="tag g">${esc(r['周状态'] || '')}${r['有效天数'] != null && r['有效天数'] < 7 ? ` · ${r['有效天数']}天` : ''}</span>
           <span class="tag ${x.fill === 'done' ? 'ok' : x.fill === 'part' ? 'part' : ''}">复盘${FILL_LABEL[x.fill]}</span></div></div>
       <span class="light ${x.light}">${esc(lt)}</span>
       ${basisHtml(e, r)}
@@ -1228,7 +1239,7 @@ function renderProgress(main) {
     body += xs.map((x) => `<tr class="go" data-go="${esc(x.e.key)}"><td>${esc(x.e.spu)}</td><td>${esc(x.e.country)}</td><td>${esc(x.r['红绿灯'] || '⚪')}</td>
       ${cols.map((f) => filled(val(x.r, f)) ? `<td class="y" title="${esc(String(val(x.r, f)).slice(0, 80))}">✓</td>` : '<td class="n">·</td>').join('')}</tr>`).join('');
   }
-  main.innerHTML = list.length ? `<div class="card0" style="overflow-x:auto"><div class="meta" style="margin-bottom:6px">${fmtD(state.week)} ~ ${fmtD(state.week + 6)} 这一周各 SPU 的填写情况（✓ = 已填，鼠标停留看内容），点一行跳到它的卡片。</div>
+  main.innerHTML = list.length ? `<div class="card0" style="overflow-x:auto"><div class="meta" style="margin-bottom:6px">${wkLabel(state.week)} 周（${fmtD(state.week)} ~ ${fmtD(state.week + 6)}）各 SPU 的填写情况（✓ = 已填，鼠标停留看内容），点一行跳到它的卡片。</div>
     <table class="pt"><thead><tr><th>SPU</th><th>国家</th><th>灯</th>${cols.map((f) => `<th class="${BOSS_FIELDS.includes(f) ? 'boss' : ''}">${f}${BOSS_FIELDS.includes(f) ? '（主管）' : ''}</th>`).join('')}</tr></thead><tbody>${body}</tbody></table></div>`
     : `<div class="empty">这一周没有符合条件的 SPU</div>`;
   main.querySelectorAll('[data-go]').forEach((tr) => tr.onclick = () => {
