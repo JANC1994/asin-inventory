@@ -248,6 +248,9 @@ const TODAY = dn(Date.now());
 const daysIn = (ym) => new Date(Date.UTC(+ym.slice(0, 4), +ym.slice(4), 0)).getUTCDate();
 const ymLabel = (ym) => `${ym.slice(2, 4)}年${+ym.slice(4)}月`;
 const NOW = new Date(Date.now() + BJ), CUR_YM = `${NOW.getUTCFullYear()}${String(NOW.getUTCMonth() + 1).padStart(2, '0')}`;   // 北京本月
+// 四季品只显示/只考核 本月起 6 个月（用户 10-16 定）；表里多建的第 7、8 个月（备货表滚动用）不在页面上出现
+const WIN_MONTHS = 6;
+const WIN = new Set(Array.from({ length: WIN_MONTHS }, (_, k) => { const m = NOW.getUTCMonth() + k; return `${NOW.getUTCFullYear() + Math.floor(m / 12)}${String(m % 12 + 1).padStart(2, '0')}`; }));
 
 function cell(v) {
   if (v == null) return null;
@@ -329,8 +332,8 @@ function build(tg, cal, pm) {
   for (const r of tg) {
     const t = r['目标类型'], c = r['国家文本'];
     if (t === '四季品-SPU') E(r['SPU'] || String(r['目标键']).split('|')[0], c).spuRow = r;
-    else if (t === '四季品-月度' && r['销售年月'] >= CUR_YM) E(r['SPU'] || String(r['目标键']).split('|')[0], c).mon[r['销售年月']] = r;
-    else if (t === '四季品-ASIN预估' && r['销售年月'] >= CUR_YM && r['SPU']) {
+    else if (t === '四季品-月度' && WIN.has(r['销售年月'])) E(r['SPU'] || String(r['目标键']).split('|')[0], c).mon[r['销售年月']] = r;
+    else if (t === '四季品-ASIN预估' && WIN.has(r['销售年月']) && r['SPU']) {
       const a = (E(r['SPU'], c).asins[r['ASIN']] ??= { asin: r['ASIN'], name: r['品名'], owner: r['负责人'], cells: {} });
       a.cells[r['销售年月']] = r; a.name ||= r['品名']; a.owner ||= r['负责人'];
     }
@@ -506,7 +509,7 @@ function blockSJ(e) {
     })}</tr>`);
   }
   if (!e.asins.length) rows.push(`<tr><td class="c0 meta" colspan="${e.months.length + 1}" style="color:var(--red)">这个 SPU×国家 下没有 ASIN 预估行（备货表没启用 ASIN），月销量目标会是 0</td></tr>`);
-  return `<div class="blk">${head}${year}<div class="sec"><div class="sec-t">月度目标 + ASIN 预估 <span class="meta">从本月（${ymLabel(CUR_YM)}）起；改日均后月目标、备货表、周目标都会跟着变</span></div>
+  return `<div class="blk">${head}${year}<div class="sec"><div class="sec-t">月度目标 + ASIN 预估 <span class="meta">本月起 6 个月；改日均后月目标、备货表、周目标都会跟着变</span></div>
     <div class="mt-wrap"><table class="mt"><thead><tr><th class="c0">${esc(e.country)}</th>${mcol((ym) => `<th>${ymLabel(ym)}<div style="font-weight:400;font-size:11px">${daysIn(ym)} 天</div></th>`)}</tr></thead>
     <tbody>${rows.join('')}</tbody></table></div></div></div>`;
 }
