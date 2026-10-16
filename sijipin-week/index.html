@@ -159,6 +159,15 @@
     color: var(--ink); background: #fff; resize: none; overflow: hidden; outline: none; box-shadow: 0 0 0 2px rgba(240,122,18,.12); }
   .goal-e input { font-size: 18px; font-variant-numeric: tabular-nums; }
   .goal-b { display: flex; gap: 6px; margin-top: 6px; }
+  .pc-col.fill { gap: 8px; }
+  .pc-col.fill > .sec-t { margin-bottom: -2px; }
+  .goal.rv { flex: 1 1 auto; background: #fff; border: 1px solid var(--line); padding: 7px 12px 9px; }
+  .goal.rv .goal-h { color: var(--or-d); }
+  .goal.rv .goal-v { font-size: 14px; font-weight: 700; line-height: 1.6; }
+  .goal.rv .goal-v.none { font-size: 12.5px; font-weight: normal; color: #c3b8ad; }
+  .goal.rv.boss { flex: 0 0 auto; background: #f6f3ff; border-color: #e3dcfa; }
+  .goal.rv.boss .goal-h { color: #5b3fc4; } .goal.rv.boss .gedit { color: #5b3fc4; }
+  .goal.rv.dirty { border-color: #f2b705; background: #fffbea; }
   @media (max-width: 1000px) { .goals { grid-template-columns: 1fr 1fr; } }
   @media (max-width: 560px) { .goals { grid-template-columns: 1fr; } }
   @media (max-width: 1380px) { .pc-body { grid-template-columns: 1fr 1fr; } .pc-col.fill { grid-column: 1 / -1; border-left: 0; padding-left: 0; border-top: 1px dashed var(--line2); padding-top: 10px; } }
@@ -1019,17 +1028,25 @@ const GOALS = [
   { f: '经营策略', ph: '如：拓展变体、拓展泛词' },
   { f: '关键指标', ph: '如：销量、利润率' },
 ];
+// 右栏复盘：和目标带一样默认只显示（加粗），点 ✎ 或双击才编辑
+const REVIEW_DEFS = [
+  { f: '竞品动态', ph: '未填 · 竞品降价/上新/排名变化…', rows: 4, cls: 'rv' },
+  { f: '问题和归因', ph: '未填 · 本周哪里不对、为什么', rows: 4, cls: 'rv' },
+  { f: '计划操作', ph: '未填 · 下周具体做什么', rows: 4, cls: 'rv' },
+  { f: '建议操作', ph: '主管还没写', rows: 3, cls: 'rv boss' },
+];
+const defOf = (f) => GOALS.concat(REVIEW_DEFS).find((x) => x.f === f);
 function goalHtml(r, g, extra = '') {
   const v = val(r, g.f), dirty = `${r._id}|${g.f}` in DRAFT;
   const shown = g.num ? (num(v) ? fmtN(num(v)) : '') : String(v || '');
   if (g.ro) return `<div class="goal gnum ro" data-goal="${g.f}" title="产品目标总表的月销量目标按天平摊到这一周（跨月分别算再相加），不能手改；要改请改 ASIN 预估日均">
     <div class="goal-h"><span>${g.f} <small style="font-weight:normal;color:var(--sub)">· 月目标按天拆</small></span></div>
     <div class="goal-v${shown ? '' : ' none'}">${shown ? esc(shown) : esc(g.ph)}${extra}</div></div>`;
-  return `<div class="goal${dirty ? ' dirty' : ''}${g.num ? ' gnum' : ''}" data-goal="${g.f}">
-    <div class="goal-h"><span>${g.f}</span><button class="gedit" data-gedit title="编辑">✎</button></div>
+  return `<div class="goal${g.cls ? ' ' + g.cls : ''}${dirty ? ' dirty' : ''}${g.num ? ' gnum' : ''}" data-goal="${g.f}">
+    <div class="goal-h"><span>${g.f === '建议操作' ? '主管建议' : g.f}</span><button class="gedit" data-gedit title="编辑">✎</button></div>
     <div class="goal-v${shown ? '' : ' none'}">${shown ? esc(shown) : esc(g.ph)}${extra}</div>
     <div class="goal-e">${g.num ? `<input type="number" min="0" step="1" data-f="${g.f}" value="${esc(v)}" placeholder="未填">`
-      : `<textarea rows="2" data-f="${g.f}" placeholder="${esc(g.ph)}">${esc(v)}</textarea>`}
+      : `<textarea rows="${g.rows || 2}" data-f="${g.f}" placeholder="${esc(g.ph.replace(/^未填 · /, ''))}">${esc(v)}</textarea>`}
       <div class="goal-b"><button class="btn primary" data-gok>完成</button><button class="btn ghost" data-gcancel>取消</button></div></div>
   </div>`;
 }
@@ -1072,10 +1089,8 @@ function cardHtml(x) {
         ${asins.length ? `<div class="col-t">ASIN 明细（${asins.length} 个，点名称看趋势）</div>${asinTblHtml(asins, c, e.spu)}` : ''}
       </div>
       <div class="pc-col fill">
-        <div class="sec"><div class="sec-t">本周复盘 <span class="meta">3 项都填 = 已填</span></div>
-          ${fldHtml(r, '竞品动态', '竞品降价/上新/排名变化…')}${fldHtml(r, '问题和归因', '本周哪里不对、为什么')}${fldHtml(r, '计划操作', '下周具体做什么')}
-        </div>
-        <div class="sec boss"><div class="sec-t">主管建议</div>${fldHtml(r, '建议操作', '主管填写')}</div>
+        <div class="sec-t">本周复盘 <span class="meta">3 项都填 = 已填 · 点 ✎ 填写</span></div>
+        ${REVIEW_DEFS.map((g) => goalHtml(r, g)).join('')}
       </div>
     </div>
   </div>`;
@@ -1190,7 +1205,7 @@ function bindCard(x) {
     g.querySelector('.goal-v').ondblclick = open;
     g.querySelector('[data-gok]').onclick = () => {   // 完成：只收起，改动留在 DRAFT 等「保存」
       g.classList.remove('editing');
-      const def = GOALS.find((x2) => x2.f === f), v = inp.value, shown = def.num ? (num(v) != null ? fmtN(num(v)) : '') : v.trim();
+      const def = defOf(f), v = inp.value, shown = def.num ? (num(v) != null ? fmtN(num(v)) : '') : v.trim();
       const vEl = g.querySelector('.goal-v'), keep = vEl.querySelector('.grate');
       vEl.textContent = shown || def.ph; vEl.classList.toggle('none', !shown);
       if (keep && !(`${r._id}|${f}` in DRAFT)) vEl.appendChild(keep);
