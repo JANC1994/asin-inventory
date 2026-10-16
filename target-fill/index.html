@@ -11,7 +11,7 @@
               + 月度（月度行：经营策略/关键指标；月销量目标 = ASIN 预估之和，只读）
               + ASIN 预估日均（四季品-ASIN预估行，每个 ASIN × 每个月都要填，0 也算填）
     · 季节品：左侧按季节分组（可折叠）→ SPU；右侧选中 SPU 的每个 ASIN×国家一张卡
-              = 总库存数量 + 五个阶段（日均 + 阶段目标）；阶段日期/天数取 季节节奏日历，天数为 0 的阶段不用填
+              = 总库存（发货量，表里公式自动抓，只读）+ 五个阶段（日均 + 阶段目标）；阶段日期/天数取 季节节奏日历，天数为 0 的阶段不用填
   「各层级不能漏」：每个必填格空着就标红虚线，侧栏圆点 绿=填完 / 橙=填了一部分 / 灰=没动；缺行（还没建的月份/ASIN 行）也算未完成，由每日任务 X29 补行。
   网址加 ?tab=sijipin 或 ?tab=jijie 可锁定只显示一个分页（两个应用页面各放一个插件）。
   只写手填字段；月销量目标、预估月销量、预估销量-整季、库存差额 是表里公式，页面按同一口径现算显示。
@@ -320,7 +320,7 @@ function build(tg, cal, pm) {
   for (const p of pm) if (p['ASIN']) PM[`${p['ASIN']}|${p['国家文本']}`] = p;
   for (const c of cal) for (const cls of String(c['对应销售季分类'] || '').split('、')) for (const ct of String(c['国家'] || '').split('、')) CAL[`${cls}|${c['销售年份']}|${ct}`] = c;
   for (const r of tg) ROW[r._id] = r;
-  for (const k of Object.keys(DRAFT)) if (!ROW[k.split('|')[0]]) delete DRAFT[k];
+  for (const k of Object.keys(DRAFT)) if (!ROW[k.split('|')[0]] || k.endsWith('|总库存数量')) delete DRAFT[k];   // 总库存数量 10-16 起是公式
   saveDraft();
 
   // 四季品：SPU×国家 实体
@@ -382,7 +382,7 @@ function curStage(B) {
 const stageOn = (x, s) => { const B = bounds(x); return !B || stDays(B, STAGES.indexOf(s)) > 0; };     // 没有时段时五段都要填
 const estOf = (x) => { const B = bounds(x); return STAGES.reduce((t, st, i) => t + (num(val(x.r, st + '日均')) || 0) * (stDays(B, i) || 0), 0); };
 function needJJ(x) {
-  const items = [{ ok: filled(x.r, '总库存数量'), what: '总库存数量' }];
+  const items = [];   // 总库存数量 = 发货量（表里公式自动抓），不用填
   for (const s of STAGES) if (stageOn(x, s)) { items.push({ ok: filled(x.r, s + '日均'), what: s + '日均' }); items.push({ ok: filled(x.r, s + '目标'), what: s + '目标' }); }
   return items;
 }
@@ -538,7 +538,7 @@ function cardJJ(x) {
       <div><div class="nm2">${esc(r['品名'] || '（品名空）')}</div>
         <div class="ids"><span class="asin">${esc(r['ASIN'])}</span><span class="tag or">${esc(x.country)}</span>${x.owners.map((o) => `<span class="tag">${esc(o)}</span>`).join('')}<span class="tag">${esc(short(x.season))}</span>${src}${progHtml(s)}</div>
         ${B ? '' : '<div class="meta" style="color:var(--red);margin-top:4px">⚠ 节奏日历里没有这个分类×年份×国家，也没设本品时段：双击任一阶段日期设置，否则五段都要填</div>'}</div>
-      <div class="kv"><div><div class="k">总库存数量<b style="color:var(--red)">*</b></div>${inp(r, '总库存数量', { ph: '件' })}</div>
+      <div class="kv"><div title="领星发货明细按 ASIN+国家 汇总的发货量；时段 = 起量期开始前 180 天 ~ 清仓期结束（改了本品时段，保存后刷新才会重算）"><div class="k">总库存（发货量·自动）</div><div class="v">${fmtN(r['总库存数量'])}</div></div>
         <div><div class="k">整季预估销量</div><div class="v" data-calc="est" data-rid="${r._id}">${fmtN(est)}</div></div>
         <div><div class="k">库存差额（＋多备／－不够）</div><div class="v ${diff == null ? '' : diff < 0 ? 'neg' : 'pos'}" data-calc="diff" data-rid="${r._id}">${diff == null ? '—' : (diff > 0 ? '+' : '') + fmtN(diff)}</div></div></div>
     </div><div class="stg">${stg}</div></div>`;
