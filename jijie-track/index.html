@@ -13,6 +13,9 @@
     · 产品主表-灯类+精铺 tblqksywqgYvywOT：图片（按 领星SKU+国家文本 匹配，同追踪表公式口径）
   口径：日销量目标 = 战役行「当前阶段」对应的 X期日均（用户 10-12 定）；本周至今 表里无来源 → 待定。
   今日分析 6 个文字字段可在卡片上改，「保存」写回该日行（应用数据权限要对追踪表开「可编辑」）。
+  2026-10-23：「目标填写」视图撤掉，五期日均/阶段目标统一在「目标填写」页（存 产品目标总表-灯）填；本页只读，
+    优先显示目标总表的当前值（读不到就用追踪表副本，X21 每晚同步）。X21 把空的今日分析沿用上一日，
+    所以「已分析」= 4 项任一有字且和前一日不完全一样。
   四条硬规矩见 wiki/页面设计/概念/飞书应用自定义插件页.md。
 -->
 <style>
@@ -137,8 +140,6 @@
   .seg { display: inline-flex; background: rgba(255,255,255,.22); border-radius: 9px; padding: 3px; gap: 2px; }
   .seg button { height: 28px; padding: 0 14px; border: 0; border-radius: 7px; background: transparent; color: #fff; font-size: 13.5px; cursor: pointer; }
   .seg button.on { background: #fff; color: var(--or-d); font-weight: 700; box-shadow: 0 1px 3px rgba(0,0,0,.12); }
-  .lchip.fill-no { border-style: dashed; border-color: var(--or); color: var(--or-d); }
-  .lchip.fill-no.on, .lchip.fill-yes.on { border-style: solid; }
   .tag.ok { background: var(--green-soft); color: var(--green); }
   .sec-t { font-size: 12.5px; font-weight: 700; color: var(--or-d); margin-bottom: 6px; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
   .sec-t .meta { font-weight: normal; }
@@ -294,13 +295,12 @@
     <div class="hero-t">
       <h2>季节品每日追踪</h2>
       <p class="desc">每张卡 = 一个季节品链接（SKU×国家）。左侧按 SPU 列出（红灯多的排前），按销售季分组可折叠，点哪个 SPU 右边就显示它每个产品的横向大卡（左：阶段预估+库存，中：数据，右：目标和计划）。红黄绿灯和原因由系统每天按追踪表判定；
-        「今日分析」点「记动作」可直接写回多维表；「红/黄未分析」= 当天亮红/黄灯、但竞品动态/问题归因/计划/建议操作都还没填的产品。
-        切到「目标填写」：按产品填各阶段日均目标（阶段销量目标 = 日均 × 天数），并看当前状态和近 7 天表现。数据来源：季节品追踪表，每天更新。</p>
+        「今日分析」每天自动沿用上一日的内容，点「记动作」改完保存即可；「红/黄未分析」= 当天亮红/黄灯、但竞品动态/问题归因/计划/建议操作都没填、或和上一日一字不差的产品。
+        各阶段日均和阶段目标请到应用里的「目标填写」页修改，本页只显示。数据来源：季节品追踪表 + 产品目标总表，每天更新。</p>
     </div>
   </div>
   <div class="sticky" id="sticky">
     <div class="hero hero-f">
-      <div class="seg" id="mode"><button data-mode="daily">每日追踪</button><button data-mode="target">目标填写</button></div>
       <select id="owner"><option value="">— 选择负责人 —</option></select>
       <select id="date" class="date"></select>
       <label class="ck"><input type="checkbox" id="showSold"> 显示售罄 <span id="soldCnt"></span></label>
@@ -322,7 +322,7 @@ const ANA_DONE_FIELDS = ['竞品动态', '当前问题+归因', '计划操作', 
 const TABLES = {
   // view：表里的视图「插件-近7天（季节品页面用，勿删）」= 战役行 + 近7天的日行（约 730 行，全表 5000+ 行太慢）
   track: { id: 'tblKdwDOmVZxf6DN', name: '季节品追踪表', view: 'vew0aHeZlE', fields: [
-    '行类型', '日期', '上级记录', '启用追踪', '负责人', '品名', 'ASIN', '国家文本', '店铺', '领星SKU', 'SPU',
+    '行类型', '日期', '上级记录', '启用追踪', '负责人', '品名', 'ASIN', '国家文本', '店铺', '领星SKU', 'SPU', '销售年份',
     '销售季分类', '当前阶段', '销售状态', '当日红绿灯', '红绿灯原因', '_当日销售进度值',
     '今日销量', '今日TACOS', '今日利润率', '今日销售额', '今日广告花费', '剩余可售天数', 'FBA可售', 'FBA在途入库',
     '近7日均量', '阶段达成率', '正价段目标销量', '应达销量',
@@ -330,6 +330,8 @@ const TABLES = {
     ...STAGES.map((s) => s + '日均'), ...STAGES, ...STAGES.map((s) => s + '天数'), ...STAGES.map((s) => s + '目标'), '预估销量-整季', '累计销量', '销售进度',
     ...ANA_FIELDS] },
   pm: { id: 'tblqksywqgYvywOT', name: '产品主表-灯类+精铺', fields: ['领星SKU', '国家文本', '图片'] },
+  // 目标在「目标填写」页填，存这里；追踪表战役行的同名字段是 X21 每晚抄过去的副本（授权靠「目标总览」页插件）
+  tgt: { id: 'tblE3XbKD8PUEX7Y', name: '产品目标总表-灯', fields: ['目标类型', 'ASIN', '国家文本', '销售年份', ...STAGES.map((s) => s + '日均'), ...STAGES.map((s) => s + '目标')] },
 };
 const SAVE_TABLE = 'track';
 
@@ -431,18 +433,38 @@ const LIGHTS = [
   { key: 'none', label: '未判灯', color: '#ffffff', match: () => true },   // 当日红绿灯为空（脚本还没判）
 ];
 const lightOf = (s) => LIGHTS.find((l) => l.match(String(s || ''))).key;
-const analyzed = (x) => !!x.today && ANA_DONE_FIELDS.some((f) => String(x.today[f] || '').trim());
+const txt = (r, f) => String((r && r[f]) || '').trim();
+// X21 把空的今日分析沿用上一日 → 和上一日 4 项一字不差 = 没更新
+const carried = (x) => !!x.today && !!x.prev && ANA_DONE_FIELDS.some((f) => txt(x.today, f)) && ANA_DONE_FIELDS.every((f) => txt(x.today, f) === txt(x.prev, f));
+const analyzed = (x) => !!x.today && ANA_DONE_FIELDS.some((f) => txt(x.today, f)) && !carried(x);
 const isTodo = (x) => (x.light === 'red' || x.light === 'yellow') && !analyzed(x);   // 红/黄未分析
 
-let ALL = [], CARDS = [], TCARDS = [], LATEST = null, DATES = [];
-let state = { mode: store.get('stp.mode') === 'target' ? 'target' : 'daily', fill: 'all', owner: store.get('stp.owner') || '', date: null, light: 'all', season: 'all', stage: 'all', showSold: store.get('stp.showSold') === '1' };
+let ALL = [], CARDS = [], LATEST = null, DATES = [];
+let state = { owner:store.get('stp.owner') || '', date: null, light: 'all', season: 'all', stage: 'all', showSold: store.get('stp.showSold') === '1' };
 const WK = '日一二三四五六';
 const isSold = (x) => String(x.c['销售状态'] || '').includes('售罄');   // 销售状态 = ⛔售罄
+
+// 目标总表的五期日均/阶段目标盖到战役行上（键 = ASIN|国家|年份），整季预估按新日均重算
+let TGT_ROWS = [];
+function overlayTargets(camps) {
+  const by = {};
+  for (const r of TGT_ROWS) if (r['目标类型'] === '季节品' && r['ASIN']) by[`${r['ASIN']}|${r['国家文本']}|${r['销售年份']}`] = r;
+  let n = 0;
+  for (const c of camps) {
+    const t = by[`${c['ASIN']}|${c['国家文本']}|${c['销售年份']}`];
+    if (!t || c._tgt) continue;
+    c._tgt = true; n++;
+    for (const st of STAGES) { c[st + '日均'] = num(t[st + '日均']); c[st + '目标'] = t[st + '目标'] || ''; }
+    c['预估销量-整季'] = STAGES.reduce((s, st) => s + (num(c[st + '天数']) || 0) * (num(c[st + '日均']) || 0), 0);
+  }
+  return n;
+}
 
 function build(track, pm) {
   const pmBy = {};
   for (const p of pm) pmBy[`${p['领星SKU']}|${p['国家文本']}`] = p;
   const camps = track.filter((r) => r['行类型'] === '战役' && String(r['启用追踪']) === '1');
+  overlayTargets(camps);
   const daysBy = {};
   for (const r of track) {
     if (r['行类型'] === '战役' || !r['日期']) continue;
@@ -488,15 +510,8 @@ function applyDate() {
     const lightTxt = today['当日红绿灯'] || '';
     CARDS.push({ ...a, today, prev, lightTxt, light: lightOf(lightTxt) });
   }
-  // 目标填写页：每个启用追踪的产品一张卡，状态取它最新一天的日行
-  TCARDS = ALL.map((a) => { const today = a.ds[0] || null; const lightTxt = (today && today['当日红绿灯']) || '';
-    return { ...a, today, prev: a.ds[1] || null, lightTxt, light: lightOf(lightTxt) }; });
 }
-const LIST = () => state.mode === 'target' ? TCARDS : CARDS;
-// 「已填写」= 有天数的每个阶段都填了日均；没有节奏日历（各阶段天数都为 0）的算未填写
-const needStages = (x) => STAGES.filter((st) => (num(x.c[st + '天数']) || 0) > 0);
-const missingStages = (x) => needStages(x).filter((st) => num(x.c[st + '日均']) == null);
-const isFilled = (x) => needStages(x).length > 0 && missingStages(x).length === 0;
+const LIST = () => CARDS;
 
 // ===== ④ 渲染 =====
 function renderOwner() {
@@ -505,17 +520,11 @@ function renderOwner() {
   // 负责人下拉：名字后面带所选日期的各灯数量（跟随「显示售罄」）
   const cnt = {};
   LIST().filter((x) => state.showSold || !isSold(x)).forEach((x) => {
-    const o = (cnt[x.owner] = cnt[x.owner] || { n: 0, red: 0, yellow: 0, green: 0, none: 0, ended: 0, unfilled: 0 });
-    o.n++; o[x.light]++; if (!isFilled(x)) o.unfilled++;
+    const o = (cnt[x.owner] = cnt[x.owner] || { n: 0, red: 0, yellow: 0, green: 0, none: 0, ended: 0 });
+    o.n++; o[x.light]++;
   });
   const names = Object.keys(cnt).sort((a, b) => cnt[b].n - cnt[a].n);
-  const lab = (n) => { const o = cnt[n]; return state.mode === 'target' ? `${n}　未填写 ${o.unfilled} / 共 ${o.n}`
-    : `${n}　🔴${o.red} 🟡${o.yellow} 🟢${o.green}${o.none ? ` 未判${o.none}` : ''}${o.ended ? ` ⚪${o.ended}` : ''}`; };
-  $('date').style.display = state.mode === 'target' ? 'none' : '';
-  $('mode').querySelectorAll('[data-mode]').forEach((b) => {
-    b.classList.toggle('on', b.dataset.mode === state.mode);
-    b.onclick = () => { if (state.mode === b.dataset.mode) return; state.mode = b.dataset.mode; store.set('stp.mode', state.mode); state.light = 'all'; state.fill = 'all'; renderOwner(); render(); $('main').scrollTop = 0; };
-  });
+  const lab = (n) => { const o = cnt[n]; return `${n}　🔴${o.red} 🟡${o.yellow} 🟢${o.green}${o.none ? ` 未判${o.none}` : ''}${o.ended ? ` ⚪${o.ended}` : ''}`; };
   $('owner').innerHTML = `<option value="">— 选择负责人 —</option>` + names.map((n) => `<option value="${esc(n)}"${n === state.owner ? ' selected' : ''}>${esc(lab(n))}</option>`).join('')
     + (state.owner && !cnt[state.owner] ? `<option value="${esc(state.owner)}" selected>${esc(state.owner)}（该日无产品）</option>` : '');
   $('owner').onchange = (e) => { state.owner = e.target.value; state.light = 'all'; state.season = 'all'; state.stage = 'all'; state.spu = ''; store.set('stp.owner', state.owner); render(); $('main').scrollTop = 0; };
@@ -555,11 +564,9 @@ function libHtml(list, cardFn) {
   const seasons = seasonGroups(list);
   const all = seasons.flatMap(([se, gs]) => gs.map(([k, xs]) => [selKey(se, k), se, k, xs]));
   if (!all.some(([key]) => key === state.spu)) state.spu = all[0][0];
-  const target = state.mode === 'target';
   const item = ([key, , k, xs]) => {
     const worst = xs.reduce((w, x) => LORDER[x.light] < LORDER[w] ? x.light : w, 'ended');
-    const sub = target ? `${xs.length} 个 · 未填 ${xs.filter((x) => !isFilled(x)).length}`
-      : `${xs.length} 个 · 🔴${lcnt(xs, 'red')} 🟡${lcnt(xs, 'yellow')}${xs.filter(isTodo).length ? ` · 未分析 ${xs.filter(isTodo).length}` : ''}`;
+    const sub = `${xs.length} 个 · 🔴${lcnt(xs, 'red')} 🟡${lcnt(xs, 'yellow')}${xs.filter(isTodo).length ? ` · 未分析 ${xs.filter(isTodo).length}` : ''}`;
     const f = xs[0], img = (f.pm && f.pm._imgData) || f.imgUrl;
     return `<button class="si${key === state.spu ? ' on' : ''}" data-spu="${esc(key)}" title="${esc(k)}">
       <span class="si-img" data-simg="${esc(f.c._id)}">${img ? `<img src="${esc(img)}" alt="">` : '无图'}</span>
@@ -568,7 +575,7 @@ function libHtml(list, cardFn) {
   const selSe = all.find(([key]) => key === state.spu)[1];
   const side = seasons.map(([se, gs]) => {
     const xs = gs.flatMap(([, v]) => v), fold = FOLD.has(se) && se !== selSe;
-    const sum = target ? `未填 ${xs.filter((x) => !isFilled(x)).length}` : `🔴${lcnt(xs, 'red')} 🟡${lcnt(xs, 'yellow')}`;
+    const sum = `🔴${lcnt(xs, 'red')} 🟡${lcnt(xs, 'yellow')}`;
     return `<div class="side-g${fold ? ' fold' : ''}"><button class="side-gh" data-fold="${esc(se)}"><i>▾</i><b>${esc(se)}</b><span>${gs.length} SPU · ${sum}</span></button>
       <div class="side-gb">${all.filter(([, s2]) => s2 === se).map(item).join('')}</div></div>`;
   }).join('');
@@ -612,18 +619,16 @@ function stagePlan(x, opt = {}) {
   const rows = STAGES.map((s) => ({ s, range: c[s] || '', days: num(c[s + '天数']), avg: num(c[s + '日均']) }))
     .map((r) => ({ ...r, est: r.days != null && r.avg != null ? Math.round(r.days * r.avg) : null }));
   const total = num(c['预估销量-整季']), sold = num(c['累计销量']), prog = num(c['销售进度']);
-  // 日均、预估都可直接点开改：改日均→预估跟着算；改预估→日均 = 预估 ÷ 天数。保存只写战役行的「X期日均」（预估是表里公式算的）
-  const tr = rows.map((r) => `<tr class="${r.s === x.stage ? 'cur' : ''}" data-s="${r.s}" data-days="${r.days ?? ''}"><td>${r.s}</td><td>${esc(r.range || '—')}</td>
+  // 只读：日均和阶段目标在「目标填写」页改
+  const tr = rows.map((r) => `<tr class="${r.s === x.stage ? 'cur' : ''}"><td>${r.s}</td><td>${esc(r.range || '—')}</td>
     <td>${r.days != null ? fmtN(r.days) : '—'}</td>
-    <td><input class="pin" data-k="avg" inputmode="decimal" value="${r.avg != null ? +r.avg.toFixed(2) : ''}" placeholder="未填" data-orig="${r.avg ?? ''}"></td>
-    <td><input class="pin est" data-k="est" inputmode="numeric" value="${r.est ?? ''}" placeholder="—"${r.days ? '' : ' disabled title="该阶段天数为 0，不能按预估反推日均"'}></td>
-    <td data-pct>${r.est != null && total ? pct(r.est / total) : '—'}</td></tr>`).join('');
+    <td>${r.avg != null ? fmtN(r.avg, 2) : '<span class="tbd">未填</span>'}</td>
+    <td>${r.est != null ? fmtN(r.est) : '—'}</td>
+    <td>${r.est != null && total ? pct(r.est / total) : '—'}</td></tr>`).join('');
   return `<details class="plan"${opt.open ? ' open' : ''}><summary>${opt.title || '阶段预估销量'} <span class="meta">整季预估 ${fmtN(total)} · 已售 ${fmtN(sold)} · 进度 ${pct(prog)}</span></summary>
-    <table class="ptbl"><thead><tr><th>阶段</th><th>日期</th><th>天数</th><th title="点数字可修改">${opt.avgLab || '日均'}</th><th title="点数字可修改">${opt.estLab || '预估'}</th><th>占比</th></tr></thead>
-    <tbody>${tr}</tbody><tfoot><tr><td colspan="4">整季预估</td><td><b data-total>${fmtN(total)}</b></td><td></td></tr></tfoot></table>
-    ${opt.goals ? `<div class="goals">${STAGES.map((st) => `<div class="goal${st === x.stage ? ' cur' : ''}"><label>${st}目标</label>
-      <textarea data-goal="${st}" rows="1" placeholder="这个阶段要达成什么，如：冲进类目前 50 / 广告 ACOS 压到 30%">${esc(c[st + '目标'] || '')}</textarea></div>`).join('')}</div>` : ''}
-    <div class="pfoot"><span data-pmsg>${opt.goals ? '点数字或文字即可修改' : '点日均或预估的数字即可修改'}</span><button class="btn primary" data-psave style="display:none">${opt.goals ? '保存阶段目标' : '保存阶段预估'}</button></div></details>`;
+    <table class="ptbl"><thead><tr><th>阶段</th><th>日期</th><th>天数</th><th>日均</th><th>预估</th><th>占比</th></tr></thead>
+    <tbody>${tr}</tbody><tfoot><tr><td colspan="4">整季预估</td><td><b>${fmtN(total)}</b></td><td></td></tr></tfoot></table>
+    <div class="pfoot"><span>日均、阶段目标请到「目标填写」页修改</span></div></details>`;
 }
 
 // ===== 库存块：本季已发货 = 已售 + FBA可售 + 在途 + 其他（调拨/不可售/差额），数都取战役行 =====
@@ -647,7 +652,7 @@ function invHtml(x) {
   </div>`;
 }
 
-// ===== 目标填写页卡片：头部 + 当前状态 + 近 7 天概览 + 阶段目标（可编辑） =====
+// ===== 近 7 天概览 =====
 function week7(x) {
   const ds = x.ds.slice(0, 7).reverse();
   if (!ds.length) return `<div class="w7"><div class="meta">近 7 天没有日行数据</div></div>`;
@@ -669,23 +674,14 @@ function week7(x) {
 
 // ===== 横向大卡片：左 = 阶段预估 + 库存；中 = 数据（当日指标/原因/近7天）；右 = 目标和计划 =====
 function bigCardHtml(x) {
-  const c = x.c, t = x.today || {}, target = state.mode === 'target';
+  const c = x.c, t = x.today || {};
   const dateTxt = x.today ? fmtD(dn(x.today['日期'])) : '无日行';
   let tags = `<span class="tag">${esc(x.stage || '—')}</span><span class="tag g">${esc(x.season)}</span>${c['销售状态'] ? `<span class="tag g">${esc(c['销售状态'])}</span>` : ''}`;
-  if (target) {
-    const miss = missingStages(x);
-    tags += isFilled(x) ? '<span class="tag ok">已填写</span>'
-      : needStages(x).length ? `<span class="tag todo" title="未填：${miss.join('、')}">未填 ${miss.length} 个阶段</span>` : '<span class="tag todo" title="季节节奏日历里没有这个季节/年份/国家的阶段日期">无节奏日历</span>';
-  } else if (isTodo(x)) tags += '<span class="tag todo">未分析</span>';
+  if (isTodo(x)) tags += `<span class="tag todo"${carried(x) ? ' title="今日分析和上一日一字不差（系统沿用），改一下再保存才算已分析"' : ''}>${carried(x) ? '未分析 · 沿用昨日' : '未分析'}</span>`;
+  else if (carried(x)) tags += '<span class="tag g" title="今日分析和上一日一字不差（系统沿用）">沿用昨日</span>';
   // 中栏：数据
   let data;
-  if (target) {
-    const ach = num(c['阶段达成率']);
-    data = `<div class="sec-t">当前状态 <span class="meta">${dateTxt}</span></div><div class="stat-row">
-        ${kpi('当前阶段', esc(x.stage || '—'))}
-        ${kpi('阶段达成率', pct(ach), ach != null && ach < 0.8 && x.hasStage ? 'bad' : '')}
-        ${kpi('应达 / 累计', `${fmtN(num(c['应达销量']))}<small> / ${fmtN(num(c['累计销量']))}</small>`)}</div>`;
-  } else {
+  {
     const sale = num(t['今日销量']), tacos = num(t['今日TACOS']), margin = num(t['今日利润率']);
     const tgt = x.hasStage ? (x.target != null ? fmtN(x.target, 1) : '<span class="tbd" title="战役行该阶段日均未填">未填</span>') : '—';
     data = `<div class="sec-t">当日数据 <span class="meta">${dateTxt}</span></div><div class="kpis">
@@ -700,8 +696,7 @@ function bigCardHtml(x) {
   data += `<div><div class="sec-t">近 7 天 <span class="meta">柱色 = 当天红绿灯 · 虚线 = 当前阶段日均目标</span></div>${week7(x)}</div>`;
   // 右栏：目标和计划
   let plan;
-  if (target) plan = goalsHtml(x);
-  else {
+  {
     // 每个字段一个框：看的时候显示文字，点「记动作」后同一个框里变成输入框
     const box = (f) => {
       const v = t[f] ? String(t[f]).trim() : '';
@@ -740,118 +735,11 @@ function bigCardHtml(x) {
       </div>
     </div>
     <div class="pc-body">
-      <div class="pc-col">${stagePlan(x, { open: true, title: target ? '阶段目标（销量）' : '阶段预估销量', avgLab: '日均', estLab: target ? '销量目标' : '预估' })}${invHtml(x)}</div>
+      <div class="pc-col">${stagePlan(x, { open: true })}${invHtml(x)}</div>
       <div class="pc-col">${data}</div>
       <div class="pc-col fill">${plan}</div>
     </div>
   </div>`;
-}
-
-// 目标页右栏：5 个阶段文字目标（写战役行 X期目标）
-function goalsHtml(x) {
-  const c = x.c;
-  return `<div class="goalbox"><div class="sec-t">阶段文字目标 <span class="meta">当前阶段加粗</span></div>
-    <div class="goals">${STAGES.map((st) => `<div class="goal${st === x.stage ? ' cur' : ''}"><label>${st}目标</label>
-      <textarea data-goal="${st}" rows="2" placeholder="这个阶段要达成什么，如：冲进类目前 50 / 广告 ACOS 压到 30%">${esc(c[st + '目标'] || '')}</textarea></div>`).join('')}</div>
-    <div class="pfoot"><span data-gmsg>点文字即可修改</span><button class="btn primary" data-gsave style="display:none">保存文字目标</button></div></div>`;
-}
-function bindGoals(el, x) {
-  const box = el.querySelector('.goalbox');
-  if (!box) return;
-  const goals = [...box.querySelectorAll('[data-goal]')], btn = box.querySelector('[data-gsave]'), msg = box.querySelector('[data-gmsg]');
-  const fit = (ta) => { ta.style.height = 'auto'; ta.style.height = Math.max(44, ta.scrollHeight + 2) + 'px'; };
-  const refresh = () => {
-    const n = goals.filter((g) => { const ch = g.value !== (x.c[g.dataset.goal + '目标'] || ''); g.classList.toggle('dirty', ch); return ch; }).length;
-    btn.style.display = n ? '' : 'none'; msg.textContent = n ? `改了 ${n} 处，记得保存` : '点文字即可修改';
-  };
-  goals.forEach((g) => { g.oninput = () => { fit(g); refresh(); }; requestAnimationFrame(() => fit(g)); });
-  btn.onclick = async () => {
-    if (!TBLS.track) { msg.textContent = '预览模式不能写回'; return; }
-    const fields = {}, changed = goals.filter((g) => g.classList.contains('dirty'));
-    for (const g of changed) {
-      const fid = FIDS.track[g.dataset.goal + '目标'];
-      if (!fid) { msg.textContent = `表里找不到字段「${g.dataset.goal}目标」`; return; }
-      fields[fid] = g.value.trim() ? [{ type: 'text', text: g.value }] : null;
-    }
-    btn.disabled = true; msg.textContent = '保存中…';
-    try {
-      await TBLS.track.setRecord(x.c._id, { fields });
-      changed.forEach((g) => { x.c[g.dataset.goal + '目标'] = g.value; });
-      render();
-      const m = document.querySelector(`.pc[data-id="${x.c._id}"] [data-gmsg]`); if (m) m.textContent = `已保存 ${changed.length} 处 ✔`;
-    } catch (e) {
-      msg.textContent = '保存失败：' + (e && e.message ? e.message : e) + '（应用数据权限要对追踪表开「可编辑」）';
-      btn.disabled = false;
-    }
-  };
-}
-
-// 阶段预估：输入联动 + 写回战役行的 X期日均
-function bindPlan(el, x) {
-  const box = el.querySelector('details.plan');
-  if (!box) return;
-  const trs = [...box.querySelectorAll('tbody tr')];
-  const btn = box.querySelector('[data-psave]'), msg = box.querySelector('[data-pmsg]');
-  const val = (inp) => (inp.value.trim() === '' || isNaN(inp.value)) ? null : Number(inp.value);
-  const goals = [...box.querySelectorAll('[data-goal]')];
-  const fit = (ta) => { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 2 + 'px'; };
-  const refresh = () => {
-    let sum = 0, any = false, dirty = 0;
-    for (const g of goals) { const ch = g.value !== (x.c[g.dataset.goal + '目标'] || ''); g.classList.toggle('dirty', ch); if (ch) dirty++; }
-    for (const tr of trs) {
-      const est = val(tr.querySelector('[data-k="est"]'));
-      if (est != null) { sum += est; any = true; }
-      const a = tr.querySelector('[data-k="avg"]');
-      const changed = String(val(a) ?? '') !== String(a.dataset.orig === '' ? '' : +Number(a.dataset.orig).toFixed(2));
-      a.classList.toggle('dirty', changed); if (changed) dirty++;
-    }
-    box.querySelector('[data-total]').textContent = any ? fmtN(sum) : '—';
-    trs.forEach((tr) => { const e = val(tr.querySelector('[data-k="est"]')); tr.querySelector('[data-pct]').textContent = e != null && sum ? pct(e / sum) : '—'; });
-    btn.style.display = dirty ? '' : 'none';
-    msg.textContent = dirty ? `改了 ${dirty} 处，记得保存` : (goals.length ? '点数字或文字即可修改' : '点日均或预估的数字即可修改');
-  };
-  goals.forEach((g) => { g.oninput = () => { fit(g); refresh(); }; requestAnimationFrame(() => fit(g)); });
-  for (const tr of trs) {
-    const days = Number(tr.dataset.days) || 0;
-    const a = tr.querySelector('[data-k="avg"]'), e = tr.querySelector('[data-k="est"]');
-    a.oninput = () => { const v = val(a); e.value = v != null && days ? Math.round(v * days) : ''; refresh(); };
-    e.oninput = () => { const v = val(e); a.value = v != null && days ? +(v / days).toFixed(2) : ''; refresh(); };
-    [a, e].forEach((i) => i.onkeydown = (ev) => { if (ev.key === 'Enter') btn.click(); });
-  }
-  btn.onclick = async () => {
-    if (!TBLS.track) { msg.textContent = '预览模式不能写回'; return; }
-    const fields = {}, changed = [];
-    for (const tr of trs) {
-      const a = tr.querySelector('[data-k="avg"]');
-      if (!a.classList.contains('dirty')) continue;
-      const fid = FIDS.track[tr.dataset.s + '日均'];
-      if (!fid) { msg.textContent = `表里找不到字段「${tr.dataset.s}日均」`; return; }
-      fields[fid] = val(a); changed.push([tr.dataset.s, val(a)]);
-    }
-    const gChanged = [];
-    for (const g of goals) {
-      if (!g.classList.contains('dirty')) continue;
-      const fid = FIDS.track[g.dataset.goal + '目标'];
-      if (!fid) { msg.textContent = `表里找不到字段「${g.dataset.goal}目标」`; return; }
-      fields[fid] = g.value.trim() ? [{ type: 'text', text: g.value }] : null; gChanged.push([g.dataset.goal, g.value]);
-    }
-    btn.disabled = true; msg.textContent = '保存中…';
-    try {
-      await TBLS.track.setRecord(x.c._id, { fields });
-      for (const [st, v] of changed) x.c[st + '日均'] = v;
-      for (const [st, v] of gChanged) x.c[st + '目标'] = v;
-      x.c['预估销量-整季'] = STAGES.reduce((t, st) => t + (num(x.c[st + '天数']) || 0) * (num(x.c[st + '日均']) || 0), 0);
-      if (x.hasStage) x.target = num(x.c[x.stage + '日均']);
-      for (const k of [...ALL, ...CARDS, ...TCARDS]) if (k.c === x.c) k.target = x.target;
-      renderOwner();   // ALL/CARDS 共用同一个战役行对象 c
-      render();
-      const card = document.querySelector(`.pc[data-id="${x.c._id}"]`);
-      if (card) { const d = card.querySelector('details.plan'); d.open = true; d.querySelector('[data-pmsg]').textContent = `已保存 ${changed.length + gChanged.length} 处 ✔`; }
-    } catch (e) {
-      msg.textContent = '保存失败：' + (e && e.message ? e.message : e) + '（应用数据权限要对追踪表开「可编辑」）';
-      btn.disabled = false;
-    }
-  };
 }
 
 function render() {
@@ -882,25 +770,6 @@ function render() {
   const stc = (k) => inSeason.filter((x) => stageKey(x) === k).length;
   const stChips = [`<button class="schip${state.stage === 'all' ? ' on' : ''}" data-stage="all">全部 ${inSeason.length}</button>`]
     .concat(STAGES.concat(stc('其他') ? ['其他'] : []).map((s) => `<button class="schip${state.stage === s ? ' on' : ''}${stc(s) ? '' : ' zero'}" data-stage="${s}" title="${s === '其他' ? '已结束 / 无节奏日历' : ''}">${s} ${stc(s)}</button>`)).join('');
-  if (state.mode === 'target') {
-    const fn = (k) => k === 'yes' ? bySeason.filter(isFilled) : k === 'no' ? bySeason.filter((x) => !isFilled(x)) : bySeason;
-    const tShown = fn(state.fill);
-    const fchips = [['all', '全部'], ['no', '未填写'], ['yes', '已填写']].map(([k, l]) =>
-      `<div class="lchip fill-${k}${state.fill === k ? ' on' : ''}${fn(k).length ? '' : ' zero'}" data-fill="${k}">${l}<b>${fn(k).length}</b></div>`).join('')
-      + `<span class="meta" style="margin-left:auto" title="有天数的每个阶段都填了日均 = 已填写">已填写 ${fn('yes').length} / ${bySeason.length}</span>`;
-    $('filters').innerHTML = `<div class="bar1">${fchips}</div>
-      ${sChips ? `<div class="schips">${sChips}</div>` : ''}
-      <div class="schips"><span class="flab">阶段</span>${stChips}</div>`;
-    $('main').innerHTML = tShown.length ? libHtml(tShown, bigCardHtml) : `<div class="empty">没有符合条件的产品</div>`;
-    bindLib();
-    $('filters').querySelectorAll('[data-fill]').forEach((b) => b.onclick = () => { state.fill = b.dataset.fill; render(); });
-    $('filters').querySelectorAll('[data-season]').forEach((b) => b.onclick = () => { state.season = b.dataset.season; state.stage = 'all'; render(); });
-    $('filters').querySelectorAll('[data-stage]').forEach((b) => b.onclick = () => { state.stage = b.dataset.stage; render(); });
-    $('main').querySelectorAll('.pc').forEach(bindCard);
-    loadImages(imgTargets(tShown));
-    syncTop();
-    return;
-  }
   const hist = state.date !== LATEST ? `<div class="histnote">正在看 ${fmtD(state.date)} 的记录：红绿灯、原因、当日指标、今日分析是那一天的；阶段、库存、在途、目标和五个期预估是当前值。</div>` : '';
   $('filters').innerHTML = `
     <div class="bar1">${chips}</div>
@@ -920,8 +789,7 @@ function render() {
 // ===== ⑤ 今日分析写回日行 =====
 function bindCard(el) {
   const x = LIST().find((k) => k.c._id === el.dataset.id);
-  if (x) { bindPlan(el, x); bindGoals(el, x); }
-  if (!x || !x.today || state.mode === 'target') return;
+  if (!x || !x.today) return;
   const tas = [...el.querySelectorAll('textarea')];
   const editBtn = el.querySelector('[data-edit]'), saveBtn = el.querySelector('[data-save]'), msg = el.querySelector('[data-msg]');
   tas.forEach((ta) => ta.oninput = () => ta.classList.toggle('dirty', ta.value !== (x.today[ta.dataset.f] || '')));
@@ -1059,6 +927,7 @@ function showDiag(track) {
 }
 try {
   if (window.__SNAPSHOT__) {
+    TGT_ROWS = window.__SNAPSHOT__.tgt || [];
     finish(window.__SNAPSHOT__.track, window.__SNAPSHOT__.pm, `本地快照 ${window.__SNAPSHOT__.at}（只读预览）`);
   } else {
     SDK = await import(SDK_URL);
@@ -1067,7 +936,9 @@ try {
     let pm = [];
     try { pm = await readTable('pm'); } catch (e) { console.warn('产品主表读不到，卡片不显示图片', e); }   // 非核心表：读不到降级
     PM_ROWS = pm;
-    finish(track, pm, '取数：季节品追踪表（近7天）+ 产品主表');
+    let tgtNote = ' + 产品目标总表';
+    try { TGT_ROWS = await readTable('tgt'); } catch (e) { console.warn('产品目标总表读不到，日均/阶段目标用追踪表副本', e); tgtNote = '（目标总表读不到，日均用追踪表昨晚同步值）'; }
+    finish(track, pm, '取数：季节品追踪表（近7天）+ 产品主表' + tgtNote);
   }
 } catch (e) {
   const msg = esc(e && e.message ? e.message : e);
