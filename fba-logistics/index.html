@@ -1,0 +1,640 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>货件物流跟踪</title>
+<!--
+  飞书应用自定义插件页「货件物流跟踪」（2026-10-27）。源：tools/fba-logistics-page/index.html → 发布 github-pages/fba-logistics/
+  读：货件物流跟踪-灯 tblB78mpJmyfEBHZ（一个 FBA 货件一行：领星字段 + 物流商字段）、货件商品明细-灯 tblW09RSzUtYaCRm（货件号×MSKU）
+  写：只在「导入物流商表」时写 货件物流跟踪-灯 的物流商字段（按 FBA ID 匹配）
+  规则（用户 10-27 定）：有物流商信息以物流商为准，没有显示领星状态/时间线；领星已完结的货件不进表（sync_fba_logistics.py 删）。
+  数据：sync_fba_logistics.py（X33 每日）；硬规矩见 tools/feishu-page-kit/template.html 顶部注释。
+-->
+<style>
+  :root { --bg:#f5f6f8; --card:#fff; --ink:#1f2329; --sub:#646a73; --line:#e5e6eb; --head:#f3f4f7; --hover:#f7f8fb;
+    --blue:#3370ff; --blue-soft:#e1eaff; --red:#f54a45; --red-soft:#fde2e2; --yellow:#c46a00; --yellow-soft:#fff1d6;
+    --green:#2ea121; --green-soft:#e4f6e1; --gray-soft:#eff0f1; --shadow:0 8px 24px rgba(16,24,40,.12); }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; overflow: hidden; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.5 -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; }
+  .wrap { padding: 10px 16px 0; height: 100vh; display: flex; flex-direction: column; }
+  #main { flex: 1; min-height: 0; overflow: auto; position: relative; margin: 0 -16px; padding: 0 16px 24px; }
+  .tip { flex: none; background: #fff7e8; color: #b25e00; border-radius: 8px; padding: 6px 12px; font-size: 12.5px; margin-bottom: 8px; }
+  .savebar { flex: none; display: none; align-items: center; gap: 12px; background: #fff7e8; border: 1px solid #ffd591; border-radius: 8px; padding: 10px 14px; margin-bottom: 10px; }
+  .savebar.show { display: flex; }
+  .savebar button { height: 32px; padding: 0 16px; border: 0; border-radius: 6px; background: var(--blue); color: #fff; font-size: 14px; cursor: pointer; }
+  .sticky { position: relative; flex: none; z-index: 20; background: var(--bg); margin: 0 -16px; padding: 2px 16px 8px; }
+  .sticky.stuck { box-shadow: 0 6px 12px -8px rgba(0,0,0,.25); }
+  .meta { color: var(--sub); font-size: 12px; }
+  .err { color: var(--red); white-space: pre-wrap; }
+  .loading { padding: 40px; text-align: center; color: var(--sub); }
+
+  /* 顶栏控件：统一 32px 高 */
+  .bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .ctl { font: inherit; font-size: 13px; color: var(--ink); background: var(--card); border: 1px solid var(--line); border-radius: 6px; height: 32px; padding: 0 10px; margin: 0;
+         display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; cursor: pointer; }
+  .ctl:hover { border-color: #c9cdd4; }
+  input.ctl { cursor: text; flex: 1 1 200px; min-width: 0; }
+  input.ctl:focus, select.ctl:focus { outline: none; border-color: var(--blue); box-shadow: 0 0 0 2px var(--blue-soft); }
+  .btn { background: var(--blue); color: #fff; border-color: var(--blue); }
+  .btn:hover { opacity: .9; border-color: var(--blue); }
+  .btn2 { background: var(--card); color: var(--blue); border-color: var(--blue); }
+  .cnt { color: var(--sub); font-size: 12px; margin-left: auto; white-space: nowrap; }
+  .sep { width: 1px; height: 20px; background: var(--line); }
+  .seg { position: relative; display: inline-grid; grid-template-columns: 1fr 1fr; background: var(--head); border: 1px solid var(--line); border-radius: 8px; padding: 2px; height: 34px; flex: none; }
+  .seg button { position: relative; z-index: 1; font: inherit; font-size: 13px; font-weight: 600; border: 0; background: none; color: var(--sub); padding: 0 14px; cursor: pointer; white-space: nowrap; transition: color .2s; }
+  .seg button.on { color: var(--ink); }
+  .seg .pill { position: absolute; top: 2px; bottom: 2px; left: 2px; width: calc(50% - 2px); background: var(--card); border-radius: 6px; box-shadow: 0 1px 3px rgba(16,24,40,.15); transition: transform .25s cubic-bezier(.4,0,.2,1); }
+  .seg[data-on="1"] .pill { transform: translateX(100%); }
+  .ms { position: relative; display: inline-flex; }
+  .ms > summary { list-style: none; user-select: none; max-width: 200px; }
+  .ms > summary span { overflow: hidden; text-overflow: ellipsis; }
+  .ms > summary::-webkit-details-marker { display: none; }
+  .ms > summary::after { content: ""; width: 6px; height: 6px; border-right: 1.5px solid var(--sub); border-bottom: 1.5px solid var(--sub); transform: translateY(-2px) rotate(45deg); margin-left: 4px; flex: none; }
+  .ms[open] > summary { border-color: var(--blue); }
+  .ms.has > summary { background: var(--blue-soft); border-color: var(--blue); color: var(--blue); }
+  .pop { position: absolute; top: calc(100% + 6px); left: 0; background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 6px; min-width: 210px; box-shadow: var(--shadow); z-index: 30; max-height: 60vh; overflow: auto; }
+  .pop .ops { display: flex; gap: 6px; padding: 2px 2px 8px; border-bottom: 1px solid var(--line); margin-bottom: 4px; }
+  .pop .ops button { font: inherit; font-size: 12px; color: var(--ink); background: var(--head); border: 1px solid var(--line); border-radius: 5px; height: 24px; padding: 0 8px; cursor: pointer; }
+  .pop .grp { font-size: 11.5px; color: var(--sub); padding: 8px 10px 2px; }
+  .pop label { display: flex; align-items: center; gap: 10px; height: 30px; padding: 0 10px; border-radius: 5px; cursor: pointer; white-space: nowrap; font-size: 13px; }
+  .pop label:hover { background: var(--hover); }
+  .pop input[type=checkbox] { width: 15px; height: 15px; margin: 0; flex: none; accent-color: var(--blue); cursor: pointer; }
+  .pop .c { margin-left: auto; padding-left: 16px; color: var(--sub); font-size: 12px; }
+
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; margin: 10px 0; }
+  .kpi { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; }
+  .kpi b { display: block; font-size: 20px; line-height: 1.25; font-variant-numeric: tabular-nums; }
+  .kpi span { color: var(--sub); font-size: 12px; }
+  .kpi.g b { color: var(--green); } .kpi.y b { color: var(--yellow); } .kpi.r b { color: var(--red); }
+  .note { color: var(--sub); font-size: 12px; margin: 0 0 10px; line-height: 1.7; }
+  .note b { color: var(--ink); font-weight: 600; }
+
+  /* 汇总表 */
+  .tbl { background: var(--card); border: 1px solid var(--line); border-radius: 8px; width: max-content; min-width: 100%; }
+  table.t { border-collapse: separate; border-spacing: 0; width: 100%; font-variant-numeric: tabular-nums; }
+  .t th, .t td { padding: 8px 7px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: middle; font-size: 12.5px; }
+  .t th { background: var(--head); color: var(--sub); font-weight: 600; white-space: nowrap; position: sticky; top: 0; z-index: 2; }
+  .t th:first-child { border-top-left-radius: 8px; } .t th:last-child { border-top-right-radius: 8px; }
+  .t .n { text-align: right; white-space: nowrap; }
+  .t tfoot td { background: var(--head); font-weight: 600; position: sticky; bottom: 0; border-bottom: 0; }
+  .mono { font-family: Consolas, Menlo, monospace; font-size: 12px; white-space: nowrap; }
+  .msk { font-family: Consolas, Menlo, monospace; font-size: 11.5px; max-width: 150px; word-break: break-all; }
+  .name { min-width: 140px; max-width: 170px; }
+  .nw { white-space: nowrap; } .sub { color: var(--sub); font-size: 12px; }
+  td.zero { color: #b0b4ba; } td.ok { color: var(--green); font-weight: 600; } td.hl { color: var(--yellow); font-weight: 600; } td.bd { color: var(--red); font-weight: 600; }
+  .rate { display: inline-flex; align-items: center; gap: 6px; }
+  .rate i { display: block; width: 32px; height: 6px; border-radius: 3px; background: var(--gray-soft); overflow: hidden; }
+  .rate i s { display: block; height: 100%; background: var(--green); }
+  tr.srow { cursor: pointer; } tr.srow:hover > td { background: var(--hover); }
+  .car { display: inline-block; width: 14px; color: var(--sub); transition: transform .2s; }
+  tr.srow.open .car { transform: rotate(90deg); } tr.srow.open > td { background: var(--blue-soft); }
+  tr.det > td { background: var(--bg); padding: 10px 12px 12px 30px; }
+  tr.det .grid { width: calc(100vw - 72px); position: sticky; left: 0; }   /* 展开卡片按屏宽排，不撑宽汇总表 */
+
+  /* 货件卡片 + 流程图 */
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 10px; }
+  .box { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; min-width: 0; }
+  .box .t1 { display: flex; align-items: center; gap: 8px; }
+  .box .t1 b { font-family: Consolas, Menlo, monospace; font-size: 13.5px; }
+  .box .t1 .r { margin-left: auto; display: flex; gap: 6px; }
+  .box .s { color: var(--sub); font-size: 12px; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pl { display: inline-block; padding: 0 8px; border-radius: 99px; font-size: 11.5px; line-height: 20px; white-space: nowrap; background: var(--blue-soft); color: var(--blue); }
+  .pl.g { background: var(--green-soft); color: var(--green); } .pl.y { background: var(--yellow-soft); color: var(--yellow); }
+  .pl.r { background: var(--red-soft); color: var(--red); } .pl.x { background: var(--gray-soft); color: var(--sub); }
+  .steps { display: grid; grid-template-columns: repeat(6, 1fr); margin: 10px 0 4px; }
+  .st { position: relative; text-align: center; font-size: 11.5px; color: var(--sub); padding-top: 16px; }
+  .st::before { content: ''; position: absolute; top: 5px; left: -50%; width: 100%; height: 2px; background: var(--line); }
+  .st:first-child::before { display: none; }
+  .st i { position: absolute; top: 0; left: 50%; margin-left: -6px; width: 12px; height: 12px; border-radius: 50%; background: #fff; border: 2px solid #c9cdd4; z-index: 1; }
+  .st.done { color: var(--ink); } .st.done i { background: var(--green); border-color: var(--green); } .st.done::before { background: var(--green); }
+  .st.cur { color: var(--ink); font-weight: 600; } .st.cur i { background: var(--blue); border-color: var(--blue); box-shadow: 0 0 0 3px var(--blue-soft); } .st.cur::before { background: var(--green); }
+  .st.late i { background: var(--red); border-color: var(--red); box-shadow: 0 0 0 3px var(--red-soft); }
+  .st em { display: block; font-style: normal; font-weight: normal; color: var(--sub); font-size: 11px; }
+  .trk { font-size: 12px; color: var(--sub); background: var(--bg); border-radius: 6px; padding: 6px 8px; margin-top: 6px; line-height: 1.6; }
+  .trk b { color: var(--ink); font-weight: 600; }
+  .mini { width: 100%; table-layout: fixed; font-size: 12px; margin-top: 6px; border-collapse: collapse; }
+  .mini td, .mini th { padding: 3px 4px; border-bottom: 1px dashed var(--line); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+  .mini th { color: var(--sub); font-weight: normal; }
+  .mini .n { text-align: right; width: 64px; }
+  .empty { padding: 30px; text-align: center; color: var(--sub); }
+
+  /* 导入弹窗 */
+  .mask { position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 100; display: flex; align-items: center; justify-content: center; }
+  .dlg { background: var(--card); border-radius: 10px; width: min(640px, 92vw); max-height: 86vh; overflow: auto; padding: 18px 20px; box-shadow: var(--shadow); }
+  .dlg h3 { margin: 0 0 10px; font-size: 16px; }
+  .dlg .row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; }
+  .dlg ul { margin: 6px 0; padding-left: 18px; color: var(--sub); font-size: 12px; max-height: 160px; overflow: auto; }
+  .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: #1f2329; color: #fff; padding: 8px 16px; border-radius: 6px; z-index: 200; font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="tip" id="tallTip" style="display:none">插件框比屏幕还高，往下滑时顶部筛选栏会被滚走。请在应用编辑模式里把这个插件组件的高度拖到一屏以内，页面会改成内部滚动、顶栏固定。</div>
+  <div class="savebar" id="savebar">
+    <span>这是插件的配置预览。确认没问题后点右边按钮，插件才会保存到应用页面上。</span>
+    <button id="saveBtn">保存到页面</button>
+    <span class="meta" id="saveMsg"></span>
+  </div>
+  <div class="sticky" id="sticky">
+    <div class="bar">
+      <div class="seg" id="seg" data-on="0"><span class="pill"></span><button data-t="0" class="on">ASIN × 国家汇总</button><button data-t="1">货件进度</button></div>
+      <input class="ctl" id="q" placeholder="搜索 ASIN / 品名 / MSKU / 货件号">
+      <details class="ms" id="fm"><summary class="ctl"></summary><div class="pop"></div></details>
+      <details class="ms" id="fs"><summary class="ctl"></summary><div class="pop"></div></details>
+      <details class="ms" id="fw"><summary class="ctl"></summary><div class="pop"></div></details>
+      <details class="ms" id="fc"><summary class="ctl"></summary><div class="pop"></div></details>
+      <details class="ms" id="fst"><summary class="ctl"></summary><div class="pop"></div></details>
+      <details class="ms" id="fsrc"><summary class="ctl"></summary><div class="pop"></div></details>
+      <span class="sep only0"></span>
+      <details class="ms only0" id="fp"><summary class="ctl"></summary><div class="pop"></div></details>
+      <select class="ctl" id="so"></select>
+      <button class="ctl btn2" id="imp">导入物流商表</button>
+      <button class="ctl btn" id="csv">导出 CSV</button>
+      <span class="cnt" id="cnt"></span>
+    </div>
+    <input type="file" id="file" accept=".xlsx,.csv" style="display:none">
+  </div>
+  <div id="main"><div class="loading">正在读取多维表数据…</div></div>
+</div>
+
+<script type="module">
+// ===== ① 页面配置 =====
+const SDK_URLS = [new URL('./sdk/index.mjs', location.href).href,
+  'https://cdn.jsdelivr.net/npm/@lark-base-open/js-sdk@1.0.2/dist/index.mjs',
+  'https://unpkg.com/@lark-base-open/js-sdk@1.0.2/dist/index.mjs'];
+const BASE_TOKEN = 'JGvebyaAYapWtOslxc9cuKYXnwd';   // 灯具组-全流程
+const CARRIER_FIELDS = ['物流商运单状态', '物流商轨迹', '物流商签收时间', '物流商预计送达', '物流商签收时效', '物流商收货渠道', '物流商箱数', '物流商产品', '物流商申报品名', '物流商更新时间', '物流商导入来源'];
+const TABLES = {
+  ship: { id: 'tblB78mpJmyfEBHZ', name: '货件物流跟踪-灯', fields: ['货件号', '店铺', '国家', '目的仓', '发货单号', '物流商', '物流渠道', '运输方式', '发货单建单日', '发货日', '预计到仓日',
+    '领星状态', 'FBA建单时间', 'FBA已发货时间', 'FBA接收中时间', '发货量', '已收量', ...CARRIER_FIELDS] },
+  det: { id: 'tblW09RSzUtYaCRm', name: '货件商品明细-灯', fields: ['货件号', 'MSKU', 'ASIN', '品名', '发货量', '已收量'] },
+};
+// 物流商导出表 表头 → 字段（同 sync_fba_logistics.py 的 CARRIER_MAP）
+const CARRIER_MAP = { '运单状态': '物流商运单状态', '轨迹明细': '物流商轨迹', '签收时间': '物流商签收时间', '预计送达': '物流商预计送达', '签收时效': '物流商签收时效',
+  '收货渠道': '物流商收货渠道', '预报件数': '物流商箱数', '产品': '物流商产品', '产品名称': '物流商申报品名' };
+const CARRIER_NUM = new Set(['物流商签收时效', '物流商箱数']);
+
+// ===== ② 通用工具 =====
+const $ = (id) => document.getElementById(id);
+const DAY = 86400000, BJ = 8 * 3600000;
+const dn = (ms) => Math.floor((Number(ms) + BJ) / DAY);
+const today0 = dn(Date.now());
+const ud = (n) => new Date(n * DAY);
+const fmtD = (n) => { const d = ud(n); return `${d.getUTCMonth() + 1}-${String(d.getUTCDate()).padStart(2, '0')}`; };
+const fmtMD = (n) => { const d = ud(n); return `${d.getUTCMonth() + 1}/${d.getUTCDate()}`; };
+const fmtFull = (n) => { const d = ud(n); return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`; };
+const n0 = (v) => (v == null || v === '' || isNaN(v)) ? 0 : Number(v);
+const f = (v) => n0(v) ? n0(v).toLocaleString('zh-CN') : '0';
+const pc = (a, b) => b ? Math.round(a / b * 100) + '%' : '';
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+function dayOf(v) {   // 毫秒 / 'YYYY-MM-DD…' → 北京天序号
+  if (v == null || v === '') return null;
+  if (typeof v === 'number') return dn(v);
+  const m = String(v).match(/(\d{4})-(\d{1,2})-(\d{1,2})/);
+  return m ? Math.floor(Date.UTC(+m[1], +m[2] - 1, +m[3]) / DAY) : null;
+}
+const cnDay = (s) => { const m = String(s || '').match(/(\d{4})年(\d{1,2})月(\d{1,2})日/); return m ? Math.floor(Date.UTC(+m[1], +m[2] - 1, +m[3]) / DAY) : null; };
+const sunday = (n) => n - ((n + 4) % 7);   // 天序号 → 所在周的周日（1970-01-01 是周四）
+function cell(v) {
+  if (v == null) return null;
+  if (typeof v === 'number' || typeof v === 'string' || typeof v === 'boolean') return v;
+  if (Array.isArray(v)) {
+    if (!v.length) return null;
+    if (v.every((x) => x && typeof x === 'object' && 'text' in x && !('id' in x && 'name' in x && !('type' in x)))) return v.map((x) => x.text ?? '').join('');
+    if (v.length === 1) return cell(v[0]);
+    return v.map(cell).join('、');
+  }
+  if (typeof v === 'object') { if ('text' in v) return v.text; if ('name' in v) return v.name; if ('value' in v) return cell(v.value); }
+  return String(v);
+}
+const shortStore = (s) => String(s || '').replace(/^cathy-/, '').replace(/-?林1-?/, '-').replace(/-+$/, '');   // 李楚红-US-林1 → 李楚红-US
+function toast(t) { const d = document.createElement('div'); d.className = 'toast'; d.textContent = t; document.body.appendChild(d); setTimeout(() => d.remove(), 2600); }
+
+let SDK = null;
+const TBLS = {}, FIDS = {};
+async function readTable(key) {
+  const cfg = TABLES[key];
+  const table = await SDK.bitable.base.getTableById(cfg.id);
+  const fields = await table.getFieldMetaList();
+  TBLS[key] = table;
+  FIDS[key] = Object.fromEntries(fields.map((x) => [x.name, x.id]));
+  const missing = cfg.fields.filter((w) => !FIDS[key][w]);
+  if (missing.length) console.warn(`表 ${cfg.name} 缺字段：`, missing);
+  const rows = [];
+  let pageToken;
+  for (let guard = 0; guard < 500; guard++) {
+    const res = await table.getRecordsByPage({ pageSize: 200, pageToken });
+    for (const r of res.records) {
+      const o = { _id: r.recordId };
+      for (const w of cfg.fields) if (FIDS[key][w]) o[w] = cell(r.fields[FIDS[key][w]]);
+      rows.push(o);
+    }
+    if (!res.hasMore) break;
+    pageToken = res.pageToken;
+  }
+  return rows;
+}
+
+// ===== ③ 数据模型 =====
+let DATA = {}, SHIPS = [];
+let TAB = 0;
+const SNAP = !!window.__SNAPSHOT__;
+async function load() {
+  if (SNAP) { DATA = window.__SNAPSHOT__.data; return; }
+  const keys = Object.keys(TABLES);
+  const res = await Promise.all(keys.map(readTable));
+  keys.forEach((k, i) => { DATA[k] = res[i]; });
+}
+
+// 阶段：物流商运单状态 → done 已签收 / last 尾程中 / sea 海运途中 / pre 未开船；领星 → pre 未发货 / way 在途(未细分) / done 已签收
+const CPH = { '已签收': 'done', '已卸船': 'last', '已拆柜': 'last', '清关放行': 'last', '等待提柜': 'last', '预约中': 'last', '派送中': 'last', '中转发车': 'last',
+  '已开船': 'sea', '中转港开船': 'sea', '延迟到目的港': 'sea', '延迟开船': 'pre' };
+const cPhase = (s) => CPH[s] || (/签收/.test(s) ? 'done' : /派送|预约|提柜|拆柜|卸船|清关|放行|发车/.test(s) ? 'last' : /开船|到目的港|航|船/.test(s) ? 'sea' : 'last');
+const LPH = { '处理中': 'pre', '待发货': 'pre', '已发货': 'way', '在途': 'way', '已送达': 'done', '已签到': 'done', '接收中': 'done' };
+const PHN = { done: '已签收', last: '尾程中', sea: '海运途中', pre: '未开船/未发货', way: '在途(领星)' };
+const STEPS = ['建单', '已发货', '海运途中', '到港·尾程', '已签收', '亚马逊接收'];
+
+function model(s) {
+  const cs = (s['物流商运单状态'] || '').trim();
+  const src = cs ? '物流商' : '领星';
+  const ls = s['领星状态'] || '';
+  const status = cs || ls || '—';
+  const phase = cs ? cPhase(cs) : (LPH[ls] || 'way');
+  const trk = s['物流商轨迹'] || '';
+  // 预计送达：物流商「2026-10-18~2026-10-24」取区间；没有用领星预计到仓日
+  const er = String(s['物流商预计送达'] || '').match(/(\d{4}-\d{2}-\d{2})\s*~\s*(\d{4}-\d{2}-\d{2})/);
+  let etaA = er ? dayOf(er[1]) : null, etaB = er ? dayOf(er[2]) : null;
+  if (etaA == null) { etaA = etaB = dayOf(s['预计到仓日']); }
+  const sign = cs ? dayOf(s['物流商签收时间']) : null;
+  const recv = dayOf(s['FBA接收中时间']);
+  // 流程图所处步骤
+  let stage;
+  if (cs) {
+    stage = { pre: 1, sea: 2, last: 3, done: 4 }[phase];
+    if (stage === 4 && ls === '接收中') stage = 5;
+  } else stage = { '处理中': 0, '待发货': 0, '已发货': 1, '在途': 2, '已送达': 4, '已签到': 4, '接收中': 5 }[ls] ?? 1;
+  const sail = cnDay((trk.match(/开船时间[：:]\s*([^（(]+)/) || [])[1]);
+  const port = cnDay((trk.match(/预计到目的港[：:]\s*([^（(]+)/) || [])[1]);
+  const late = stage < 4 && etaB != null && etaB < today0 ? today0 - etaB : 0;
+  const sent = dayOf(s['发货日']);
+  const wk = etaA != null ? sunday(etaA) : null;
+  const mon = sent != null ? fmtFull(sent).slice(0, 7) : '';
+  const delay = /延迟/.test(cs);
+  const lxTrack = [dayOf(s['发货单建单日']) != null ? `${fmtD(dayOf(s['发货单建单日']))} 建单` : '', sent != null ? `${fmtD(sent)} 发货${s['物流渠道'] ? '（' + s['物流渠道'] + '）' : ''}` : '',
+    dayOf(s['预计到仓日']) != null ? `预计 ${fmtD(dayOf(s['预计到仓日']))} 到仓` : '', recv != null ? `${fmtD(recv)} 亚马逊接收中` : ''].filter(Boolean).join(' → ');
+  return { s, id: s['货件号'], src, status, phase, stage, etaA, etaB, sign, recv, sail, port, late, sent, wk, mon, delay, trk, lxTrack,
+    store: s['店铺'] || '', ctry: s['国家'] || '', dest: s['目的仓'] || '', ch: cs ? (s['物流商收货渠道'] || s['物流渠道'] || '') : (s['物流渠道'] || ''),
+    items: [], qty: 0 };
+}
+function buildModel() {
+  const by = new Map();
+  SHIPS = (DATA.ship || []).filter((s) => s['货件号']).map(model);
+  SHIPS.forEach((x) => by.set(x.id, x));
+  for (const d of DATA.det || []) {
+    const x = by.get(d['货件号']); if (!x) continue;
+    x.items.push({ msku: d['MSKU'] || '', asin: d['ASIN'] || '', name: d['品名'] || '', qty: n0(d['发货量']), got: d['已收量'] });
+  }
+  for (const x of SHIPS) { x.items.sort((a, b) => b.qty - a.qty); x.qty = x.items.reduce((a, i) => a + i.qty, 0) || n0(x.s['发货量']); }
+}
+
+// ===== ④ 多选筛选 =====
+function makeMS(id, allLabel, groups, shortcuts = []) {
+  const box = $(id), pop = box.querySelector('.pop'), sum = box.querySelector('summary'), sel = new Set(), LB = {};
+  let h = `<div class="ops"><button data-a="all">全选</button><button data-a="none">清空</button>${shortcuts.map((s, i) => `<button data-a="s${i}">${s.name}</button>`).join('')}</div>`;
+  for (const g of groups) { h += g.name ? `<div class="grp">${g.name}</div>` : ''; for (const [v, l, c] of g.items) { LB[v] = l; h += `<label><input type="checkbox" value="${esc(v)}"><span>${esc(l)}</span><span class="c">${c ?? ''}</span></label>`; } }
+  pop.innerHTML = h;
+  const paint = () => { sum.innerHTML = `<span>${esc(sel.size === 0 ? allLabel : sel.size <= 2 ? [...sel].map((v) => LB[v]).join('、') : `${allLabel.replace('全部', '')} · ${sel.size} 项`)}</span>`; box.classList.toggle('has', sel.size > 0); };
+  const sync = () => { sel.clear(); pop.querySelectorAll('input:checked').forEach((c) => sel.add(c.value)); paint(); render(); };
+  pop.onchange = sync;
+  pop.onclick = (e) => { const a = e.target.dataset && e.target.dataset.a; if (!a) return; e.preventDefault();
+    const fn = a === 'all' ? () => true : a === 'none' ? () => false : shortcuts[+a.slice(1)].test;
+    pop.querySelectorAll('input').forEach((c) => { c.checked = fn(c.value); }); sync(); };
+  paint(); return sel;
+}
+document.addEventListener('click', (e) => document.querySelectorAll('details.ms[open]').forEach((d) => { if (!d.contains(e.target)) d.open = false; }));
+let SEL = {};
+const cntBy = (fn) => { const o = {}; SHIPS.forEach((x) => { const k = fn(x); o[k] = (o[k] || 0) + 1; }); return o; };
+const wkLabel = (w) => w === '' ? '无' : `${fmtMD(+w)} – ${fmtMD(+w + 6)}`;
+function setupFilters() {
+  const moC = cntBy((x) => x.mon), stC = cntBy((x) => x.status), wkC = cntBy((x) => x.wk == null ? '' : String(x.wk)), ctC = cntBy((x) => x.ctry), soC = cntBy((x) => x.store), srC = cntBy((x) => x.src);
+  const phOf = {}; SHIPS.forEach((x) => { phOf[x.status] = x.phase; });
+  const thisWk = sunday(today0);
+  SEL.m = makeMS('fm', '全部发货月份', [{ items: Object.keys(moC).sort().reverse().map((m) => [m, m ? `${+m.slice(0, 4)}年${+m.slice(5)}月` : '无发货日期', moC[m]]) }]);
+  SEL.s = makeMS('fs', '全部运单状态', ['done', 'last', 'sea', 'pre', 'way'].map((p) => ({ name: PHN[p], items: Object.keys(stC).filter((s) => phOf[s] === p).sort((a, b) => stC[b] - stC[a]).map((s) => [s, s, stC[s]]) })).filter((g) => g.items.length),
+    [{ name: '只看在途', test: (v) => phOf[v] !== 'done' }]);
+  const wks = Object.keys(wkC).sort((a, b) => (a === '' ? 1e9 : +a) - (b === '' ? 1e9 : +b));
+  SEL.w = makeMS('fw', '全部预计送达周', [{ name: '已过去', items: wks.filter((w) => w !== '' && +w < thisWk).map((w) => [w, wkLabel(w), wkC[w]]) },
+    { name: '本周及以后', items: wks.filter((w) => w === '' || +w >= thisWk).map((w) => [w, wkLabel(w), wkC[w]]) }].filter((g) => g.items.length),
+    [{ name: '本周及以后', test: (v) => v !== '' && +v >= thisWk }]);
+  SEL.c = makeMS('fc', '全部国家', [{ items: Object.keys(ctC).map((c) => [c, c || '—', ctC[c]]) }]);
+  SEL.t = makeMS('fst', '全部店铺', [{ items: Object.keys(soC).sort().map((s) => [s, s || '—', soC[s]]) }]);
+  SEL.r = makeMS('fsrc', '全部信息来源', [{ items: [['物流商', '物流商轨迹', srC['物流商']], ['领星', '领星（无物流商信息）', srC['领星']]] }]);
+  SEL.p = makeMS('fp', '全部进度', [{ items: PG.map(([v, l]) => [v, l]) }]);
+}
+const PG = [['done', '已全部签收', (x) => x.way === 0], ['way', '还有在途', (x) => x.way > 0], ['late', '有逾期', (x) => x.late > 0], ['last', '有尾程中', (x) => x.last > 0],
+  ['sea', '有海运途中', (x) => x.sea > 0], ['pre', '有未开船/未发货', (x) => x.pre > 0], ['lx', '有领星在途(未细分)', (x) => x.lway > 0]];
+const SORTS = [
+  [['qty', '按已发货排序'], ['way', '按在途排序'], ['late', '按逾期排序'], ['rate', '按签收率 低→高'], ['asin', '按 ASIN']],
+  [['eta', '按预计送达 早→晚'], ['late', '按逾期天数'], ['sent', '按发货日 新→旧'], ['qty', '按发货数量']],
+];
+function fillSort() { $('so').innerHTML = SORTS[TAB].map(([v, l]) => `<option value="${v}">${l}</option>`).join(''); }
+
+function filt() {
+  const q = $('q').value.trim().toLowerCase();
+  const has = (sel, v) => !sel.size || sel.has(v);
+  return SHIPS.filter((x) => has(SEL.m, x.mon) && has(SEL.s, x.status) && has(SEL.w, x.wk == null ? '' : String(x.wk)) && has(SEL.c, x.ctry) && has(SEL.t, x.store) && has(SEL.r, x.src)
+    && (!q || [x.id, x.dest, x.status, x.s['发货单号'], ...x.items.flatMap((i) => [i.name, i.msku, i.asin])].join(' ').toLowerCase().includes(q)));
+}
+
+// ===== ⑤ 渲染 =====
+function pill(x) {
+  const cls = x.phase === 'done' ? 'g' : x.delay || x.late ? 'r' : x.phase === 'last' ? 'y' : '';
+  return `<span class="pl ${cls}">${esc(x.status)}</span>${x.late ? `<span class="pl r">逾期 ${x.late} 天</span>` : ''}<span class="pl x">${x.src}</span>`;
+}
+function stepsHtml(x) {
+  const date = [dayOf(x.s['发货单建单日']) ?? dayOf(x.s['FBA建单时间']), x.sent, x.sail, null, x.sign, x.recv];
+  return `<div class="steps">${STEPS.map((nm, i) => {
+    const cls = x.stage > i ? 'done' : x.stage === i ? ((x.late || (x.delay && i <= 2)) ? 'late' : 'cur') : '';
+    let d = date[i] != null ? fmtD(date[i]) : '';
+    if (i === 3 && x.port != null) d = (x.stage >= 3 ? '' : '预计 ') + fmtD(x.port);
+    if (i === 4 && x.sign == null && x.etaA != null && x.stage < 4) d = `预计 ${fmtMD(x.etaA)}${x.etaB !== x.etaA ? '–' + fmtMD(x.etaB) : ''}`;
+    if (i === 2 && !d && x.stage === 2 && x.src === '领星') d = '领星：在途';
+    return `<div class="st ${cls}"><i></i>${nm}<em>${esc(d) || '&nbsp;'}</em></div>`;
+  }).join('')}</div>`;
+}
+function shipBox(x, onlyAsin) {
+  const items = onlyAsin ? x.items.filter((i) => i.asin === onlyAsin) : x.items;
+  const tk = x.src === '物流商'
+    ? `<b>物流商</b>${x.s['物流商更新时间'] ? `（${fmtD(dayOf(x.s['物流商更新时间']))} 导入）` : ''}：${esc(x.trk || x.status)}`
+    : `<b>领星</b>：${esc(x.lxTrack || x.status)}`;
+  return `<div class="box"><div class="t1"><b>${esc(x.id)}</b><span class="r">${pill(x)}</span></div>
+    <div class="s">${esc(x.store)} → ${esc(x.dest || '—')}　${esc(x.ch)}　发货 ${x.sent != null ? fmtFull(x.sent) : '—'}　发货单 ${esc(x.s['发货单号'] || '—')}${x.s['物流商箱数'] ? `　${x.s['物流商箱数']} 箱` : ''}</div>
+    ${stepsHtml(x)}
+    <table class="mini"><thead><tr><th>品名</th><th style="width:150px">MSKU</th><th style="width:96px">ASIN</th><th class="n">${onlyAsin ? '本 ASIN' : '发货'}</th></tr></thead><tbody>
+    ${items.map((i) => `<tr><td title="${esc(i.name)}">${esc(i.name)}</td><td class="mono" title="${esc(i.msku)}">${esc(i.msku)}</td><td class="mono">${esc(i.asin)}</td><td class="n">${f(i.qty)}</td></tr>`).join('')}
+    ${!onlyAsin && items.length > 1 ? `<tr><td colspan="3" style="text-align:right;color:var(--sub)">合计</td><td class="n"><b>${f(x.qty)}</b></td></tr>` : ''}</tbody></table>
+    <div class="trk">${tk}</div></div>`;
+}
+
+function agg(rs) {
+  const m = new Map();
+  for (const x of rs) for (const i of x.items) {
+    const k = i.asin + '|' + x.ctry;
+    if (!m.has(k)) m.set(k, { key: k, asin: i.asin, ctry: x.ctry, name: i.name, mskus: new Set(), stores: new Set(), mons: new Set(), ships: new Set(), list: [], qty: 0, done: 0, last: 0, sea: 0, pre: 0, lway: 0, late: 0 });
+    const a = m.get(k);
+    a.mskus.add(i.msku); a.stores.add(x.store); if (x.mon) a.mons.add(x.mon); a.ships.add(x.id); a.list.push(x); a.qty += i.qty;
+    if (x.phase === 'way') a.lway += i.qty; else a[x.phase] += i.qty;
+    if (x.late && x.phase !== 'done') a.late += i.qty;
+  }
+  for (const a of m.values()) { a.way = a.qty - a.done; a.list = [...new Set(a.list)]; }
+  return [...m.values()];
+}
+const SORTF = {
+  qty: (a, b) => b.qty - a.qty, way: (a, b) => b.way - a.way || b.qty - a.qty, late: (a, b) => b.late - a.late || b.way - a.way,
+  rate: (a, b) => a.done / a.qty - b.done / b.qty || b.qty - a.qty, asin: (a, b) => a.asin.localeCompare(b.asin) || a.ctry.localeCompare(b.ctry),
+};
+const SORTS2 = {
+  eta: (a, b) => (a.etaB ?? 1e9) - (b.etaB ?? 1e9), late: (a, b) => b.late - a.late || (a.etaB ?? 1e9) - (b.etaB ?? 1e9),
+  sent: (a, b) => (b.sent ?? 0) - (a.sent ?? 0), qty: (a, b) => b.qty - a.qty,
+};
+function sumRows(rs) {
+  const tests = PG.filter((g) => SEL.p.has(g[0])).map((g) => g[2]);
+  return agg(rs).filter((a) => !tests.length || tests.some((t) => t(a))).sort(SORTF[$('so').value] || SORTF.qty);
+}
+const OPEN = new Set();
+const rateCell = (a, b) => `<span class="rate">${pc(a, b)}<i><s style="width:${b ? Math.round(a / b * 100) : 0}%"></s></i></span>`;
+function renderSum(rs) {
+  const L = sumRows(rs), T = { qty: 0, done: 0, way: 0, last: 0, sea: 0, pre: 0, lway: 0, late: 0, n: 0 };
+  const z = (v, c) => v ? c : 'zero';
+  const body = L.map((a) => {
+    Object.keys(T).forEach((k) => { if (k !== 'n') T[k] += a[k]; }); T.n += a.ships.size;
+    const open = OPEN.has(a.key);
+    return `<tr class="srow${open ? ' open' : ''}" data-k="${esc(a.key)}"><td class="mono"><span class="car">▸</span>${esc(a.asin)}</td><td class="nw">${esc(a.ctry)}</td>
+      <td class="name">${esc(a.name)}</td><td class="msk">${[...a.mskus].map(esc).join('<br>')}</td><td class="sub nw" title="${esc([...a.stores].join('、'))}">${[...a.stores].map((s) => esc(shortStore(s))).join('<br>')}</td>
+      <td class="nw">${[...a.mons].sort().map((m) => +m.slice(5)).join('/')}${a.mons.size ? '月' : ''}</td><td class="n">${a.ships.size}</td><td class="n"><b>${f(a.qty)}</b></td>
+      <td class="n ${z(a.done, 'ok')}">${f(a.done)}</td><td class="n ${z(a.way, 'hl')}">${f(a.way)}</td><td class="n ${z(a.last, '')}">${f(a.last)}</td><td class="n ${z(a.sea, '')}">${f(a.sea)}</td>
+      <td class="n ${z(a.pre, 'bd')}">${f(a.pre)}</td><td class="n ${z(a.lway, '')}">${f(a.lway)}</td><td class="n ${z(a.late, 'bd')}">${f(a.late)}</td><td class="n">${rateCell(a.done, a.qty)}</td></tr>`
+      + (open ? `<tr class="det"><td colspan="16"><div class="grid">${[...a.list].sort((p, q) => (p.etaB ?? 1e9) - (q.etaB ?? 1e9)).map((x) => shipBox(x, a.asin)).join('')}</div></td></tr>` : '');
+  }).join('');
+  $('main').innerHTML = kpis(rs) + `<p class="note"><b>点击任一行展开该 ASIN 的各货件进度。</b>有物流商信息的以物流商为准（尾程中 = 到港后的卸船/拆柜/清关/提柜/预约/派送；海运途中 = 已开船/中转/延迟到港；未开船 = 延迟开船），没有的按领星状态（在途分不出海运/尾程，单列「领星在途」）。逾期 = 预计送达（物流商区间末日，否则领星预计到仓日）已过仍未签收。</p>
+    <div class="tbl"><table class="t"><thead><tr><th>ASIN</th><th>国家</th><th>品名</th><th>MSKU</th><th>店铺</th><th>发货月份</th><th class="n">货件数</th><th class="n">已发货</th><th class="n">已签收</th><th class="n">在途合计</th><th class="n">尾程中</th><th class="n">海运途中</th><th class="n" title="物流商：延迟开船；领星：处理中/待发货">未开船</th><th class="n" title="没有物流商信息、领星显示已发货/在途的数量（分不出海运还是尾程）">领星在途</th><th class="n">其中逾期</th><th class="n">签收率</th></tr></thead>
+    <tbody id="sb">${body || '<tr><td colspan="16" class="empty">没有符合条件的数据</td></tr>'}</tbody>
+    <tfoot><tr><td colspan="6">合计 · ${L.length} 个 ASIN×国家</td><td class="n">${T.n}</td><td class="n">${f(T.qty)}</td><td class="n">${f(T.done)}</td><td class="n">${f(T.way)}</td><td class="n">${f(T.last)}</td><td class="n">${f(T.sea)}</td><td class="n">${f(T.pre)}</td><td class="n">${f(T.lway)}</td><td class="n">${f(T.late)}</td><td class="n">${rateCell(T.done, T.qty)}</td></tr></tfoot></table></div>`;
+  $('sb').onclick = (e) => { const tr = e.target.closest('tr.srow'); if (!tr) return; const k = tr.dataset.k; OPEN.has(k) ? OPEN.delete(k) : OPEN.add(k); render(); };
+  return L;
+}
+function renderShips(rs) {
+  const L = [...rs].sort(SORTS2[$('so').value] || SORTS2.eta);
+  $('main').innerHTML = kpis(rs) + `<p class="note">每个货件一张卡：流程图 建单 → 已发货 → 海运途中 → 到港·尾程 → 已签收 → 亚马逊接收；红点 = 逾期或延迟。下方轨迹：有物流商信息显示物流商最新轨迹，没有显示领星时间线。</p>`
+    + (L.length ? `<div class="grid">${L.map((x) => shipBox(x)).join('')}</div>` : '<div class="empty">没有符合条件的货件</div>');
+}
+function kpis(rs) {
+  const qty = rs.reduce((a, x) => a + x.qty, 0), done = rs.filter((x) => x.phase === 'done').reduce((a, x) => a + x.qty, 0);
+  const late = rs.filter((x) => x.late).length, cr = rs.filter((x) => x.src === '物流商').length;
+  return `<div class="kpis">${[['货件数', f(rs.length)], ['ASIN 数', f(new Set(rs.flatMap((x) => x.items.map((i) => i.asin))).size)], ['已发货', f(qty)], ['已签收', f(done), 'g'], ['在途', f(qty - done), 'y'],
+    ['签收率', pc(done, qty) || '—'], ['逾期货件', f(late), late ? 'r' : ''], ['有物流商轨迹', `${cr} / ${rs.length}`]].map(([a, b, c]) => `<div class="kpi ${c || ''}"><b>${b}</b><span>${a}</span></div>`).join('')}</div>`;
+}
+let LAST = [];
+function render() {
+  const rs = filt();
+  if (TAB === 0) { LAST = renderSum(rs); $('cnt').textContent = `${LAST.length} 个 ASIN×国家 · ${rs.length} 个货件`; }
+  else { LAST = rs; renderShips(rs); $('cnt').textContent = `${rs.length} / ${SHIPS.length} 个货件`; }
+}
+$('seg').onclick = (e) => {
+  const b = e.target.closest('button'); if (!b) return; TAB = +b.dataset.t;
+  $('seg').dataset.on = TAB; $('seg').querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b));
+  document.querySelectorAll('.only0').forEach((el) => { el.style.display = TAB === 0 ? '' : 'none'; });
+  fillSort(); $('main').scrollTop = 0; render();
+};
+$('q').oninput = render; $('so').onchange = render;
+
+// ===== ⑥ 导出 =====
+function dl(L, name) {
+  const s = '﻿' + L.map((x) => x.map((v) => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([s], { type: 'text/csv' })); a.download = name; a.click();
+}
+$('csv').onclick = () => {
+  const rs = filt();
+  if (TAB === 0) {
+    const L = [['ASIN', '国家', '品名', 'MSKU', '店铺', '发货月份', '货件数', '已发货', '已签收', '在途合计', '尾程中', '海运途中', '未开船/未发货', '领星在途', '其中逾期', '签收率']];
+    sumRows(rs).forEach((a) => L.push([a.asin, a.ctry, a.name, [...a.mskus].join(' / '), [...a.stores].join(' / '), [...a.mons].sort().join(' / '), a.ships.size, a.qty, a.done, a.way, a.last, a.sea, a.pre, a.lway, a.late, pc(a.done, a.qty)]));
+    dl(L, 'ASIN国家汇总.csv');
+  } else {
+    const L = [['FBA货件号', '发货日期', '店铺', '国家', '目的仓', '运单状态', '信息来源', '阶段', '预计送达', '签收时间', '逾期天数', '品名', 'MSKU', 'ASIN', '发货数量', '轨迹']];
+    rs.forEach((x) => x.items.forEach((i) => L.push([x.id, x.sent != null ? fmtFull(x.sent) : '', x.store, x.ctry, x.dest, x.status, x.src, PHN[x.phase], x.etaA != null ? `${fmtFull(x.etaA)}~${fmtFull(x.etaB)}` : '',
+      x.s['物流商签收时间'] || '', x.late || '', i.name, i.msku, i.asin, i.qty, x.src === '物流商' ? x.trk : x.lxTrack])));
+    dl(L, '货件进度明细.csv');
+  }
+};
+
+// ===== ⑦ 导入物流商表（页面里选 xlsx → 按 FBA ID 匹配 → 写物流商字段） =====
+async function unzip(buf) {   // 极简 zip 读取：中央目录 + DecompressionStream('deflate-raw')，不依赖外部库
+  const v = new DataView(buf), u8 = new Uint8Array(buf);
+  let e = buf.byteLength - 22; while (e >= 0 && v.getUint32(e, true) !== 0x06054b50) e--;
+  if (e < 0) throw new Error('不是有效的 xlsx 文件');
+  let p = v.getUint32(e + 16, true); const n = v.getUint16(e + 10, true), out = {};
+  const td = new TextDecoder();
+  for (let i = 0; i < n; i++) {
+    const method = v.getUint16(p + 10, true), size = v.getUint32(p + 20, true), nl = v.getUint16(p + 28, true), xl = v.getUint16(p + 30, true), cl = v.getUint16(p + 32, true), off = v.getUint32(p + 42, true);
+    const name = td.decode(u8.subarray(p + 46, p + 46 + nl));
+    const start = off + 30 + v.getUint16(off + 26, true) + v.getUint16(off + 28, true);
+    out[name] = { method, data: u8.subarray(start, start + size) };
+    p += 46 + nl + xl + cl;
+  }
+  return async (name) => {
+    const ent = out[name]; if (!ent) return null;
+    if (ent.method === 0) return td.decode(ent.data);
+    return td.decode(await new Response(new Blob([ent.data]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer());
+  };
+}
+async function readXlsx(file) {
+  const get = await unzip(await file.arrayBuffer());
+  const X = (s) => new DOMParser().parseFromString(s, 'application/xml');
+  const ss = []; const sst = await get('xl/sharedStrings.xml');
+  if (sst) X(sst).querySelectorAll('si').forEach((si) => ss.push([...si.getElementsByTagName('t')].map((t) => t.textContent).join('')));
+  const wb = X(await get('xl/workbook.xml')), rels = X(await get('xl/_rels/workbook.xml.rels'));
+  const rid = wb.getElementsByTagName('sheet')[0].getAttribute('r:id') || wb.getElementsByTagName('sheet')[0].getAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships', 'id');
+  let target = [...rels.getElementsByTagName('Relationship')].find((r) => r.getAttribute('Id') === rid).getAttribute('Target').replace(/^\//, '');
+  if (!target.startsWith('xl/')) target = 'xl/' + target;
+  const rows = [];
+  X(await get(target)).querySelectorAll('row').forEach((r) => {
+    const o = {};
+    r.querySelectorAll('c').forEach((c) => {
+      const col = c.getAttribute('r').match(/[A-Z]+/)[0], t = c.getAttribute('t'), vv = c.getElementsByTagName('v')[0];
+      o[col] = t === 's' ? ss[+vv.textContent] : t === 'inlineStr' ? [...c.getElementsByTagName('t')].map((x) => x.textContent).join('') : vv ? vv.textContent : '';
+    });
+    rows.push(o);
+  });
+  return rows;
+}
+function readCsv(text) {
+  const rows = []; let row = [], cur = '', q = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (q) { if (ch === '"' && text[i + 1] === '"') { cur += '"'; i++; } else if (ch === '"') q = false; else cur += ch; }
+    else if (ch === '"') q = true; else if (ch === ',') { row.push(cur); cur = ''; } else if (ch === '\n' || ch === '\r') { if (ch === '\r' && text[i + 1] === '\n') i++; row.push(cur); rows.push(row); row = []; cur = ''; } else cur += ch;
+  }
+  if (cur || row.length) { row.push(cur); rows.push(row); }
+  return rows.map((r) => Object.fromEntries(r.map((v, i) => [String(i), v])));
+}
+function toRecords(rows) {
+  const hi = rows.findIndex((r) => Object.values(r).some((v) => String(v || '').trim().toUpperCase() === 'FBA ID'));
+  if (hi < 0) throw new Error('表里没找到「FBA ID」表头。需要物流商「物流最新情况」导出格式（至少含 FBA ID、运单状态 两列）');
+  const head = Object.fromEntries(Object.entries(rows[hi]).filter(([, v]) => v).map(([k, v]) => [k, String(v).trim()]));
+  const cols = Object.values(head);
+  return { cols, recs: rows.slice(hi + 1).map((r) => Object.fromEntries(Object.entries(r).filter(([k]) => head[k]).map(([k, v]) => [head[k], String(v ?? '').replace(/ /g, ' ').trim()]))).filter((o) => o['FBA ID']) };
+}
+let PENDING = null;
+$('imp').onclick = () => { $('file').value = ''; $('file').click(); };
+$('file').onchange = async () => {
+  const file = $('file').files[0]; if (!file) return;
+  try {
+    const rows = /\.csv$/i.test(file.name) ? readCsv(await file.text()) : await readXlsx(file);
+    const { cols, recs } = toRecords(rows);
+    const byId = new Map(SHIPS.map((x) => [x.id.toUpperCase(), x]));
+    const hit = [], miss = [];
+    for (const o of recs) { const x = byId.get(o['FBA ID'].toUpperCase()); (x ? hit : miss).push([o, x]); }
+    const used = Object.keys(CARRIER_MAP).filter((k) => cols.includes(k));
+    const chg = hit.filter(([o, x]) => used.some((k) => String(o[k] ?? '') !== String(x.s[CARRIER_MAP[k]] ?? ''))).length;
+    PENDING = { file: file.name, hit, used };
+    dialog(`<h3>导入物流商表：${esc(file.name)}</h3>
+      <div>共 <b>${recs.length}</b> 个货件；匹配到本表 <b>${hit.length}</b> 个（其中有变化 <b>${chg}</b> 个）；不在表里 <b>${miss.length}</b> 个${miss.length ? '（领星已完结，或不是灯具组店铺的货件，不导入）' : ''}。</div>
+      <div class="meta" style="margin-top:6px">会写入的列：${used.map((k) => `${esc(k)} → ${esc(CARRIER_MAP[k])}`).join('，')}${used.length < Object.keys(CARRIER_MAP).length ? `<br>表里没有的列（保持原值）：${Object.keys(CARRIER_MAP).filter((k) => !used.includes(k)).join('、')}` : ''}</div>
+      ${miss.length ? `<ul>${miss.slice(0, 60).map(([o]) => `<li>${esc(o['FBA ID'])}　${esc(o['产品'] || '')}　${esc(o['运单状态'] || '')}</li>`).join('')}${miss.length > 60 ? `<li>… 另 ${miss.length - 60} 个</li>` : ''}</ul>` : ''}
+      <div class="row"><button class="ctl" id="dlgNo">取消</button><button class="ctl btn" id="dlgOk" ${hit.length ? '' : 'disabled'}>写入 ${hit.length} 个货件</button></div>`);
+    $('dlgNo').onclick = closeDialog; $('dlgOk').onclick = doImport;
+  } catch (e) { dialog(`<h3>读取失败</h3><div class="err">${esc(e && e.message ? e.message : e)}</div><div class="row"><button class="ctl" id="dlgNo">关闭</button></div>`); $('dlgNo').onclick = closeDialog; }
+};
+function dialog(html) { closeDialog(); const m = document.createElement('div'); m.className = 'mask'; m.id = 'mask'; m.innerHTML = `<div class="dlg">${html}</div>`; document.body.appendChild(m); }
+function closeDialog() { const m = $('mask'); if (m) m.remove(); }
+async function doImport() {
+  const { file, hit, used } = PENDING, btn = $('dlgOk');
+  btn.disabled = true; btn.textContent = '写入中…';
+  const now = Date.now();
+  try {
+    const fid = FIDS.ship || {};
+    const val = (dst, v) => CARRIER_NUM.has(dst) ? (v === '' || isNaN(v) ? null : Number(v)) : (v ? [{ type: 'text', text: v }] : null);
+    const recs = hit.map(([o, x]) => {
+      const fields = {}, plain = {};
+      for (const k of used) { const dst = CARRIER_MAP[k]; plain[dst] = CARRIER_NUM.has(dst) ? (o[k] === '' ? null : Number(o[k])) : o[k]; if (!SNAP) { if (!fid[dst]) throw new Error(`货件物流跟踪-灯 缺字段「${dst}」`); fields[fid[dst]] = val(dst, o[k]); } }
+      plain['物流商更新时间'] = now; plain['物流商导入来源'] = file;
+      if (!SNAP) { fields[fid['物流商更新时间']] = now; fields[fid['物流商导入来源']] = [{ type: 'text', text: file }]; }
+      return { recordId: x.s._id, fields, plain, x };
+    });
+    if (!SNAP) for (let i = 0; i < recs.length; i += 50) {
+      await TBLS.ship.setRecords(recs.slice(i, i + 50).map(({ recordId, fields }) => ({ recordId, fields })));
+      btn.textContent = `写入中… ${Math.min(i + 50, recs.length)}/${recs.length}`;
+    }
+    for (const r of recs) Object.assign(r.x.s, r.plain);
+    const keep = TAB; buildModel(); setupFilters(); TAB = keep; render();
+    closeDialog(); toast(SNAP ? `本地预览：已更新 ${recs.length} 个货件（未写回）` : `已写入 ${recs.length} 个货件的物流商信息`);
+  } catch (e) {
+    btn.disabled = false; btn.textContent = '重试写入';
+    btn.insertAdjacentHTML('beforebegin', `<span class="err" style="margin-right:auto">写入失败：${esc(e && e.message ? e.message : e)}（应用的数据权限要对「货件物流跟踪-灯」开「可编辑」）</span>`);
+  }
+}
+
+// ===== ⑧ 保存 / 诊断 / 布局（模板硬规矩） =====
+function setupSave() {
+  const dash = SDK && SDK.dashboard;
+  let st = ''; try { st = dash && dash.state; } catch (e) { st = '读取失败'; }
+  $('saveMsg').textContent = `（插件状态：${st || '未知'}）`;
+  if (dash && typeof dash.saveConfig === 'function' && st !== 'View' && st !== 'FullScreen') {
+    $('savebar').classList.add('show');
+    $('saveBtn').onclick = async () => {
+      $('saveBtn').disabled = true; $('saveMsg').textContent = '保存中…';
+      try {
+        const ok = await dash.saveConfig({
+          dataConditions: Object.values(TABLES).map((t) => ({ tableId: t.id, baseToken: BASE_TOKEN, dataRange: { type: 'ALL' }, series: 'COUNTA' })),
+          customConfig: { page: document.title, version: 1 },
+        });
+        $('saveMsg').textContent = ok === false ? '保存失败，请重试' : '已保存 ✔';
+      } catch (e) { $('saveMsg').textContent = '保存失败：' + (e && e.message ? e.message : e); }
+      finally { $('saveBtn').disabled = false; }
+    };
+  } else if (dash && dash.setRendered) dash.setRendered().catch(() => {});
+}
+async function diagnose() {
+  const res = [];
+  const t = async (name, fn) => {
+    try { const v = await Promise.race([fn(), new Promise((_, rej) => setTimeout(() => rej(new Error('超时 8s')), 8000))]);
+      let shown; try { shown = typeof v === 'string' ? v : JSON.stringify(v); } catch (x) { shown = String(v); } res.push(['✔', name, String(shown).slice(0, 300)]); return v; }
+    catch (e) { res.push(['✘', name, e && e.message ? e.message : String(e)]); return undefined; }
+  };
+  const { bitable, dashboard } = SDK;
+  await t('dashboard.state', async () => dashboard.state);
+  await t('dashboard.getConfig', () => dashboard.getConfig());
+  for (const [k, c] of Object.entries(TABLES)) {
+    const tb = await t(`getTableById ${c.name}`, () => bitable.base.getTableById(c.id));
+    if (tb) await t(`getRecordsByPage ${c.name}`, () => tb.getRecordsByPage({ pageSize: 2 }));
+  }
+  return `<div class="box"><b>接口诊断</b> <span class="meta">请把这块整体截图发回</span><table class="mini"><tbody>${res.map((r) =>
+    `<tr><td style="width:24px">${r[0]}</td><td style="width:220px">${esc(r[1])}</td><td style="white-space:normal;color:var(--sub)">${esc(r[2])}</td></tr>`).join('')}</tbody></table></div>`;
+}
+function layoutCheck() { $('tallTip').style.display = innerHeight > (screen.availHeight || screen.height || 1080) + 40 ? '' : 'none'; }
+window.addEventListener('resize', layoutCheck); layoutCheck();
+$('main').addEventListener('scroll', () => $('sticky').classList.toggle('stuck', $('main').scrollTop > 0), { passive: true });
+async function loadSdk() {
+  const errs = [];
+  for (const u of SDK_URLS) {
+    try { return await Promise.race([import(u), new Promise((_, rej) => setTimeout(() => rej(new Error('超时 12s')), 12000))]); }
+    catch (e) { errs.push(`${u} → ${e && e.message ? e.message : e}`); }
+  }
+  throw new Error('飞书 SDK 三个来源都没加载上（也就没有「保存到页面」按钮），请截图：' + errs.join(' ｜ '));
+}
+
+// ===== 启动 =====
+try {
+  if (!SNAP) { SDK = await loadSdk(); setupSave(); }
+  await load();
+  buildModel(); setupFilters(); fillSort(); render();
+} catch (e) {
+  const msg = esc(e && e.message ? e.message : e);
+  $('main').innerHTML = `<div class="box err">加载失败：${msg}</div>`;
+  if (SDK) { try { $('main').innerHTML = `<div class="box err">加载失败：${msg}</div>` + await diagnose(); } catch (e2) { /* 保留报错 */ } }
+}
+</script>
+</body>
+</html>
