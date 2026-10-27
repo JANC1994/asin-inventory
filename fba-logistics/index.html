@@ -91,7 +91,7 @@
   .car { display: inline-block; width: 14px; color: var(--sub); transition: transform .2s; }
   tr.srow.open .car { transform: rotate(90deg); } tr.srow.open > td { background: var(--blue-soft); }
   tr.det > td { background: var(--bg); padding: 10px 12px 12px 30px; }
-  tr.det .grid { width: calc(100vw - 72px); position: sticky; left: 0; }   /* 展开的货件表按屏宽排，不撑宽汇总表 */
+  tr.det .detw { width: calc(100vw - 72px); position: sticky; left: 0; }   /* 展开的货件表按屏宽铺满，不撑宽汇总表 */
   tr.det .tbl { width: 100%; } tr.det .t th { position: static; }
 
   /* 货件卡片 + 流程图 */
@@ -104,7 +104,7 @@
   .pl { display: inline-block; padding: 0 8px; border-radius: 99px; font-size: 11.5px; line-height: 20px; white-space: nowrap; background: var(--blue-soft); color: var(--blue); }
   .pl.g { background: var(--green-soft); color: var(--green); } .pl.y { background: var(--yellow-soft); color: var(--yellow); }
   .pl.r { background: var(--red-soft); color: var(--red); } .pl.x { background: var(--gray-soft); color: var(--sub); }
-  .steps { display: grid; grid-template-columns: repeat(6, 1fr); margin: 10px 0 4px; }
+  .steps { display: grid; grid-template-columns: repeat(6, 1fr); margin: 2px 0 0; min-width: 340px; }
   .st { position: relative; text-align: center; font-size: 11.5px; color: var(--sub); padding-top: 16px; }
   .st::before { content: ''; position: absolute; top: 5px; left: -50%; width: 100%; height: 2px; background: var(--line); }
   .st:first-child::before { display: none; }
@@ -121,18 +121,10 @@
   .mini .n { text-align: right; width: 64px; }
   /* 货件行 */
   .st2 td { vertical-align: top; }
-  .ps { min-width: 150px; }
-  .dots { display: flex; align-items: center; height: 14px; }
-  .dots i { width: 10px; height: 10px; border-radius: 50%; border: 2px solid #c9cdd4; background: #fff; flex: none; }
-  .dots i.done { background: var(--green); border-color: var(--green); }
-  .dots i.cur { background: var(--blue); border-color: var(--blue); box-shadow: 0 0 0 3px var(--blue-soft); }
-  .dots i.late { background: var(--red); border-color: var(--red); box-shadow: 0 0 0 3px var(--red-soft); }
-  .dots s { width: 14px; height: 2px; background: var(--line); flex: none; } .dots s.done { background: var(--green); }
-  .pt { font-size: 11.5px; color: var(--sub); margin-top: 3px; white-space: nowrap; } .pt b { color: var(--ink); font-weight: 600; }
-  .its { max-width: 260px; } .its > div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; line-height: 1.7; }
-  .tk { max-width: 260px; min-width: 180px; font-size: 12px; color: var(--sub); }
+  .its { max-width: 220px; min-width: 150px; } .its > div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; line-height: 1.7; }
+  .tk { max-width: 240px; min-width: 130px; font-size: 12px; color: var(--sub); }
   .tkc { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; } .tk .src { display: inline-block; font-size: 11px; color: var(--sub); background: var(--gray-soft); border-radius: 4px; padding: 0 4px; margin-right: 4px; }
-  .st2 .pl { margin-right: 3px; }
+  .st2 .pl { margin: 0 3px 3px 0; } .pls { min-width: 84px; max-width: 120px; }
   .empty { padding: 30px; text-align: center; color: var(--sub); }
 
   /* 导入弹窗 */
@@ -372,39 +364,23 @@ function stepsHtml(x) {
   const date = [dayOf(x.s['发货单建单日']) ?? dayOf(x.s['FBA建单时间']), x.sent, x.sail, null, x.sign, x.recv];
   return `<div class="steps">${STEPS.map((nm, i) => {
     const cls = x.stage > i ? 'done' : x.stage === i ? ((x.late || (x.delay && i <= 2)) ? 'late' : 'cur') : '';
-    let d = date[i] != null ? fmtD(date[i]) : '';
+    let d = date[i] != null && i <= x.stage ? fmtD(date[i]) : '';   // 还没走到的步骤不显示实际日期（物流商为准时，领星的接收日期不提前亮）
     if (i === 3 && x.port != null) d = (x.stage >= 3 ? '' : '预计 ') + fmtD(x.port);
-    if (i === 4 && x.sign == null && x.etaA != null && x.stage < 4) d = `预计 ${fmtMD(x.etaA)}${x.etaB !== x.etaA ? '–' + fmtMD(x.etaB) : ''}`;
+    if (i === 4 && x.sign == null && x.etaB != null && x.stage < 4) d = `预计 ${fmtD(x.etaB)}`;
     if (i === 2 && !d && x.stage === 2 && x.src === '领星') d = '领星：在途';
     return `<div class="st ${cls}"><i></i>${nm}<em>${esc(d) || '&nbsp;'}</em></div>`;
   }).join('')}</div>`;
 }
-// 进度：一行小圆点 + 当前步骤文字（取代卡片，用户 10-27 定「一行行显示」）
-function miniSteps(x) {
-  const date = [dayOf(x.s['发货单建单日']) ?? dayOf(x.s['FBA建单时间']), x.sent, x.sail, x.port, x.sign, x.recv];
-  const dots = STEPS.map((nm, i) => {
-    const cls = x.stage > i ? 'done' : x.stage === i ? ((x.late || (x.delay && i <= 2)) ? 'late' : 'cur') : '';
-    const tip = nm + (date[i] != null ? ' ' + fmtD(date[i]) : '');
-    return `${i ? `<s class="${x.stage >= i ? 'done' : ''}"></s>` : ''}<i class="${cls}" title="${esc(tip)}"></i>`;
-  }).join('');
-  let d = '';
-  const i = x.stage;
-  if (i === 2 && x.port != null) d = `预计到港 ${fmtD(x.port)}`;
-  else if (i < 4 && x.etaA != null) d = `预计送达 ${fmtMD(x.etaA)}${x.etaB !== x.etaA ? '–' + fmtMD(x.etaB) : ''}`;
-  else if (date[i] != null) d = fmtD(date[i]);
-  return `<div class="ps"><div class="dots">${dots}</div><div class="pt"><b>${STEPS[i] ?? '—'}</b>${d ? ' · ' + esc(d) : ''}</div></div>`;
-}
-const SHIP_HEAD = (onlyAsin) => `<tr><th>FBA 货件号</th><th>发货日</th><th>店铺 → 仓</th><th>运单状态</th><th>进度</th><th>商品（品名 · MSKU）</th><th class="n">${onlyAsin ? '本 ASIN' : '数量'}</th><th>最新轨迹</th></tr>`;
+const SHIP_HEAD = (onlyAsin) => `<tr><th>FBA 货件号 · 发货日</th><th>店铺 → 仓</th><th>运单状态</th><th>货件进度</th><th>商品（品名 · MSKU）</th><th class="n">${onlyAsin ? '本 ASIN' : '数量'}</th><th>最新轨迹</th></tr>`;
 function shipRow(x, onlyAsin) {
   const items = onlyAsin ? x.items.filter((i) => i.asin === onlyAsin) : x.items;
   const qty = items.reduce((a, i) => a + i.qty, 0);
   const tk = x.src === '物流商' ? (x.trk || x.status) : (x.lxTrack || x.status);
   const tkFull = (x.src === '物流商' ? `物流商${x.s['物流商更新时间'] ? '（' + fmtD(dayOf(x.s['物流商更新时间'])) + ' 导入）' : ''}：` : '领星：') + tk;
-  return `<tr><td><span class="mono" style="font-weight:600">${esc(x.id)}</span><div class="sub">${esc(x.s['发货单号'] || '')}</div></td>
-    <td class="nw">${x.sent != null ? fmtFull(x.sent).slice(5) : '—'}</td>
+  return `<tr><td class="nw"><span class="mono" style="font-weight:600">${esc(x.id)}</span><div class="sub">发货 ${x.sent != null ? fmtFull(x.sent).slice(5) : '—'} · ${esc(x.s['发货单号'] || '')}</div></td>
     <td class="nw">${esc(shortStore(x.store))} → ${esc(x.dest || '—')}<div class="sub nw" title="${esc(x.ch)}">${esc(x.ch.length > 14 ? x.ch.slice(0, 14) + '…' : x.ch)}${x.s['物流商箱数'] ? ` · ${x.s['物流商箱数']} 箱` : ''}</div></td>
-    <td class="nw">${pill(x)}</td>
-    <td>${miniSteps(x)}</td>
+    <td class="pls">${pill(x)}</td>
+    <td>${stepsHtml(x)}</td>
     <td class="its">${items.map((i) => `<div title="${esc(i.name)} | ${esc(i.msku)} | ${esc(i.asin)}"><span class="in">${esc(i.name)}</span> <span class="mono sub">${esc(i.msku)}</span>${items.length > 1 ? ` <b>×${f(i.qty)}</b>` : ''}</div>`).join('')}</td>
     <td class="n"><b>${f(qty)}</b></td>
     <td class="tk" title="${esc(tkFull)}"><div class="tkc"><span class="src">${x.src}</span>${esc(tk)}</div></td></tr>`;
@@ -449,7 +425,7 @@ function renderSum(rs) {
       <td class="nw">${[...a.mons].sort().map((m) => +m.slice(5)).join('/')}${a.mons.size ? '月' : ''}</td><td class="n">${a.ships.size}</td><td class="n"><b>${f(a.qty)}</b></td>
       <td class="n ${z(a.done, 'ok')}">${f(a.done)}</td><td class="n ${z(a.way, 'hl')}">${f(a.way)}</td><td class="n ${z(a.last, '')}">${f(a.last)}</td><td class="n ${z(a.sea, '')}">${f(a.sea)}</td>
       <td class="n ${z(a.pre, 'bd')}">${f(a.pre)}</td><td class="n ${z(a.lway, '')}">${f(a.lway)}</td><td class="n ${z(a.late, 'bd')}">${f(a.late)}</td><td class="n">${rateCell(a.done, a.qty)}</td></tr>`
-      + (open ? `<tr class="det"><td colspan="16"><div class="grid">${shipTable([...a.list].sort((p, q) => (p.etaB ?? 1e9) - (q.etaB ?? 1e9)), a.asin)}</div></td></tr>` : '');
+      + (open ? `<tr class="det"><td colspan="16"><div class="detw">${shipTable([...a.list].sort((p, q) => (p.etaB ?? 1e9) - (q.etaB ?? 1e9)), a.asin)}</div></td></tr>` : '');
   }).join('');
   $('main').innerHTML = kpis(rs) + `<p class="note"><b>点击任一行展开该 ASIN 的各货件进度。</b>有物流商信息的以物流商为准（尾程中 = 到港后的卸船/拆柜/清关/提柜/预约/派送；海运途中 = 已开船/中转/延迟到港；未开船 = 延迟开船），没有的按领星状态（在途分不出海运/尾程，单列「领星在途」）。逾期 = 预计送达（物流商区间末日，否则领星预计到仓日）已过仍未签收。</p>
     <div class="tbl"><table class="t"><thead><tr><th>ASIN</th><th>国家</th><th>品名</th><th>MSKU</th><th>店铺</th><th>发货月份</th><th class="n">货件数</th><th class="n">已发货</th><th class="n">已签收</th><th class="n">在途合计</th><th class="n">尾程中</th><th class="n">海运途中</th><th class="n" title="物流商：延迟开船；领星：处理中/待发货">未开船</th><th class="n" title="没有物流商信息、领星显示已发货/在途的数量（分不出海运还是尾程）">领星在途</th><th class="n">其中逾期</th><th class="n">签收率</th></tr></thead>
@@ -460,7 +436,7 @@ function renderSum(rs) {
 }
 function renderShips(rs) {
   const L = [...rs].sort(SORTS2[$('so').value] || SORTS2.eta);
-  $('main').innerHTML = kpis(rs) + `<p class="note">一行一个货件。进度圆点依次是 建单 → 已发货 → 海运途中 → 到港·尾程 → 已签收 → 亚马逊接收（绿 = 已过，蓝 = 当前，红 = 逾期/延迟；鼠标停在圆点上看日期）。最新轨迹：有物流商信息显示物流商的，没有显示领星时间线；鼠标停留看全文。</p>`
+  $('main').innerHTML = kpis(rs) + `<p class="note">一行一个货件。货件进度：建单 → 已发货 → 海运途中 → 到港·尾程 → 已签收 → 亚马逊接收，每步下面是日期（带「预计」的是还没到的）；绿 = 已完成，蓝 = 当前，红 = 逾期/延迟。最新轨迹：有物流商信息显示物流商的，没有显示领星时间线；鼠标停留看全文。</p>`
     + (L.length ? shipTable(L) : '<div class="empty">没有符合条件的货件</div>');
 }
 function kpis(rs) {
