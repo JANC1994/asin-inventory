@@ -12,7 +12,8 @@
   数据：sync_fba_logistics.py（X33 每日）；硬规矩见 tools/feishu-page-kit/template.html 顶部注释。
 -->
 <style>
-  :root { --bg:#f5f6f8; --card:#fff; --ink:#1f2329; --sub:#646a73; --line:#e5e6eb; --head:#f3f4f7; --hover:#f7f8fb;
+  :root { --bg:#faf6f1; --card:#fff; --ink:#2b2118; --sub:#7a6d61; --line:#f0e4d7; --head:#fff1e2; --hover:#fff8f0;
+    --or:#f07a12; --or-d:#c95f05; --or-soft:#fff1e2; --or-soft2:#ffe3c4;
     --blue:#3370ff; --blue-soft:#e1eaff; --red:#f54a45; --red-soft:#fde2e2; --yellow:#c46a00; --yellow-soft:#fff1d6;
     --green:#2ea121; --green-soft:#e4f6e1; --gray-soft:#eff0f1; --shadow:0 8px 24px rgba(16,24,40,.12); }
   * { box-sizing: border-box; }
@@ -24,7 +25,15 @@
   .savebar { flex: none; display: none; align-items: center; gap: 12px; background: #fff7e8; border: 1px solid #ffd591; border-radius: 8px; padding: 10px 14px; margin-bottom: 10px; }
   .savebar.show { display: flex; }
   .savebar button { height: 32px; padding: 0 16px; border: 0; border-radius: 6px; background: var(--blue); color: #fff; font-size: 14px; cursor: pointer; }
-  .sticky { position: relative; flex: none; z-index: 20; background: var(--bg); margin: 0 -16px; padding: 2px 16px 8px; }
+  .sticky { position: relative; flex: none; z-index: 20; background: var(--bg); margin: 0 -16px; padding: 0 16px 2px; }
+  /* 顶栏：橙色标题条 + 筛选条（同 目标填写 / 四季品经营 页） */
+  .hero { background: linear-gradient(120deg, #f07a12 0%, #f59a3c 60%, #f8b35f 100%); color: #fff; border-radius: 12px 12px 0 0;
+          padding: 10px 18px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .hero h2 { margin: 0; font-size: 18px; letter-spacing: .5px; }
+  .hero .cnt { color: rgba(255,255,255,.95); margin-left: auto; }
+  .hero-f { background: linear-gradient(120deg, #f38a2a 0%, #f7a650 100%); border-radius: 0 0 12px 12px; padding: 8px 18px 10px; margin-bottom: 4px;
+            border-top: 1px solid rgba(255,255,255,.3); }
+  .hero-f .ctl { border-color: transparent; } .hero-f .sep { background: rgba(255,255,255,.5); }
   .sticky.stuck { box-shadow: 0 6px 12px -8px rgba(0,0,0,.25); }
   .meta { color: var(--sub); font-size: 12px; }
   .err { color: var(--red); white-space: pre-wrap; }
@@ -36,24 +45,37 @@
          display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; cursor: pointer; }
   .ctl:hover { border-color: #c9cdd4; }
   input.ctl { cursor: text; flex: 1 1 200px; min-width: 0; }
-  input.ctl:focus, select.ctl:focus { outline: none; border-color: var(--blue); box-shadow: 0 0 0 2px var(--blue-soft); }
+  input.ctl:focus, select.ctl:focus { outline: none; border-color: var(--or); box-shadow: 0 0 0 2px rgba(255,255,255,.6); }
   .btn { background: var(--blue); color: #fff; border-color: var(--blue); }
   .btn:hover { opacity: .9; border-color: var(--blue); }
-  .btn2 { background: var(--card); color: var(--blue); border-color: var(--blue); }
+  .btn2 { background: #fff; color: var(--or-d); border-color: #fff; font-weight: 600; } .btn2:hover { border-color: #fff; opacity: .92; }
   .cnt { color: var(--sub); font-size: 12px; margin-left: auto; white-space: nowrap; }
   .sep { width: 1px; height: 20px; background: var(--line); }
-  .seg { position: relative; display: inline-grid; grid-template-columns: 1fr 1fr; background: var(--head); border: 1px solid var(--line); border-radius: 8px; padding: 2px; height: 34px; flex: none; }
-  .seg button { position: relative; z-index: 1; font: inherit; font-size: 13px; font-weight: 600; border: 0; background: none; color: var(--sub); padding: 0 14px; cursor: pointer; white-space: nowrap; transition: color .2s; }
-  .seg button.on { color: var(--ink); }
-  .seg .pill { position: absolute; top: 2px; bottom: 2px; left: 2px; width: calc(50% - 2px); background: var(--card); border-radius: 6px; box-shadow: 0 1px 3px rgba(16,24,40,.15); transition: transform .25s cubic-bezier(.4,0,.2,1); }
+  .seg { position: relative; display: inline-grid; grid-template-columns: 1fr 1fr; background: rgba(255,255,255,.22); border: 0; border-radius: 9px; padding: 3px; height: 34px; flex: none; }
+  .seg button { position: relative; z-index: 1; font: inherit; font-size: 13px; font-weight: 600; border: 0; background: none; color: #fff; padding: 0 14px; cursor: pointer; white-space: nowrap; transition: color .2s; }
+  .seg button.on { color: var(--or-d); }
+  .seg .pill { position: absolute; top: 3px; bottom: 3px; left: 3px; width: calc(50% - 3px); background: #fff; border-radius: 7px; box-shadow: 0 1px 3px rgba(16,24,40,.15); transition: transform .25s cubic-bezier(.4,0,.2,1); }
   .seg[data-on="1"] .pill { transform: translateX(100%); }
   .ms { position: relative; display: inline-flex; }
   .ms > summary { list-style: none; user-select: none; max-width: 200px; }
   .ms > summary span { overflow: hidden; text-overflow: ellipsis; }
+  .picker { position: relative; flex: 1 1 240px; min-width: 200px; display: flex; }
+  .picker input { width: 100%; padding-right: 26px; } .picker.on input { background: var(--blue-soft); border-color: var(--blue); color: var(--blue); }
+  .qx { position: absolute; right: 8px; top: 6px; color: var(--sub); cursor: pointer; font-size: 15px; line-height: 20px; display: none; } .picker.has .qx { display: block; }
+  .menu { position: absolute; left: 0; top: 36px; width: max(100%, 520px); max-height: 420px; overflow: auto; background: #fff; padding: 4px; border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow); z-index: 40; display: none; }
+  .menu.open { display: block; }
+  .menu .g { padding: 8px 10px 4px; font-size: 12px; font-weight: 600; color: var(--ink); border-top: 1px solid var(--line); cursor: pointer; display: flex; justify-content: space-between; }
+  .menu .g:first-child { border-top: 0; } .menu .g:hover { color: var(--blue); } .menu .g span { font-weight: normal; color: var(--sub); }
+  .opt { padding: 6px 10px; cursor: pointer; display: flex; gap: 10px; align-items: center; border-radius: 6px; }
+  .opt:hover { background: var(--blue-soft); }
+  .opt .im { width: 30px; height: 30px; border-radius: 5px; flex: none; background: var(--gray-soft); overflow: hidden; } .opt .im img { width: 100%; height: 100%; object-fit: cover; }
+  .opt .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .opt .t b { font-family: Consolas, Menlo, monospace; font-weight: 600; }
+  .opt .m { color: var(--sub); font-size: 12px; flex: none; }
+  .tg { font-size: 11px; padding: 0 6px; border-radius: 4px; line-height: 18px; flex: none; background: var(--blue-soft); color: var(--blue); } .tg.ca { background: #fde2e2; color: #c03b37; }
   .ms > summary::-webkit-details-marker { display: none; }
   .ms > summary::after { content: ""; width: 6px; height: 6px; border-right: 1.5px solid var(--sub); border-bottom: 1.5px solid var(--sub); transform: translateY(-2px) rotate(45deg); margin-left: 4px; flex: none; }
-  .ms[open] > summary { border-color: var(--blue); }
-  .ms.has > summary { background: var(--blue-soft); border-color: var(--blue); color: var(--blue); }
+  .ms[open] > summary { border-color: var(--or); }
+  .ms.has > summary { background: #fff; border-color: var(--or-d); color: var(--or-d); font-weight: 600; box-shadow: inset 0 0 0 1px var(--or-d); }
   .pop { position: absolute; top: calc(100% + 6px); left: 0; background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 6px; min-width: 210px; box-shadow: var(--shadow); z-index: 30; max-height: 60vh; overflow: auto; }
   .pop .ops { display: flex; gap: 6px; padding: 2px 2px 8px; border-bottom: 1px solid var(--line); margin-bottom: 4px; }
   .pop .ops button { font: inherit; font-size: 12px; color: var(--ink); background: var(--head); border: 1px solid var(--line); border-radius: 5px; height: 24px; padding: 0 8px; cursor: pointer; }
@@ -75,7 +97,7 @@
   .tbl { background: var(--card); border: 1px solid var(--line); border-radius: 8px; width: max-content; min-width: 100%; }
   table.t { border-collapse: separate; border-spacing: 0; width: 100%; font-variant-numeric: tabular-nums; }
   .t th, .t td { padding: 8px 7px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: middle; font-size: 12.5px; }
-  .t th { background: var(--head); color: var(--sub); font-weight: 600; white-space: nowrap; position: sticky; top: 0; z-index: 2; }
+  .t th { background: var(--or-soft); color: var(--or-d); font-weight: 600; border-bottom-color: var(--or-soft2); white-space: nowrap; position: sticky; top: 0; z-index: 2; }
   .t th:first-child { border-top-left-radius: 8px; } .t th:last-child { border-top-right-radius: 8px; }
   .t .n { text-align: right; white-space: nowrap; }
   .t tfoot td { background: var(--head); font-weight: 600; position: sticky; bottom: 0; border-bottom: 0; }
@@ -149,9 +171,14 @@
     <span class="meta" id="saveMsg"></span>
   </div>
   <div class="sticky" id="sticky">
-    <div class="bar">
+    <div class="hero">
+      <h2>货件物流跟踪</h2>
       <div class="seg" id="seg" data-on="0"><span class="pill"></span><button data-t="0" class="on">ASIN × 国家汇总</button><button data-t="1">货件进度</button></div>
-      <input class="ctl" id="q" placeholder="搜索 ASIN / 品名 / MSKU / 货件号">
+      <button class="ctl btn2" id="imp">导入物流商表</button>
+      <span class="cnt" id="cnt"></span>
+    </div>
+    <div class="hero-f bar">
+      <div class="picker"><input class="ctl" id="q" placeholder="搜 ASIN / 品名 / SPU / MSKU / 货件号，或点开按 SPU 选" autocomplete="off"><span class="qx" id="qx" title="清除">×</span><div class="menu" id="menu"></div></div>
       <details class="ms" id="fm"><summary class="ctl"></summary><div class="pop"></div></details>
       <details class="ms" id="fs"><summary class="ctl"></summary><div class="pop"></div></details>
       <details class="ms" id="fw"><summary class="ctl"></summary><div class="pop"></div></details>
@@ -161,9 +188,6 @@
       <span class="sep only0"></span>
       <details class="ms only0" id="fp"><summary class="ctl"></summary><div class="pop"></div></details>
       <select class="ctl" id="so"></select>
-      <button class="ctl btn2" id="imp">导入物流商表</button>
-      <button class="ctl btn" id="csv">导出 CSV</button>
-      <span class="cnt" id="cnt"></span>
     </div>
     <input type="file" id="file" accept=".xlsx,.csv" style="display:none">
   </div>
@@ -181,6 +205,8 @@ const TABLES = {
   ship: { id: 'tblB78mpJmyfEBHZ', name: '货件物流跟踪-灯', fields: ['货件号', '店铺', '国家', '目的仓', '发货单号', '物流商', '物流渠道', '运输方式', '发货单建单日', '发货日', '预计到仓日',
     '领星状态', 'FBA建单时间', 'FBA已发货时间', 'FBA接收中时间', '发货量', '已收量', ...CARRIER_FIELDS] },
   det: { id: 'tblW09RSzUtYaCRm', name: '货件商品明细-灯', fields: ['货件号', 'MSKU', 'ASIN', '品名', '发货量', '已收量'] },
+  // 搜索下拉的 SPU 分组 / 主图（SPU 一律取主表手填值）；授权靠应用「数据授权（勿删）」页的原生列表组件
+  pm: { id: 'tblqksywqgYvywOT', name: '产品主表-灯类+精铺', fields: ['ASIN', 'SPU', '品名', '图片'], raw: ['图片'] },
 };
 // 物流商导出表 表头 → 字段（同 sync_fba_logistics.py 的 CARRIER_MAP）
 const CARRIER_MAP = { '运单状态': '物流商运单状态', '轨迹明细': '物流商轨迹', '签收时间': '物流商签收时间', '预计送达': '物流商预计送达', '签收时效': '物流商签收时效',
@@ -239,7 +265,7 @@ async function readTable(key) {
     const res = await table.getRecordsByPage({ pageSize: 200, pageToken });
     for (const r of res.records) {
       const o = { _id: r.recordId };
-      for (const w of cfg.fields) if (FIDS[key][w]) o[w] = cell(r.fields[FIDS[key][w]]);
+      for (const w of cfg.fields) if (FIDS[key][w]) o[w] = (cfg.raw || []).includes(w) ? r.fields[FIDS[key][w]] : cell(r.fields[FIDS[key][w]]);
       rows.push(o);
     }
     if (!res.hasMore) break;
@@ -353,11 +379,104 @@ const SORTS = [
 function fillSort() { $('so').innerHTML = SORTS[TAB].map(([v, l]) => `<option value="${v}">${l}</option>`).join(''); }
 
 function filt() {
-  const q = $('q').value.trim().toLowerCase();
+  const q = PICK ? '' : $('q').value.trim().toLowerCase();
   const has = (sel, v) => !sel.size || sel.has(v);
   return SHIPS.filter((x) => has(SEL.m, x.mon) && has(SEL.s, x.status) && has(SEL.w, x.wk == null ? '' : String(x.wk)) && has(SEL.c, x.ctry) && has(SEL.t, x.store) && has(SEL.r, x.src)
-    && (!q || [x.id, x.dest, x.status, x.s['发货单号'], ...x.items.flatMap((i) => [i.name, i.msku, i.asin])].join(' ').toLowerCase().includes(q)));
+    && (!PICK || ((!PICK.ctry || x.ctry === PICK.ctry) && x.items.some((i) => PICK.asins.has(i.asin))))
+    && (!q || [x.id, x.dest, x.status, x.s['发货单号'], ...x.items.flatMap((i) => [i.name, i.msku, i.asin, spuOf(i.asin)])].join(' ').toLowerCase().includes(q)));
 }
+
+// ===== 搜索下拉：按 SPU 分组列出有货件的 ASIN×国家（同四季品备货计划页的选择器） =====
+let PM = {}, PICK = null;   // PM[asin] = {spu, name, rid, tok}；PICK = {label, asins:Set, ctry}
+const spuOf = (asin) => (PM[asin] && PM[asin].spu) || '';
+function buildPM() {
+  PM = {};
+  for (const r of DATA.pm || []) {
+    const a = String(r['ASIN'] || '').trim(); if (!a) continue;
+    const img = Array.isArray(r['图片']) && r['图片'][0] && r['图片'][0].token ? r['图片'][0].token : null;
+    const o = PM[a] || (PM[a] = { spu: '', name: '', rid: null, tok: null });
+    if (!o.spu && r['SPU']) o.spu = String(r['SPU']).trim();
+    if (!o.name && r['品名']) o.name = r['品名'];
+    if (!o.tok && img) { o.tok = img; o.rid = r._id; }
+  }
+}
+function menuItems(f) {
+  const m = new Map();
+  for (const x of SHIPS) for (const i of x.items) {
+    const k = i.asin + '|' + x.ctry;
+    if (!m.has(k)) m.set(k, { asin: i.asin, ctry: x.ctry, name: i.name, spu: spuOf(i.asin), ships: new Set(), way: 0 });
+    const o = m.get(k);
+    o.ships.add(x.id); if (x.phase !== 'done') o.way += i.qty;
+  }
+  return [...m.values()].filter((o) => !f || [o.asin, o.name, o.spu, o.ctry].some((v) => String(v || '').toLowerCase().includes(f)))
+    .sort((a, b) => (Number(!a.spu) - Number(!b.spu)) || a.spu.localeCompare(b.spu, 'zh') || a.asin.localeCompare(b.asin) || a.ctry.localeCompare(b.ctry, 'zh'));
+}
+const f0 = (v) => n0(v).toLocaleString('zh-CN');
+function renderMenu() {
+  const f = PICK ? '' : $('q').value.trim().toLowerCase();
+  const groups = new Map();
+  for (const o of menuItems(f)) { const g = o.spu || '未填 SPU'; if (!groups.has(g)) groups.set(g, []); groups.get(g).push(o); }
+  let h = '';
+  for (const [g, os] of groups) {
+    h += `<div class="g" data-spu="${esc(g)}">${esc(g)}<span>${g === '未填 SPU' ? '' : '点此看整个 SPU · '}${os.length} 个</span></div>`;
+    h += os.map((o) => {
+      const p = PM[o.asin];
+      return `<div class="opt" data-asin="${esc(o.asin)}" data-ctry="${esc(o.ctry)}"><span class="im" ${p && p.tok ? `data-img="${esc(o.asin)}"` : ''}></span>
+        <span class="t"><b>${esc(o.asin)}</b> · ${esc(o.name)}</span><span class="tg ${o.ctry === '加拿大' ? 'ca' : ''}">${esc(o.ctry)}</span>
+        <span class="m">${o.ships.size} 货件 · 在途 ${f0(o.way)}</span></div>`;
+    }).join('');
+  }
+  $('menu').innerHTML = h || '<div class="opt">没有匹配的 ASIN / SPU（文字仍可按货件号、MSKU 搜）</div>';
+  $('menu').classList.add('open');
+  loadMenuImgs();
+}
+const IMG = {};
+let imgIo = null;
+function loadMenuImgs() {   // 主图按需取（getCellAttachmentUrls），滚到才取
+  if (SNAP || !TBLS.pm || !FIDS.pm || !FIDS.pm['图片']) return;
+  if (imgIo) imgIo.disconnect();
+  imgIo = new IntersectionObserver((ents) => ents.forEach(async (en) => {
+    if (!en.isIntersecting) return;
+    imgIo.unobserve(en.target);
+    const a = en.target.dataset.img, p = PM[a]; if (!p) return;
+    try { if (!IMG[a]) IMG[a] = (await TBLS.pm.getCellAttachmentUrls([p.tok], FIDS.pm['图片'], p.rid))[0]; } catch (e) { return; }
+    if (IMG[a]) en.target.innerHTML = `<img src="${esc(IMG[a])}" alt="">`;
+  }), { root: $('menu'), rootMargin: '200px' });
+  $('menu').querySelectorAll('[data-img]').forEach((el) => {
+    if (IMG[el.dataset.img]) el.innerHTML = `<img src="${esc(IMG[el.dataset.img])}" alt="">`; else imgIo.observe(el);
+  });
+}
+function setPick(p) {
+  PICK = p;
+  $('q').value = p ? p.label : '';
+  const pk = document.querySelector('.picker');
+  pk.classList.toggle('on', !!p); pk.classList.toggle('has', !!p);
+  $('menu').classList.remove('open');
+  OPEN.clear();
+  if (p && p.ctry && p.asins.size === 1) OPEN.add([...p.asins][0] + '|' + p.ctry);   // 选单个 ASIN×国家 → 汇总行直接展开
+  render();
+}
+$('q').addEventListener('focus', () => { if (PICK) $('q').select(); renderMenu(); });
+$('q').addEventListener('input', () => {
+  PICK = null;
+  const pk = document.querySelector('.picker');
+  pk.classList.remove('on'); pk.classList.toggle('has', !!$('q').value);
+  renderMenu(); render();
+});
+$('q').addEventListener('keydown', (e) => { if (e.key === 'Escape') $('menu').classList.remove('open'); });
+$('qx').addEventListener('click', () => setPick(null));
+document.addEventListener('click', (e) => { if (!e.target.closest('.picker')) $('menu').classList.remove('open'); });
+$('menu').addEventListener('click', (e) => {
+  const g = e.target.closest('.g');
+  if (g && g.dataset.spu !== '未填 SPU') {
+    const asins = new Set(SHIPS.flatMap((x) => x.items.map((i) => i.asin)).filter((a) => spuOf(a) === g.dataset.spu));
+    setPick({ label: `SPU：${g.dataset.spu}`, asins });
+    return;
+  }
+  const o = e.target.closest('.opt'); if (!o || !o.dataset.asin) return;
+  const it = menuItems('').find((x) => x.asin === o.dataset.asin);
+  setPick({ label: `${o.dataset.asin} · ${it ? it.name : ''} · ${o.dataset.ctry}`, asins: new Set([o.dataset.asin]), ctry: o.dataset.ctry });
+});
 
 // ===== ⑤ 渲染 =====
 function pill(x) {
@@ -414,7 +533,7 @@ const SORTS2 = {
 };
 function sumRows(rs) {
   const tests = PG.filter((g) => SEL.p.has(g[0])).map((g) => g[2]);
-  return agg(rs).filter((a) => !tests.length || tests.some((t) => t(a))).sort(SORTF[$('so').value] || SORTF.qty);
+  return agg(rs).filter((a) => (!PICK || (PICK.asins.has(a.asin) && (!PICK.ctry || a.ctry === PICK.ctry))) && (!tests.length || tests.some((t) => t(a)))).sort(SORTF[$('so').value] || SORTF.qty);
 }
 const OPEN = new Set();
 const rateCell = (a, b) => `<span class="rate">${pc(a, b)}<i><s style="width:${b ? Math.round(a / b * 100) : 0}%"></s></i></span>`;
@@ -461,26 +580,7 @@ $('seg').onclick = (e) => {
   document.querySelectorAll('.only0').forEach((el) => { el.style.display = TAB === 0 ? '' : 'none'; });
   fillSort(); $('main').scrollTop = 0; render();
 };
-$('q').oninput = render; $('so').onchange = render;
-
-// ===== ⑥ 导出 =====
-function dl(L, name) {
-  const s = '﻿' + L.map((x) => x.map((v) => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
-  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([s], { type: 'text/csv' })); a.download = name; a.click();
-}
-$('csv').onclick = () => {
-  const rs = filt();
-  if (TAB === 0) {
-    const L = [['ASIN', '国家', '品名', 'MSKU', '店铺', '发货月份', '货件数', '已发货', '已签收', '在途合计', '尾程中', '海运途中', '未开船/未发货', '领星在途', '其中逾期', '签收率']];
-    sumRows(rs).forEach((a) => L.push([a.asin, a.ctry, a.name, [...a.mskus].join(' / '), [...a.stores].join(' / '), [...a.mons].sort().join(' / '), a.ships.size, a.qty, a.done, a.way, a.last, a.sea, a.pre, a.lway, a.late, pc(a.done, a.qty)]));
-    dl(L, 'ASIN国家汇总.csv');
-  } else {
-    const L = [['FBA货件号', '发货日期', '店铺', '国家', '目的仓', '运单状态', '信息来源', '阶段', '预计送达', '签收时间', '逾期天数', '品名', 'MSKU', 'ASIN', '发货数量', '轨迹']];
-    rs.forEach((x) => x.items.forEach((i) => L.push([x.id, x.sent != null ? fmtFull(x.sent) : '', x.store, x.ctry, x.dest, x.status, x.src, PHN[x.phase], x.etaA != null ? `${fmtFull(x.etaA)}~${fmtFull(x.etaB)}` : '',
-      x.s['物流商签收时间'] || '', x.late || '', i.name, i.msku, i.asin, i.qty, x.src === '物流商' ? x.trk : x.lxTrack])));
-    dl(L, '货件进度明细.csv');
-  }
-};
+$('so').onchange = render;
 
 // ===== ⑦ 导入物流商表（页面里选 xlsx → 按 FBA ID 匹配 → 写物流商字段） =====
 async function unzip(buf) {   // 极简 zip 读取：中央目录 + DecompressionStream('deflate-raw')，不依赖外部库
@@ -642,7 +742,7 @@ async function loadSdk() {
 try {
   if (!SNAP) { SDK = await loadSdk(); setupSave(); }
   await load();
-  buildModel(); setupFilters(); fillSort(); render();
+  buildPM(); buildModel(); setupFilters(); fillSort(); render();
 } catch (e) {
   const msg = esc(e && e.message ? e.message : e);
   $('main').innerHTML = `<div class="box err">加载失败：${msg}</div>`;
