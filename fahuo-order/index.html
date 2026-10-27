@@ -1,0 +1,900 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>发货指令</title>
+<!--
+  飞书应用「灯具组-全流程」插件页：发货指令（2026-10-27）
+  运营建发货指令（选产品→填箱数→发货安排，可分批/复制）→ 指令列表（就地编辑、提交审核、勾选批量）→ 审核人（发货指令表配置行）审核
+  → 逐行写进「出口对账-发货计划」（指令号/指令状态/渠道/预计到达）→ 待发货（只读，可驳回；货件号读发货计划 货件1~6）。
+  页面里只有 base token 和表 ID，没有任何密钥。发布：连同 sdk/ 拷到 github-pages/fahuo-order/。本地调试：?mock（mock-sdk.mjs，不发布）。
+-->
+<style>
+  :root {
+    --bg: #f5f6f7; --card: #ffffff; --ink: #1f2329; --sub: #646a73; --line: #e5e6eb;
+    --blue: #3370ff; --blue-soft: #e1eaff; --red: #f54a45; --red-soft: #fde2e2;
+    --yellow: #ff8800; --yellow-soft: #fff1d6; --green: #2ea121; --green-soft: #d9f5d6;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; overflow: hidden; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 13px/1.5 -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; }
+  .wrap { padding: 12px 16px 0; height: 100vh; display: flex; flex-direction: column; }
+  .sticky { flex: none; background: var(--bg); margin: 0 -16px; padding: 4px 16px 10px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .sticky h1 { margin: 0; font-size: 17px; }
+  #main { flex: 1; min-height: 0; overflow: auto; margin: 0 -16px; padding: 0 16px 32px; }
+  .tabs { display: flex; gap: 4px; background: #eceef1; border-radius: 8px; padding: 3px; }
+  .tabs button { border: 0; background: none; padding: 5px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; color: var(--sub); }
+  .tabs button.on { background: #fff; color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+  .tabs .num { display: inline-block; min-width: 18px; padding: 0 5px; border-radius: 9px; background: var(--red); color: #fff; font-size: 11px; line-height: 18px; margin-left: 4px; }
+  .meta { color: var(--sub); font-size: 12px; }
+  .who { margin-left: auto; display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--sub); }
+  .preview-tag { background: var(--yellow-soft); color: #b25e00; border-radius: 4px; padding: 1px 8px; font-size: 12px; }
+  .card { background: var(--card); border-radius: 8px; padding: 14px 16px; border: 1px solid var(--line); margin-bottom: 12px; }
+  .card h3 { margin: 0 0 12px; font-size: 15px; display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .card h3 small { font-weight: normal; color: var(--sub); font-size: 12px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px 16px; }
+  label.f { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--sub); }
+  label.f b { color: var(--red); font-weight: normal; }
+  input, select, textarea { font: inherit; color: var(--ink); border: 1px solid #d0d3d6; border-radius: 6px; padding: 5px 8px; background: #fff; min-width: 0; }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--blue); box-shadow: 0 0 0 2px var(--blue-soft); }
+  input.miss, select.miss { border-color: var(--red); background: #fff8f8; }
+  input[readonly] { background: var(--bg); color: var(--sub); }
+  .seg { display: inline-flex; border: 1px solid #d0d3d6; border-radius: 6px; overflow: hidden; width: max-content; }
+  .seg button { border: 0; background: #fff; padding: 5px 16px; cursor: pointer; font: inherit; }
+  .seg button + button { border-left: 1px solid #d0d3d6; }
+  .seg button.on { background: var(--blue); color: #fff; }
+  .hint { font-size: 12px; color: var(--sub); }
+  .link { border: 0; background: none; color: var(--blue); cursor: pointer; font: inherit; font-size: 12px; padding: 0; }
+  .link.red { color: var(--red); }
+  .badge { display: inline-block; border-radius: 4px; padding: 1px 8px; font-size: 12px; white-space: nowrap; }
+  .b-green { background: var(--green-soft); color: var(--green); }
+  .b-yellow { background: var(--yellow-soft); color: #b25e00; }
+  .b-red { background: var(--red-soft); color: var(--red); }
+  .b-blue { background: var(--blue-soft); color: var(--blue); }
+  .b-gray { background: #eff0f1; color: var(--sub); }
+
+  /* 选产品下拉 */
+  .picker { position: relative; max-width: 760px; }
+  .picker-box { display: flex; align-items: center; gap: 8px; border: 1px solid #d0d3d6; border-radius: 6px; padding: 4px 8px; background: #fff; cursor: text; }
+  .picker-box.open { border-color: var(--blue); box-shadow: 0 0 0 2px var(--blue-soft); }
+  .picker-box input { border: 0; box-shadow: none !important; flex: 1; padding: 3px 0; }
+  .pick-panel { position: absolute; left: 0; right: 0; top: calc(100% + 4px); background: #fff; border: 1px solid var(--line); border-radius: 8px;
+                box-shadow: 0 8px 24px rgba(0,0,0,.12); max-height: 360px; overflow: auto; z-index: 30; }
+  .pick-item { display: grid; grid-template-columns: 22px 1fr auto; gap: 8px; align-items: center; padding: 7px 12px; cursor: pointer; border-bottom: 1px solid #f2f3f5; }
+  .pick-item:hover { background: #f5f8ff; }
+  .pick-item.dis { opacity: .4; cursor: not-allowed; }
+  .pick-item .nm { font-weight: 500; }
+  .pick-item .sub { color: var(--sub); font-size: 12px; font-family: Consolas, monospace; }
+  .pick-foot { position: sticky; bottom: 0; background: #fafbfc; padding: 6px 12px; border-top: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center; }
+
+  .lines { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+  .tbl th, .tbl td { padding: 7px 8px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; vertical-align: middle; }
+  .tbl th { color: var(--sub); font-weight: normal; background: #fafbfc; font-size: 12px; }
+  .tbl tr.cont td { border-top: 0; background: #fcfcfd; }
+  .tbl tr.grp-end td { border-bottom: 1px solid #d8dbe0; }
+  .mono { font-family: Consolas, monospace; font-size: 12.5px; }
+  .auto { color: var(--blue); }
+  .tbl input.num { width: 70px; text-align: right; }
+  .tbl input.po { width: 130px; } .tbl input.rk { width: 150px; }
+  .tbl td.total { font-weight: 600; }
+  .empty { padding: 20px; text-align: center; color: var(--sub); border: 1px dashed #d0d3d6; border-radius: 8px; }
+
+  .ships { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; margin-top: 10px; }
+  .ship { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; background: #fafbfc; display: grid; grid-template-columns: 52px 1fr; gap: 6px 8px; align-items: center; }
+  .ship .t { grid-column: 1 / -1; font-weight: 600; }
+  .ship span { font-size: 12px; color: var(--sub); }
+
+  .sumbar { display: flex; gap: 22px; align-items: center; flex-wrap: wrap; }
+  .sumbar .n { font-size: 20px; font-weight: 600; }
+  .btn { height: 34px; padding: 0 18px; border: 0; border-radius: 6px; background: var(--blue); color: #fff; font: inherit; font-size: 14px; cursor: pointer; white-space: nowrap; }
+  .btn.sm { height: 28px; padding: 0 12px; font-size: 13px; }
+  .btn.ghost { background: #fff; color: var(--ink); border: 1px solid #d0d3d6; }
+  .btn.green { background: var(--green); } .btn.red { background: #fff; color: var(--red); border: 1px solid #f9b9b7; }
+  .errs { color: var(--red); font-size: 12px; margin-top: 8px; }
+
+  .filters { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+  .chip { border: 1px solid #d0d3d6; background: #fff; border-radius: 14px; padding: 3px 12px; cursor: pointer; font: inherit; font-size: 12px; }
+  .chip.on { border-color: var(--blue); color: var(--blue); background: var(--blue-soft); }
+  .order { padding: 0; overflow: hidden; }
+  .order-head { display: flex; gap: 10px 16px; align-items: center; flex-wrap: wrap; padding: 10px 14px; border-bottom: 1px solid var(--line); background: #fafbfc; }
+  .order-head .no { font-weight: 600; font-family: Consolas, monospace; font-size: 14px; }
+  .order-head .kv { font-size: 12px; color: var(--sub); } .order-head .kv b { color: var(--ink); font-weight: 500; }
+  .order-head .acts { margin-left: auto; display: flex; gap: 6px; flex-wrap: wrap; }
+  .order .tbl th { background: #fff; }
+  .order-foot { padding: 8px 14px; display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px; color: var(--sub); border-top: 1px solid var(--line); }
+  .reason { margin: 0 14px 10px; padding: 8px 12px; border-radius: 6px; background: var(--red-soft); color: #c0322e; font-size: 12.5px; }
+  .rejbox { display: flex; gap: 8px; padding: 10px 14px; background: #fff8f8; border-bottom: 1px solid var(--line); }
+  .rejbox input { flex: 1; }
+  .toast { position: fixed; left: 50%; top: 18px; transform: translateX(-50%); background: #1f2329; color: #fff; padding: 8px 18px; border-radius: 6px; font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 99; }
+  .toast.show { opacity: .92; }
+  /* v3 追加 */
+  .bulkbar { display: flex; align-items: center; gap: 12px; padding: 8px 14px; position: sticky; top: 0; z-index: 10; flex-wrap: wrap; }
+  .bulkbar.on { border-color: var(--blue); background: #f5f8ff; }
+  .batch { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12.5px; }
+  .batch input { width: 56px; text-align: right; }
+  .order-head input[type=checkbox] { width: 16px; height: 16px; margin: 0; }
+  .ship { grid-template-columns: 60px 1fr; }
+  .ship .sug { grid-column: 1 / -1; font-size: 12px; color: var(--sub); }
+  .ship .sug b { color: var(--ink); }
+  .editing { border-color: var(--blue); box-shadow: 0 0 0 2px var(--blue-soft); }
+  .editing .ed { padding: 12px 14px 0; }
+  .ed h4 { margin: 14px 0 8px; font-size: 13px; color: var(--sub); font-weight: 500; }
+  .ed h4:first-child { margin-top: 0; }
+  .edit-foot { display: flex; gap: 8px; justify-content: flex-end; padding: 12px 14px; border-top: 1px solid var(--line); background: #fafbfc; margin-top: 12px; }
+  .me-auto { display: inline-flex; align-items: center; gap: 6px; }
+  .avatar { width: 22px; height: 22px; border-radius: 50%; background: var(--blue); color: #fff; display: grid; place-items: center; font-size: 11px; }
+  .sim { font-size: 11px; color: #b0b3b8; } .sim select { font-size: 11px; padding: 1px 4px; color: var(--sub); }
+  .wrote { font-size: 12px; color: var(--green); }
+  /* 插件页框架 */
+  .tip { flex: none; background: #fff7e8; color: #b25e00; border-radius: 8px; padding: 6px 12px; font-size: 12.5px; margin-bottom: 8px; }
+  .savebar { flex: none; display: none; align-items: center; gap: 12px; background: #fff7e8; border: 1px solid #ffd591; border-radius: 8px; padding: 10px 14px; margin-bottom: 10px; }
+  .savebar.show { display: flex; }
+  .savebar button { height: 32px; padding: 0 16px; border: 0; border-radius: 6px; background: var(--blue); color: #fff; font-size: 14px; cursor: pointer; }
+  .loading { padding: 40px; text-align: center; color: var(--sub); }
+  .err { color: var(--red); white-space: pre-wrap; }
+  .busy { position: fixed; inset: 0; background: rgba(255,255,255,.55); z-index: 90; display: none; place-items: center; font-size: 14px; color: var(--ink); }
+  .busy.show { display: grid; }
+  .warn { background: var(--yellow-soft); color: #8a4b00; border-radius: 6px; padding: 6px 10px; font-size: 12px; margin-bottom: 8px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="tip" id="tallTip" style="display:none">插件框比屏幕还高，往下滑时顶部会被滚走。请在应用编辑模式里把这个插件组件的高度拖到一屏以内。</div>
+  <div class="savebar" id="savebar">
+    <span>这是插件的配置预览。确认没问题后点右边按钮，插件才会保存到应用页面上。</span>
+    <button id="saveBtn">保存到页面</button>
+    <span class="meta" id="saveMsg"></span>
+  </div>
+  <div class="sticky" id="sticky">
+    <h1>发货指令</h1>
+    <div class="tabs" id="tabs"></div>
+    <button class="link" id="reload" title="重新读取（别人刚改过时点一下）">⟳ 刷新</button>
+    <button class="link" id="selfcheck">自检</button>
+    <div class="who"><span class="me-auto"><span class="avatar" id="meAv">?</span><span id="meName">识别中…</span><span class="hint" id="meRole"></span></span></div>
+  </div>
+  <div id="main"><div class="loading">正在读取多维表数据…</div></div>
+</div>
+<div class="toast" id="toast"></div>
+<div class="busy" id="busy"><div class="card" id="busyMsg">处理中…</div></div>
+
+<script type="module">
+// ================= ① 配置 =================
+// 发货指令页（2026-10-27）。流程：运营新建 → 指令列表（草稿，就地编辑，提交审核）→ 审核人(配置行)审核 → 逐行写进「出口对账-发货计划」→ 待发货（只读，可驳回）
+// 源码 tools/fahuo-order-page/index.html；发布 github-pages/fahuo-order/（连同 sdk/）。口径见 wiki/页面设计/页面清单.md「发货指令」。
+let SDK_URLS = [];
+try { SDK_URLS.push(new URL('./sdk/index.mjs', location.href).href); } catch (e) { /* data: URL 预览时没有相对路径 */ }
+SDK_URLS.push('https://cdn.jsdelivr.net/npm/@lark-base-open/js-sdk@1.0.2/dist/index.mjs', 'https://unpkg.com/@lark-base-open/js-sdk@1.0.2/dist/index.mjs');
+const MOCK = /[?&]mock\b/.test(location.search);           // 本地调试：?mock 用 mock-sdk.mjs（不发布）
+const BASE_TOKEN = 'JGvebyaAYapWtOslxc9cuKYXnwd';   // 灯具组-全流程
+const TABLES = {
+  // 第一张 = saveConfig 第一条 dataCondition（应用只认第一条给授权）；其余表在应用页「数据授权（勿删）/数据授权2（勿删）」有列表组件引用
+  ord:  { id: 'tbl83YlBQgKzooyz', name: '发货指令', core: true,
+          fields: ['指令号', '序号', '状态', '提交人', '国家', '发货日期', '是否分仓', '合计箱数', '合计件数', '摘要', '明细JSON', '货件JSON', '备注', '驳回原因', '分批计划', '审核人', '审核时间', '最后修改'] },
+  pm:   { id: 'tblqksywqgYvywOT', name: '产品主表-灯类+精铺', core: true, fields: ['ASIN', '国家', '店铺', '品名', 'MSKU', 'FNSKU', '领星SKU', '单箱数量', 'SPU'] },
+  po:   { id: 'tblZGnfj9md5isLj', name: '出口对账-采购合同', fields: ['采购合同', 'SKU', '数量', '下单日期', '到货状态', '类型'] },
+  ch:   { id: 'tblxl08WV9pLwxdi', name: '头程渠道时效', fields: ['物流渠道', '国家', '运输方式', '标准时效天数', '启用'] },
+  plan: { id: 'tblXmPMxqY7o5YT6', name: '出口对账-发货计划', view: 'vewTjyFaLe',   // 视图「发货指令页用，勿删」= 指令号非空
+          fields: ['指令号', '计划SKU', '货件1', '货件2', '货件3', '货件4', '货件5', '货件6', '指令状态'] },
+};
+const CONFIG_NO = '_CONFIG（勿删）';     // 发货指令表里的配置行：审核人字段 = 谁审核
+const REVIEWER_FALLBACK = '曾舒婷';
+const SHIP_SLOTS = 5;
+
+// ================= ② 工具 =================
+const $ = (id) => document.getElementById(id);
+const DAY = 86400000, BJ = 8 * 3600000;
+const dnMs = (ms) => Math.floor((Number(ms) + BJ) / DAY);               // 毫秒 → 北京天序号
+const dn = (s) => { if (!s) return null; const [y, m, d] = s.split('-').map(Number); return Date.UTC(y, m - 1, d) / DAY; };   // 'YYYY-MM-DD' → 天序号
+const ds = (n) => new Date(n * DAY).toISOString().slice(0, 10);          // 天序号 → 'YYYY-MM-DD'
+const msOf = (s) => s ? dn(s) * DAY - BJ : null;                         // 'YYYY-MM-DD' → 多维表日期（北京 0 点）
+const md = (s) => s ? s.slice(5).replace('-', '/') : '—';
+const TODAY = ds(dnMs(Date.now()));
+const fmtTime = (ms) => { if (!ms) return ''; const d = new Date(Number(ms) + BJ); return d.toISOString().slice(0, 16).replace('T', ' '); };
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const clone = (o) => JSON.parse(JSON.stringify(o));
+function toast(t, ms = 2600) { const el = $('toast'); el.textContent = t; el.classList.add('show'); clearTimeout(toast.t); toast.t = setTimeout(() => el.classList.remove('show'), ms); }
+function busy(msg) { $('busy').classList.toggle('show', !!msg); if (msg) $('busyMsg').textContent = msg; }
+
+function cell(v) {
+  if (v == null) return null;
+  if (typeof v === 'number' || typeof v === 'string' || typeof v === 'boolean') return v;
+  if (Array.isArray(v)) {
+    if (!v.length) return null;
+    if (v.every((x) => x && typeof x === 'object' && 'text' in x && !('id' in x && 'name' in x && !('type' in x)))) return v.map((x) => x.text ?? '').join('');
+    if (v.length === 1) return cell(v[0]);
+    return v.map(cell).join('、');
+  }
+  if (typeof v === 'object') { if ('text' in v) return v.text; if ('name' in v) return v.name; if ('value' in v) return cell(v.value); }
+  return String(v);
+}
+// 人员字段 → [{id, name}]
+function users(v) {
+  if (!v) return [];
+  const a = Array.isArray(v) ? v : [v];
+  return a.filter((x) => x && typeof x === 'object' && x.id).map((x) => ({ id: x.id, name: x.name || x.enName || '' }));
+}
+const num = (v) => { if (v == null || v === '') return 0; const n = Number(String(v).replace(/[^\d.-]/g, '')); return isNaN(n) ? 0 : n; };
+const json = (s, d) => { try { return s ? JSON.parse(s) : d; } catch (e) { return d; } };
+
+// ================= ③ 读写多维表 =================
+let SDK = null;
+const META = {};      // key → { table, idByName, byName }
+const DATA = {};      // key → rows（{_id, 字段名: 普通值, _raw: {字段名: 原始值}}）
+const LOADERR = {};   // key → 报错文字（非核心表读不到时页面降级）
+
+async function openTable(key) {
+  if (META[key]) return META[key];
+  const cfg = TABLES[key];
+  const table = await SDK.bitable.base.getTableById(cfg.id);
+  const fields = await table.getFieldMetaList();
+  const m = { table, idByName: Object.fromEntries(fields.map((f) => [f.name, f.id])), byName: Object.fromEntries(fields.map((f) => [f.name, f])) };
+  m.missing = cfg.fields.filter((w) => !m.idByName[w]);
+  META[key] = m; return m;
+}
+async function readTable(key) {
+  const cfg = TABLES[key], m = await openTable(key);
+  const rows = []; let pageToken;
+  for (let guard = 0; guard < 300; guard++) {
+    const q = { pageSize: 200, pageToken }; if (cfg.view) q.viewId = cfg.view;
+    let res;
+    try { res = await m.table.getRecordsByPage(q); } catch (e) {
+      if (!q.viewId) throw e; cfg.view = ''; delete q.viewId; rows.length = 0; res = await m.table.getRecordsByPage(q);
+    }
+    for (const r of res.records) {
+      const o = { _id: r.recordId, _raw: {} };
+      for (const w of cfg.fields) { const id = m.idByName[w]; if (id) { o._raw[w] = r.fields[id]; o[w] = cell(r.fields[id]); } }
+      rows.push(o);
+    }
+    if (!res.hasMore) break; pageToken = res.pageToken;
+  }
+  return rows;
+}
+async function loadKey(key) {
+  try { DATA[key] = await readTable(key); delete LOADERR[key]; }
+  catch (e) { DATA[key] = []; LOADERR[key] = e && e.message ? e.message : String(e); if (TABLES[key].core) throw new Error(`读「${TABLES[key].name}」失败：${LOADERR[key]}`); }
+}
+
+// 写值：按字段类型转换（文本/数字/单选/日期/人员/关联）
+function val(key, name, v) {
+  const f = META[key].byName[name]; if (!f) return undefined;
+  if (v == null || v === '') return null;
+  const t = f.type;          // FieldType: 1 文本 2 数字 3 单选 5 日期 11 人员 18/21 关联
+  if (t === 1) return [{ type: 'text', text: String(v) }];
+  if (t === 2) return Number(v);
+  if (t === 3) { const op = (f.property?.options || []).find((o) => o.name === v); return op ? { id: op.id, text: op.name } : undefined; }
+  if (t === 5) return typeof v === 'number' ? v : msOf(v);
+  if (t === 11) return Array.isArray(v) ? v : [{ id: v }];
+  if (t === 18 || t === 21) return { recordIds: Array.isArray(v) ? v : [v], tableId: f.property?.tableId || TABLES.po.id };
+  return v;
+}
+function fieldsOf(key, obj) {
+  const out = {};
+  for (const [name, v] of Object.entries(obj)) { const id = META[key].idByName[name]; const x = val(key, name, v); if (id && x !== undefined) out[id] = x; }
+  return out;
+}
+const T = (key) => META[key].table;
+
+// ================= ④ 数据整理 =================
+let PM = {}, PRODS = [], poBySku = {}, poRec = {}, chByName = {}, CHS = [], planById = {};
+let ORDERS = [], REVIEWER = { id: '', name: REVIEWER_FALLBACK }, CONFIG_ID = null;
+let ME = { ids: [], name: '', known: false };
+
+function buildRef() {
+  PM = {};
+  for (const r of DATA.pm) {
+    const c = r['国家'], m = r['MSKU'];
+    if (!r['ASIN'] || !m || !c) continue;
+    PM[c + '|' + m] ||= { c, m, a: r['ASIN'], n: r['品名'] || '', s: r['店铺'] || '', fn: r['FNSKU'] || '', sku: r['领星SKU'] || '', box: num(r['单箱数量']), spu: r['SPU'] || '' };
+  }
+  PRODS = Object.values(PM).sort((a, b) => (a.c + a.n).localeCompare(b.c + b.n, 'zh'));
+  poBySku = {}; poRec = {};
+  for (const r of DATA.po || []) {
+    if (!r['SKU'] || !r['采购合同']) continue;
+    if (r['类型'] && !String(r['类型']).includes('产品')) continue;
+    const o = { po: r['采购合同'], sku: r['SKU'], q: num(r['数量']), d: r['下单日期'] ? ds(dnMs(r['下单日期'])) : '', st: r['到货状态'] || '' };
+    (poBySku[o.sku] ||= []).push(o); poRec[o.po + '|' + o.sku] = r._id;
+  }
+  Object.values(poBySku).forEach((a) => a.sort((x, y) => y.d.localeCompare(x.d)));
+  chByName = {}; CHS = [];
+  for (const r of DATA.ch || []) { if (!r['物流渠道'] || r['启用'] === false) continue; const c = { n: r['物流渠道'], c: r['国家'] || '', t: r['运输方式'] || '', d: num(r['标准时效天数']) }; chByName[c.n] = c; CHS.push(c); }
+  planById = Object.fromEntries((DATA.plan || []).map((r) => [r._id, r]));
+}
+function buildOrders() {
+  ORDERS = []; CONFIG_ID = null;
+  for (const r of DATA.ord) {
+    const no = r['指令号'] || '';
+    if (no === CONFIG_NO) { CONFIG_ID = r._id; const u = users(r._raw['审核人'])[0]; if (u) REVIEWER = u; continue; }
+    if (no.startsWith('_')) continue;
+    const by = users(r._raw['提交人'])[0] || { id: '', name: '?' };
+    const ships = json(r['货件JSON'], []); while (ships.length < SHIP_SLOTS) ships.push({ no: '', ch: '', eta: '' });
+    ORDERS.push({
+      rid: r._id, no: no || `（未编号 ${r._id.slice(-4)}）`, seq: num(r['序号']), status: r['状态'] || '草稿', byId: by.id, by: by.name,
+      shipDate: r['发货日期'] ? ds(dnMs(r['发货日期'])) : '', split: r['是否分仓'] || '否', rows: json(r['明细JSON'], []).map((x, i) => ({ ...x, id: ++rowSeq })),
+      ships, note: r['备注'] || '', reason: r['驳回原因'] || '', plan: r['分批计划'] || '', checkedAt: fmtTime(r['审核时间']), editedAt: fmtTime(r['最后修改']),
+    });
+  }
+  // 认人：先拿 SDK 给的 ID 对「提交人/审核人」字段里的人；对不上的话第一次建单后会对上
+  const seen = [...DATA.ord.flatMap((r) => [...users(r._raw['提交人']), ...users(r._raw['审核人'])])];
+  const hit = seen.find((u) => ME.ids.includes(u.id));
+  if (hit) { ME.name = hit.name; ME.known = true; }
+}
+const isReviewer = () => (REVIEWER.id && ME.ids.includes(REVIEWER.id)) || (ME.known && ME.name === REVIEWER.name);
+const isMine = (o) => ME.ids.includes(o.byId);
+
+// ================= ⑤ 页面状态 =================
+let view = 'new', rowSeq = 1;
+const emptyShips = () => Array.from({ length: SHIP_SLOTS }, () => ({ no: '', ch: '', eta: '' }));
+const blankForm = () => ({ rows: [], shipDate: '', split: '否', ships: emptyShips(), note: '' });
+function newRow(p, perBox) { return { id: ++rowSeq, key: p.c + '|' + p.m, c: p.c, m: p.m, a: p.a, n: p.n, fn: p.fn, sku: p.sku, s: p.s, perBox: perBox ?? (p.box || ''), boxes: '', po: '', note: '' }; }
+let F = blankForm(), E = null, editNo = null, showErr = null, pick = { scope: null, q: '' };
+let listFilter = { mine: true, st: '全部' }, rejecting = null, sel = new Set(), bulkRej = false, copying = null, batch = { n: 1, gap: 7 }, shipFilter = '全部';
+
+const P = (r) => PM[r.key] || { c: r.c, m: r.m, a: r.a, n: r.n, fn: r.fn, sku: r.sku, s: r.s, box: 0 };   // 主表里删了也能用明细里的快照
+const tot = (r) => (+r.perBox || 0) * (+r.boxes || 0);
+const countryOf = (rows) => rows.length ? P(rows[0]).c : '';
+const sumOf = (rows) => ({ msku: new Set(rows.map((r) => r.key)).size, boxes: rows.reduce((s, r) => s + (+r.boxes || 0), 0), qty: rows.reduce((s, r) => s + tot(r), 0) });
+const usedShips = (o) => o.split === '是' ? o.ships.map((s, i) => ({ ...s, i })).filter((s) => s.ch || s.eta || s.no) : [{ ...o.ships[0], i: 0 }];
+const statusCls = (s) => ({ '草稿': 'b-gray', '待审核': 'b-yellow', '已驳回': 'b-red', '待发货': 'b-blue' }[s]);
+function grouped(rows) { const order = [], g = {}; rows.forEach((r) => { if (!g[r.key]) { g[r.key] = []; order.push(r.key); } g[r.key].push(r); }); return order.flatMap((k) => g[k]); }
+const stateOf = (scope) => scope === 'new' ? F : (scope === editNo ? E : null);
+function dueBadge(o) {
+  if (!o.shipDate) return '';
+  const d = dn(o.shipDate) - dn(TODAY);
+  if (d < 0) return `<span class="badge b-red">已过发货日 ${-d} 天</span>`;
+  if (d === 0) return '<span class="badge b-red">今天发</span>';
+  return `<span class="badge ${d <= 3 ? 'b-yellow' : 'b-gray'}">${d} 天后发</span>`;
+}
+function planOf(o) {
+  if (!o.plan) return null;
+  const m = ORDERS.filter((x) => x.plan === o.plan).sort((a, b) => (a.shipDate || '').localeCompare(b.shipDate || '') || a.seq - b.seq);
+  return m.length > 1 ? { idx: m.indexOf(o) + 1, n: m.length, qty: m.reduce((s, x) => s + sumOf(x.rows).qty, 0) } : null;
+}
+// 每行的货件号：读发货计划里本行写入的那条记录的 货件1~6
+function fbaOf(r) { const p = r.planRec && planById[r.planRec]; return p ? [1, 2, 3, 4, 5, 6].map((i) => p['货件' + i]).filter(Boolean).join(' / ') : ''; }
+const built = (o) => o.rows.some((r) => fbaOf(r));
+
+// ================= ⑥ 写入动作 =================
+function orderFields(S) {
+  const s = sumOf(S.rows), c = countryOf(S.rows);
+  const rows = S.rows.map(({ id, ...r }) => r);   // 页面行号不存
+  return {
+    '国家': c || null, '发货日期': S.shipDate || null, '是否分仓': S.split, '合计箱数': s.boxes, '合计件数': s.qty,
+    '摘要': grouped(S.rows).map((r) => `${P(r).n} ${P(r).m} ×${tot(r)}`).join('；').slice(0, 900),
+    '明细JSON': JSON.stringify(rows), '货件JSON': JSON.stringify(S.ships), '备注': S.note || null,
+  };
+}
+async function createOrder(S, extra = {}) {
+  const rid = await T('ord').addRecord({ fields: fieldsOf('ord', { ...orderFields(S), '状态': '草稿', ...extra }) });
+  // 指令号 = FH- + 自动序号（序号由多维表发，多人同时建单也不会重号）
+  const rec = await T('ord').getRecordById(rid);
+  const seqTxt = cell(rec.fields[META.ord.idByName['序号']]) || '';
+  const no = 'FH-' + (String(seqTxt).match(/\d+/)?.[0] || rid.slice(-6)).padStart(4, '0');
+  await T('ord').setRecord(rid, { fields: fieldsOf('ord', { '指令号': no }) });
+  // 顺手认人：新记录的「提交人」就是我
+  const u = users(rec.fields[META.ord.idByName['提交人']])[0];
+  if (u) { if (!ME.ids.includes(u.id)) ME.ids.push(u.id); ME.name = u.name; ME.known = true; }
+  return { rid, no };
+}
+async function setOrder(o, obj) { await T('ord').setRecord(o.rid, { fields: fieldsOf('ord', obj) }); }
+// 刷新前后状态要一致（别人刚改过就不动）
+async function fresh(o, expect) {
+  const rec = await T('ord').getRecordById(o.rid);
+  const st = cell(rec.fields[META.ord.idByName['状态']]);
+  if (expect && !expect.includes(st)) throw new Error(`${o.no} 状态已变成「${st}」（别人刚改过），已刷新`);
+  return rec;
+}
+function shiftCopy(o, days) {
+  const c = clone({ rows: o.rows, shipDate: o.shipDate, split: o.split, ships: o.ships, note: o.note });
+  const sh = (s) => s ? ds(dn(s) + days) : s;
+  c.shipDate = sh(c.shipDate); c.ships.forEach((s) => { s.eta = sh(s.eta); s.no = ''; });
+  c.rows.forEach((r) => { delete r.planRec; r.id = ++rowSeq; });
+  return c;
+}
+async function makeCopies(src, n, gap, planNo) {
+  const made = [];
+  for (let k = 1; k <= n; k++) { busy(`复制第 ${k}/${n} 张…`); made.push((await createOrder(shiftCopy(src, k * gap), { '分批计划': planNo })).no); }
+  return made;
+}
+
+// 审核通过：每行写/更新一条发货计划
+async function approve(o) {
+  await fresh(o, ['待审核']);
+  if (!META.plan || LOADERR.plan) throw new Error('读不到「出口对账-发货计划」，没法写入（查应用数据权限）');
+  const chTxt = usedShips(o).map((s) => (o.split === '是' ? `货件${s.i + 1} ` : '') + (s.ch || '渠道未定') + (s.eta ? ` ${md(s.eta)}到` : '')).join('；');
+  const keep = new Set();
+  const rows = clone(o.rows);
+  for (const r of rows) {
+    const p = P(r), poId = r.po && poRec[r.po + '|' + p.sku];
+    const memo = [r.po && !poId ? `采购单 ${r.po}（采购合同表没找到）` : '', r.note, o.note].filter(Boolean).join(' / ');
+    const f = fieldsOf('plan', {
+      '日期': o.shipDate, '发货国家': p.c, '计划SKU': p.sku, '总数': tot(r), '每箱数量-手改': +r.perBox !== +(PM[r.key]?.box) ? +r.perBox : null,
+      '是否分仓': o.split, '备注名': `${+o.shipDate.slice(5, 7)}.${+o.shipDate.slice(8, 10)}-${p.n}${o.split === '是' ? '-分仓' : ''}`,
+      '备注': memo || null, '来源': `发货指令 ${o.no}`, '指令号': o.no, '指令状态': '待发货', '渠道': chTxt || null, '预计到达': o.ships[0].eta || null,
+      '采购合同': poId || null,
+    });
+    const write = async (ff) => { if (r.planRec && planById[r.planRec]) await T('plan').setRecord(r.planRec, { fields: ff }); else r.planRec = await T('plan').addRecord({ fields: ff }); };
+    try { await write(f); }
+    catch (e) {   // 关联字段写法不被接受时：不挂采购合同，把采购单号写进备注再试一次
+      const lk = META.plan.idByName['采购合同']; if (!poId || !(lk in f)) throw e;
+      delete f[lk]; f[META.plan.idByName['备注']] = val('plan', '备注', [`采购单 ${r.po}`, memo].filter(Boolean).join(' / '));
+      await write(f);
+    }
+    keep.add(r.planRec);
+  }
+  // 上次写过、这次没有的行：没建货件就删，建了就标已驳回
+  for (const pr of (DATA.plan || []).filter((x) => x['指令号'] === o.no && !keep.has(x._id))) {
+    if ([1, 2, 3, 4, 5, 6].some((i) => pr['货件' + i])) await T('plan').setRecord(pr._id, { fields: fieldsOf('plan', { '指令状态': '已驳回' }) });
+    else await T('plan').deleteRecord(pr._id);
+  }
+  const obj = { '状态': '待发货', '审核时间': Date.now(), '驳回原因': null, '明细JSON': JSON.stringify(rows.map(({ id, ...r }) => r)) };
+  await setOrder(o, obj);
+  try { if (ME.ids[0]) await setOrder(o, { '审核人': [{ id: ME.ids[0] }] }); } catch (e) { /* 人员 ID 不认就算了，审核时间已记 */ }
+  return rows.length;
+}
+// 驳回：待审核的直接退回；待发货的，没建货件的行从发货计划删掉，建了货件的行保留并标「已驳回」
+async function reject(o, why) {
+  const was = o.status;
+  await fresh(o, was === '待发货' ? ['待发货'] : ['待审核']);
+  const rows = clone(o.rows);
+  if (was === '待发货') for (const r of rows) {
+    if (!r.planRec) continue;
+    if (fbaOf(r)) await T('plan').setRecord(r.planRec, { fields: fieldsOf('plan', { '指令状态': '已驳回' }) });
+    else { try { await T('plan').deleteRecord(r.planRec); } catch (e) { /* 已被手动删 */ } delete r.planRec; }
+  }
+  await setOrder(o, { '状态': '已驳回', '驳回原因': `${ME.name || '审核人'}：${why}`, '审核时间': null, '明细JSON': JSON.stringify(rows.map(({ id, ...r }) => r)) });
+}
+
+// 跑一个写操作：加遮罩、出错提示、完了重读
+async function act(label, fn) {
+  busy(label + '…');
+  try { const msg = await fn(); await reload(true); if (msg) toast(msg, 3600); }
+  catch (e) { await reload(true).catch(() => {}); toast('失败：' + (e && e.message ? e.message : e), 6000); console.error(e); }
+  finally { busy(''); }
+}
+async function reload(silent) {
+  if (!silent) busy('刷新中…');
+  try { await Promise.all([loadKey('ord'), loadKey('plan')]); buildRef(); buildOrders(); render(); }
+  finally { if (!silent) busy(''); }
+}
+
+// ================= ⑦ 渲染 =================
+function render() {
+  const n = (f) => ORDERS.filter(f).length, rev = isReviewer();
+  const todo = n((o) => isMine(o) && (o.status === '草稿' || o.status === '已驳回')) + (rev ? n((o) => o.status === '待审核') : 0);
+  $('tabs').innerHTML = [['new', '新建指令'], ['list', '指令列表' + (todo ? `<span class="num">${todo}</span>` : '')], ['ship', `待发货 (${n((o) => o.status === '待发货')})`]]
+    .map(([v, t]) => `<button data-v="${v}" class="${view === v ? 'on' : ''}">${t}</button>`).join('');
+  $('meName').textContent = ME.name || '（第一次用，建一张单后自动识别）';
+  $('meAv').textContent = (ME.name || '?').slice(-2);
+  $('meRole').textContent = rev ? `· 审核人` : `· 审核人：${REVIEWER.name}`;
+  const warn = Object.entries(LOADERR).map(([k, e]) => `<div class="warn">读不到「${TABLES[k].name}」：${esc(e)} —— ${k === 'po' ? '采购单号改为手填' : k === 'ch' ? '渠道改为手填、不给参考到达日' : k === 'plan' ? '待发货页看不到货件号，审核通过也写不进发货计划' : ''}（多半是应用数据权限没开这张表）</div>`).join('');
+  $('main').innerHTML = warn + (view === 'new' ? renderNew() : view === 'list' ? renderList() : renderShip());
+  if (pick.scope) renderPick();
+}
+
+function editorHTML(S, scope) {
+  const c = countryOf(S.rows), err = showErr === scope;
+  const chs = CHS.filter((x) => !c || !x.c || x.c === c);
+  const n = S.split === '是' ? SHIP_SLOTS : 1;
+  return `
+  <h4>① 选产品 <span class="hint">下拉里每个产品都带国家；勾选后自动带入品名、国家、ASIN、MSKU、FNSKU、每箱数量。一票货只发一个国家</span></h4>
+  <div class="picker">
+    <div class="picker-box ${pick.scope === scope ? 'open' : ''}" data-pickbox>🔍<input data-pickq value="${pick.scope === scope ? esc(pick.q) : ''}" placeholder="搜品名 / ASIN / MSKU / SPU，点开勾选" autocomplete="off">
+      ${c ? `<span class="badge b-blue">${c}</span>` : ''}<span class="hint">已选 ${new Set(S.rows.map((r) => r.key)).size}</span></div>
+    ${pick.scope === scope ? '<div class="pick-panel" data-pickpanel></div>' : ''}
+  </div>
+  <h4>② 发货明细 <span class="hint">填箱数，总数 = 每箱数量 × 箱数。不整箱的：改每箱数量，或点「另起一行」填尾箱</span></h4>
+  ${S.rows.length ? `<div class="lines"><table class="tbl"><thead><tr>
+    <th>品名</th><th>国家</th><th>ASIN</th><th>MSKU</th><th>FNSKU</th><th>每箱数量</th><th>箱数</th><th>总数</th><th>采购单号 <span class="hint">(可空)</span></th><th>备注</th><th></th></tr></thead>
+    <tbody>${rowsHTML(S, err)}</tbody></table></div>` : '<div class="empty">先在上面选产品</div>'}
+  <h4>③ 发货安排 <span class="hint">一票货同一天发；分仓的每个货件单独选渠道和预计到达，渠道可空；货件号留空，审核人建货件后回填</span></h4>
+  <div class="grid">
+    <label class="f"><span>发货日期 <b>*</b></span><input type="date" data-o="shipDate" value="${S.shipDate}" class="${err && !S.shipDate ? 'miss' : ''}"></label>
+    <label class="f"><span>是否分仓</span><span class="seg">${['否', '是'].map((x) => `<button data-split="${x}" class="${S.split === x ? 'on' : ''}">${x}</button>`).join('')}</span></label>
+  </div>
+  <datalist id="ch-${scope}">${chs.map((x) => `<option value="${esc(x.n)}">${esc(x.t)} · 约${x.d || '?'}天</option>`).join('')}</datalist>
+  <div class="ships">${S.ships.slice(0, n).map((s, i) => {
+    const ch = chByName[s.ch], sug = ch && ch.d && S.shipDate ? ds(dn(S.shipDate) + ch.d) : '';
+    return `<div class="ship" data-i="${i}"><div class="t">${n > 1 ? '货件' + (i + 1) : '货件'}</div>
+      <span>渠道</span><input list="ch-${scope}" data-k="ch" value="${esc(s.ch)}" placeholder="可空，搜 A6 / 普船">
+      <span>预计到达${i === 0 ? ' <b style="color:var(--red);font-weight:normal">*</b>' : ''}</span><input type="date" data-k="eta" value="${s.eta}" class="${err && i === 0 && !s.eta ? 'miss' : ''}">
+      <span>货件号</span><input value="${esc(s.no)}" placeholder="留空，建货件后回填" readonly>
+      <div class="sug">${sug ? `按渠道约 ${ch.d} 天 → <b>${sug}</b> <button class="link" data-sug="${sug}">填入</button>` : (s.ch && !ch && CHS.length ? '<span style="color:var(--red)">渠道请从下拉里选</span>' : '&nbsp;')}</div></div>`; }).join('')}</div>
+  ${S.split === '是' ? '<div class="hint" style="margin-top:6px">用不到 5 个货件的，多出来的留空（至少填货件1的预计到达）</div>' : ''}
+  <label class="f" style="margin-top:12px"><span>备注（给审核人）</span><textarea data-o="note" rows="2" placeholder="如：圣诞前要到；外箱贴警告标">${esc(S.note)}</textarea></label>`;
+}
+
+function rowsHTML(S, err) {
+  const rows = grouped(S.rows);
+  return rows.map((r, i) => {
+    const p = P(r), first = i === 0 || rows[i - 1].key !== r.key, last = i === rows.length - 1 || rows[i + 1].key !== r.key;
+    const info = first ? `<td>${esc(p.n)}</td><td>${p.c}</td><td class="mono">${p.a}</td><td class="mono auto">${esc(p.m)}</td><td class="mono auto">${esc(p.fn)}</td>`
+                       : `<td colspan="5" class="hint" style="padding-left:24px">↳ 同一 MSKU 另一种装箱</td>`;
+    const pos = poBySku[p.sku] || [];
+    return `<tr data-r="${r.id}" class="${first ? '' : 'cont'} ${last ? 'grp-end' : ''}">${info}
+      <td><input class="num ${!(+r.perBox > 0) ? 'miss' : ''}" data-k="perBox" value="${esc(r.perBox)}" placeholder="主表空，手填">${PM[r.key] && +r.perBox !== +PM[r.key].box && PM[r.key].box ? `<div class="hint">主表 ${PM[r.key].box}</div>` : ''}</td>
+      <td><input class="num ${err && !(+r.boxes > 0) ? 'miss' : ''}" data-k="boxes" value="${esc(r.boxes)}" placeholder="箱数"></td>
+      <td class="total" data-total>${tot(r) ? tot(r).toLocaleString() : '—'}</td>
+      <td><input class="po" data-k="po" list="po-${r.id}" value="${esc(r.po)}" placeholder="${pos.length ? '可选/可空' : '可空'}">
+        <datalist id="po-${r.id}">${pos.map((o) => `<option value="${esc(o.po)}">下单${md(o.d)} · 共${o.q} · ${esc(o.st)}</option>`).join('')}</datalist></td>
+      <td><input class="rk" data-k="note" value="${esc(r.note)}" placeholder="备注"></td>
+      <td>${last ? '<button class="link" data-act="splitRow">＋另起一行</button> ' : ''}<button class="link red" data-act="delRow">删</button></td></tr>`;
+  }).join('');
+}
+
+function renderPick() {
+  const S = stateOf(pick.scope), panel = document.querySelector(`[data-scope="${pick.scope}"] [data-pickpanel]`);
+  if (!S || !panel) return;
+  const c = countryOf(S.rows), q = pick.q.trim().toLowerCase(), chosen = new Set(S.rows.map((r) => r.key));
+  const list = PRODS.filter((p) => !q || [p.n, p.a, p.m, p.spu, p.sku].some((x) => (x || '').toLowerCase().includes(q)));
+  panel.innerHTML = (list.slice(0, 120).map((p) => {
+    const k = p.c + '|' + p.m, dis = c && p.c !== c;
+    return `<div class="pick-item ${dis ? 'dis' : ''}" data-key="${esc(k)}"><input type="checkbox" ${chosen.has(k) ? 'checked' : ''} ${dis ? 'disabled' : ''}>
+      <div><div class="nm">${esc(p.n)}</div><div class="sub">${p.a} · ${esc(p.m)} · ${esc(p.s)}</div></div>
+      <span class="badge ${p.c === '美国' ? 'b-blue' : 'b-green'}">${p.c}</span></div>`; }).join('') || '<div class="empty" style="margin:10px">没有匹配的产品</div>') +
+    `<div class="pick-foot"><span class="hint">${list.length > 120 ? `共 ${list.length} 个，只显示前 120，请输入关键词` : `共 ${list.length} 个`}${c ? ` · 已锁定 ${c}，其他国家灰掉` : ''}</span>
+     <button class="btn sm" data-pickdone>完成</button></div>`;
+}
+
+function problems(o) {
+  const e = [], c = countryOf(o.rows);
+  if (!o.rows.length) e.push('还没选产品');
+  o.rows.forEach((r) => { if (!(+r.boxes > 0)) e.push(`${P(r).m} 没填箱数`); if (!(+r.perBox > 0)) e.push(`${P(r).m} 每箱数量为空`); });
+  if (!o.shipDate) e.push('没填发货日期');
+  if (!o.ships[0].eta) e.push(o.split === '是' ? '至少填货件1的预计到达' : '没填预计到达');
+  usedShips(o).forEach((s) => {
+    const nm = o.split === '是' ? `货件${s.i + 1}` : '货件';
+    if (s.ch && CHS.length && !chByName[s.ch]) e.push(`${nm}渠道请从下拉里选`);
+    else if (s.ch && chByName[s.ch]?.c && c && chByName[s.ch].c !== c) e.push(`${nm}渠道是${chByName[s.ch].c}的，产品是${c}的`);
+    if (s.ch && !s.eta) e.push(`${nm}选了渠道但没填预计到达`);
+  });
+  return e;
+}
+
+function renderNew() {
+  const s = sumOf(F.rows), errs = problems(F);
+  return `<div class="card ed" data-scope="new">${editorHTML(F, 'new')}</div>
+  <div class="card"><div class="sumbar">
+    <div><div class="hint">MSKU</div><div class="n">${s.msku}</div></div>
+    <div><div class="hint">箱数</div><div class="n" data-sumboxes>${s.boxes}</div></div>
+    <div><div class="hint">总数</div><div class="n" data-sumqty>${s.qty.toLocaleString()}</div></div>
+    <div class="hint">提交人：<b>${esc(ME.name || '当前登录人')}</b>（自动）</div>
+    <div class="batch">分 <input type="number" min="1" max="20" data-batch="n" value="${batch.n}"> 批，每批间隔
+      <input type="number" min="1" max="90" data-batch="gap" value="${batch.gap}" ${batch.n > 1 ? '' : 'disabled'}> 天
+      ${batch.n > 1 ? `<span class="hint">→ 存成 ${batch.n} 张单，每张 ${s.qty.toLocaleString()} 件，合计 <b>${(s.qty * batch.n).toLocaleString()}</b> 件${F.shipDate ? `，发货日 ${Array.from({ length: Math.min(batch.n, 6) }, (_, k) => md(ds(dn(F.shipDate) + k * batch.gap))).join('、')}${batch.n > 6 ? '…' : ''}` : ''}</span>` : ''}</div>
+    <div style="margin-left:auto;display:flex;gap:8px"><button class="btn ghost" data-act="clearNew">清空</button><button class="btn" data-act="saveNew">保存到指令列表</button></div></div>
+    <div class="hint" style="margin-top:6px">一批货要分几次发：先按「第一批」填好，选分几批 + 间隔天数，一次存成多张单（日期自动往后推，每张都能再单独改）。保存后在「指令列表」检查，勾选后可批量提交审核。</div>
+    ${showErr === 'new' && errs.length ? `<div class="errs">还差：${errs.map(esc).join('；')}</div>` : ''}</div>`;
+}
+
+function canSel(o, mode) {
+  if (mode === 'ship') return isReviewer();
+  if (isReviewer() && o.status === '待审核') return true;
+  return isMine(o) && o.status !== '待审核';
+}
+function sortPlans(list) {
+  const g = {}; list.forEach((o) => (g[o.plan || o.no] ||= []).push(o));
+  const top = (m) => Math.max(...m.map((x) => x.seq));
+  return Object.values(g).map((m) => m.sort((a, b) => (a.shipDate || '').localeCompare(b.shipDate || '') || a.seq - b.seq)).sort((a, b) => top(b) - top(a)).flat();
+}
+function bulkBar(list, mode) {
+  const ok = list.filter((o) => canSel(o, mode)); if (!ok.length) return '';
+  [...sel].forEach((no) => { if (!ok.some((o) => o.no === no)) sel.delete(no); });
+  const all = ok.every((o) => sel.has(o.no)), n = sel.size, os = ok.filter((o) => sel.has(o.no));
+  let btns = '';
+  if (n) {
+    if (mode === 'ship') btns = '<button class="btn sm red" data-act="bulkRejOpen">批量驳回</button>';
+    else {
+      if (os.some((o) => o.status === '待审核')) btns += '<button class="btn sm green" data-act="bulkApprove">批量审核通过</button><button class="btn sm red" data-act="bulkRejOpen">批量驳回</button>';
+      if (os.some((o) => isMine(o) && o.status !== '待审核')) btns += '<button class="btn sm" data-act="bulkSubmit">批量提交审核</button><button class="btn sm red" data-act="bulkDel">批量删除</button>';
+    }
+    btns += '<button class="btn sm ghost" data-act="bulkClear">取消选择</button>';
+  }
+  return `<div class="card bulkbar ${n ? 'on' : ''}"><label class="me-auto"><input type="checkbox" data-selall ${all ? 'checked' : ''}> 全选（${ok.length} 张可选）</label>
+    <span class="hint">${n ? `已选 <b style="color:var(--ink)">${n}</b> 张` : '勾选多张单可一起处理'}</span><div style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap">${btns}</div></div>
+    ${bulkRej && n ? `<div class="card rejbox"><input id="bulkReason" placeholder="驳回原因（这 ${n} 张单共用，会显示给提交人）"><button class="btn sm red" data-act="bulkReject">确认驳回 ${n} 张</button><button class="btn sm ghost" data-act="bulkRejCancel">取消</button></div>` : ''}`;
+}
+
+function renderList() {
+  const rev = isReviewer();
+  let list = ORDERS.filter((o) => o.status !== '待发货');
+  if (listFilter.mine && !rev) list = list.filter(isMine);
+  if (listFilter.st !== '全部') list = list.filter((o) => o.status === listFilter.st);
+  list = sortPlans(list);
+  return `${bulkBar(list, 'list')}<div class="filters">
+      ${!rev ? `<button class="chip ${listFilter.mine ? 'on' : ''}" data-f="mine">只看我提交的</button>` : '<span class="hint">审核人视角：看全部人的指令</span>'}
+      <span class="hint" style="margin-left:6px">状态</span>${['全部', '草稿', '待审核', '已驳回'].map((s) => `<button class="chip ${listFilter.st === s ? 'on' : ''}" data-st="${s}">${s}</button>`).join('')}
+      <span class="hint" style="margin-left:auto">只有提交人能改自己的草稿/被驳回的单；审核人：${esc(REVIEWER.name)}</span></div>
+    ${list.length ? list.map((o) => orderCard(o, 'list')).join('') : '<div class="card empty">没有符合条件的指令</div>'}`;
+}
+
+function renderShip() {
+  let list = ORDERS.filter((o) => o.status === '待发货').sort((a, b) => (a.shipDate || '').localeCompare(b.shipDate || ''));
+  const due = (o) => dn(o.shipDate) - dn(TODAY);
+  if (shipFilter === '7天内') list = list.filter((o) => due(o) <= 7); else if (shipFilter === '7天后') list = list.filter((o) => due(o) > 7);
+  return `${bulkBar(list, 'ship')}<div class="filters">${['全部', '7天内', '7天后'].map((s) => `<button class="chip ${shipFilter === s ? 'on' : ''}" data-sf="${s}">${s}</button>`).join('')}
+    <span class="hint">审核通过的指令已逐行写进「出口对账-发货计划」，这里只读${isReviewer() ? '；有问题点「驳回到指令列表」' : '；有问题找审核人驳回'}。货件号 = 审核人在发货计划里填的 货件1~6。</span></div>
+    ${list.length ? list.map((o) => orderCard(o, 'ship')).join('') : '<div class="card empty">暂无待发货</div>'}`;
+}
+
+function orderCard(o, mode) {
+  const editing = editNo === o.no, S = editing ? E : o;
+  const s = sumOf(S.rows), c = countryOf(S.rows), mine = isMine(o), rev = isReviewer();
+  let acts = '';
+  if (editing) acts = '<span class="badge b-blue">编辑中</span>';
+  else if (mode === 'list') {
+    if (mine && (o.status === '草稿' || o.status === '已驳回')) acts += '<button class="btn sm ghost" data-act="edit">编辑</button><button class="btn sm" data-act="submit">提交审核</button><button class="btn sm red" data-act="del">删除</button>';
+    if (mine && o.status === '待审核') acts += '<button class="btn sm ghost" data-act="withdraw">撤回</button>';
+    if (rev && o.status === '待审核') acts += '<button class="btn sm green" data-act="approve">审核通过</button><button class="btn sm red" data-act="reject">驳回</button>';
+  } else if (rev) acts += '<button class="btn sm red" data-act="reject">驳回到指令列表</button>';
+  if (!editing) acts += '<button class="btn sm ghost" data-act="copy">复制</button>';
+  const st = mode === 'ship' ? `<span class="badge ${built(o) ? 'b-green' : 'b-yellow'}">${built(o) ? '已建货件' : '待建货件'}</span>` : `<span class="badge ${statusCls(o.status)}">${o.status}</span>`;
+  const chs = [...new Set(usedShips(S).map((x) => x.ch).filter(Boolean))];
+  const pl = planOf(o), can = !editing && canSel(o, mode);
+  const head = `<div class="order-head">${can ? `<input type="checkbox" data-sel ${sel.has(o.no) ? 'checked' : ''}>` : ''}<span class="no">${esc(o.no)}</span>${st}${dueBadge(S)}
+      ${pl ? `<span class="badge b-blue" title="同一批货分批发">分批 ${pl.idx}/${pl.n} · 计划合计 ${pl.qty.toLocaleString()} 件</span>` : ''}
+      <span class="kv">提交人 <b>${esc(o.by)}</b></span><span class="kv"><b>${c}</b></span>
+      <span class="kv">发货 <b>${md(S.shipDate)}</b></span><span class="kv">${S.split === '是' ? `分仓 <b>${usedShips(S).length}</b> 个货件` : `预计到达 <b>${md(S.ships[0].eta)}</b>`}</span>
+      <span class="kv">渠道 <b>${esc(chs.join(' / ') || '未定')}</b></span>
+      <span class="kv">${s.msku} 个MSKU · <b data-sumboxes>${s.boxes}</b> 箱 · <b data-sumqty>${s.qty.toLocaleString()}</b> 件</span>
+      <div class="acts">${acts}</div></div>
+    ${copying === o.no ? `<div class="rejbox" style="background:#f5f8ff;align-items:center">复制 <input type="number" id="cpN" value="1" min="1" max="20" style="flex:none;width:60px"> 张，每张发货日期往后推
+      <input type="number" id="cpGap" value="7" min="0" max="90" style="flex:none;width:60px"> 天 <span class="hint">（产品、箱数、渠道照搬，货件号清空，存为你的草稿，同属一个分批计划）</span>
+      <button class="btn sm" data-act="copyOk">确定复制</button><button class="btn sm ghost" data-act="copyCancel">取消</button></div>` : ''}`;
+  if (editing) {
+    const errs = problems(E);
+    return `<div class="card order editing" data-no="${esc(o.no)}">${head}
+      <div class="ed" data-scope="${esc(o.no)}">${editorHTML(E, o.no)}
+        ${showErr === o.no && errs.length ? `<div class="errs">还差：${errs.map(esc).join('；')}</div>` : ''}</div>
+      <div class="edit-foot"><button class="btn sm ghost" data-act="cancelEdit">取消</button><button class="btn sm" data-act="saveEdit">保存修改</button></div></div>`;
+  }
+  const rows = grouped(o.rows);
+  return `<div class="card order" data-no="${esc(o.no)}">${head}
+    ${rejecting === o.no ? `<div class="rejbox"><input id="rejReason" placeholder="驳回原因（会显示给提交人）"><button class="btn sm red" data-act="rejectOk">确认驳回</button><button class="btn sm ghost" data-act="rejectCancel">取消</button></div>` : ''}
+    ${o.status === '已驳回' && o.reason ? `<div class="reason" style="margin-top:10px">驳回原因：${esc(o.reason)}</div>` : ''}
+    <div class="lines"><table class="tbl"><thead><tr><th>品名</th><th>ASIN</th><th>MSKU</th><th>FNSKU</th><th>每箱</th><th>箱数</th><th>总数</th><th>采购单号</th>${mode === 'ship' ? '<th>货件号</th>' : ''}<th>备注</th></tr></thead><tbody>
+    ${rows.map((r, i) => { const p = P(r), first = i === 0 || rows[i - 1].key !== r.key, fba = fbaOf(r);
+      return `<tr class="${first ? '' : 'cont'}">${first ? `<td>${esc(p.n)}</td><td class="mono">${p.a}</td><td class="mono">${esc(p.m)}</td><td class="mono">${esc(p.fn)}</td>` : '<td colspan="4" class="hint" style="padding-left:24px">↳ 另一种装箱</td>'}
+        <td>${esc(r.perBox)}</td><td>${esc(r.boxes)}</td><td><b>${tot(r).toLocaleString()}</b></td><td class="mono">${esc(r.po) || '<span class="hint">—</span>'}</td>
+        ${mode === 'ship' ? `<td>${fba ? `<b class="mono">${esc(fba)}</b>` : `<span class="badge b-gray">${LOADERR.plan ? '读不到' : '未建'}</span>`}</td>` : ''}<td>${esc(r.note)}</td></tr>`; }).join('')}
+    </tbody></table></div>
+    <div class="order-foot">${usedShips(o).map((x) => `<span>${o.split === '是' ? '货件' + (x.i + 1) : '货件'}：${esc(x.ch) || '渠道未定'} · 预计到达 ${md(x.eta)}</span>`).join('')}</div>
+    <div class="order-foot">${o.editedAt ? `<span>最后修改 ${o.editedAt}</span>` : ''}${o.checkedAt ? `<span>审核通过 ${o.checkedAt}</span>` : ''}${mode === 'ship' ? `<span class="wrote">✓ 已写入发货计划 ${o.rows.filter((r) => r.planRec).length} 行</span>` : ''}${o.note ? `<span>备注：<span style="color:var(--ink)">${esc(o.note)}</span></span>` : ''}</div>
+  </div>`;
+}
+
+// ================= ⑧ 交互 =================
+const main = $('main');
+const scopeOf = (el) => el.closest('[data-scope]')?.dataset.scope;
+const orderOf = (el) => ORDERS.find((o) => o.no === el.closest('[data-no]')?.dataset.no);
+const closePick = () => { pick = { scope: null, q: '' }; };
+const startEdit = (o, err) => { editNo = o.no; E = clone(o); E.rows.forEach((r) => r.id = ++rowSeq); showErr = err ? o.no : null; closePick(); };
+
+main.addEventListener('click', (e) => {
+  const t = e.target, a = t.dataset.act, scope = scopeOf(t), S = scope && stateOf(scope);
+  if (t.dataset.sf) { shipFilter = t.dataset.sf; render(); return; }
+  if (S) {
+    if (t.closest('[data-pickbox]')) { if (pick.scope !== scope) { pick = { scope, q: '' }; render(); main.querySelector(`[data-scope="${scope}"] [data-pickq]`)?.focus(); } return; }
+    const it = t.closest('.pick-item');
+    if (it) {
+      if (it.classList.contains('dis')) { toast('一票货只能发一个国家'); return; }
+      const k = it.dataset.key;
+      if (S.rows.some((r) => r.key === k)) S.rows = S.rows.filter((r) => r.key !== k); else S.rows.push(newRow(PM[k]));
+      render(); return;
+    }
+    if (t.closest('[data-pickdone]')) { closePick(); render(); return; }
+    if (t.dataset.split) { S.split = t.dataset.split; render(); return; }
+    if (t.dataset.sug) { S.ships[+t.closest('.ship').dataset.i].eta = t.dataset.sug; render(); return; }
+    const row = S.rows.find((r) => r.id === +t.closest('tr')?.dataset.r);
+    if (a === 'splitRow') { const nr = newRow(P(row)); nr.po = row.po; S.rows.splice(S.rows.indexOf(row) + 1, 0, nr); render(); return; }
+    if (a === 'delRow') { S.rows = S.rows.filter((x) => x !== row); render(); return; }
+  }
+  if (a === 'saveNew') {
+    if (!F.rows.length) { showErr = 'new'; render(); toast('先选产品'); return; }
+    const n = Math.max(1, Math.min(20, +batch.n || 1)), gap = +batch.gap || 7, src = clone(F);
+    return act('保存中', async () => {
+      const first = await createOrder(src);
+      if (n > 1) { await setOrder({ rid: first.rid }, { '分批计划': first.no }); await makeCopies(src, n - 1, gap, first.no); }
+      F = blankForm(); batch = { n: 1, gap: 7 }; showErr = null; closePick(); view = 'list'; listFilter.st = '全部';
+      return n > 1 ? `已存成 ${n} 张分批单（${first.no} 起），检查后勾选批量提交审核` : `${first.no} 已保存到指令列表，检查后点「提交审核」`;
+    });
+  }
+  if (a === 'clearNew') { F = blankForm(); batch = { n: 1, gap: 7 }; showErr = null; closePick(); render(); toast('已清空'); return; }
+  if (a === 'bulkClear') { sel.clear(); bulkRej = false; render(); return; }
+  if (a === 'bulkRejOpen') { bulkRej = true; render(); $('bulkReason')?.focus(); return; }
+  if (a === 'bulkRejCancel') { bulkRej = false; render(); return; }
+  if (a && a.startsWith('bulk')) return bulk(a);
+  if (t.dataset.f === 'mine') { listFilter.mine = !listFilter.mine; render(); return; }
+  if (t.dataset.st) { listFilter.st = t.dataset.st; render(); return; }
+  const o = a && orderOf(t); if (!o) return;
+  if (a === 'edit') { if (editNo && editNo !== o.no) { toast(`先保存或取消 ${editNo} 的编辑`); return; } startEdit(o); render(); return; }
+  if (a === 'cancelEdit') { editNo = null; E = null; showErr = null; closePick(); render(); return; }
+  if (a === 'saveEdit') {
+    if (!E.rows.length) { showErr = o.no; render(); toast('至少要有一个产品'); return; }
+    const data = clone(E);
+    return act('保存中', async () => { await fresh(o, ['草稿', '已驳回']); await setOrder(o, orderFields(data)); editNo = null; E = null; showErr = null; closePick(); return `${o.no} 已保存`; });
+  }
+  if (a === 'submit') {
+    if (problems(o).length) { startEdit(o, true); render(); toast('还没填全，已打开编辑，看红框'); return; }
+    return act('提交中', async () => { await fresh(o, ['草稿', '已驳回']); await setOrder(o, { '状态': '待审核' }); return `${o.no} 已提交，等${REVIEWER.name}审核`; });
+  }
+  if (a === 'withdraw') return act('撤回中', async () => { await fresh(o, ['待审核']); await setOrder(o, { '状态': '草稿' }); return '已撤回为草稿'; });
+  if (a === 'del') return act('删除中', async () => { await fresh(o, ['草稿', '已驳回']); await T('ord').deleteRecord(o.rid); return `${o.no} 已删除`; });
+  if (a === 'approve') return act('审核中（写入发货计划）', async () => `${o.no} 审核通过 → 已写入发货计划 ${await approve(o)} 行`);
+  if (a === 'reject') { rejecting = o.no; render(); $('rejReason')?.focus(); return; }
+  if (a === 'rejectCancel') { rejecting = null; render(); return; }
+  if (a === 'rejectOk') {
+    const why = $('rejReason').value.trim(); if (!why) { toast('写一下驳回原因'); return; }
+    rejecting = null;
+    return act('驳回中', async () => { const b = o.status === '待发货' && built(o); await reject(o, why); return `${o.no} 已驳回到指令列表` + (o.status === '待发货' ? (b ? '（已建货件的行保留在发货计划，标「已驳回」）' : '（发货计划里对应行已撤回）') : ''); });
+  }
+  if (a === 'copy') { copying = o.no; render(); return; }
+  if (a === 'copyCancel') { copying = null; render(); return; }
+  if (a === 'copyOk') {
+    const n = Math.max(1, Math.min(20, +$('cpN').value || 1)), gap = Math.max(0, +$('cpGap').value || 0);
+    copying = null;
+    return act('复制中', async () => {
+      const planNo = o.plan || o.no;
+      if (!o.plan && isMine(o)) await setOrder(o, { '分批计划': planNo });
+      const made = await makeCopies(o, n, gap, planNo); view = 'list'; listFilter.st = '全部';
+      return `已复制 ${n} 张：${made.join('、')}（草稿，可逐张改）`;
+    });
+  }
+});
+
+function bulk(a) {
+  const os = ORDERS.filter((o) => sel.has(o.no));
+  if (a === 'bulkSubmit') return act('批量提交中', async () => {
+    const mine = os.filter((o) => isMine(o) && o.status !== '待审核'), bad = mine.filter((o) => problems(o).length), good = mine.filter((o) => !problems(o).length);
+    for (const [i, o] of good.entries()) { busy(`提交 ${i + 1}/${good.length}…`); await fresh(o, ['草稿', '已驳回']); await setOrder(o, { '状态': '待审核' }); }
+    sel = new Set(bad.map((o) => o.no));
+    return `已提交 ${good.length} 张` + (bad.length ? `；${bad.length} 张没填全仍勾着：${bad.map((o) => o.no).join('、')}` : '');
+  });
+  if (a === 'bulkDel') return act('批量删除中', async () => {
+    const del = os.filter((o) => isMine(o) && (o.status === '草稿' || o.status === '已驳回'));
+    for (const o of del) await T('ord').deleteRecord(o.rid);
+    sel.clear(); return `已删除 ${del.length} 张`;
+  });
+  if (a === 'bulkApprove') return act('批量审核中', async () => {
+    const todo = os.filter((o) => o.status === '待审核'); let rows = 0;
+    for (const [i, o] of todo.entries()) { busy(`审核 ${i + 1}/${todo.length}：${o.no}（写入发货计划）…`); rows += await approve(o); }
+    sel.clear(); return `${todo.length} 张审核通过 → 已写入发货计划 ${rows} 行`;
+  });
+  if (a === 'bulkReject') {
+    const why = $('bulkReason').value.trim(); if (!why) { toast('写一下驳回原因'); return; }
+    bulkRej = false;
+    return act('批量驳回中', async () => {
+      const todo = os.filter((o) => o.status === '待审核' || (o.status === '待发货' && isReviewer()));
+      for (const [i, o] of todo.entries()) { busy(`驳回 ${i + 1}/${todo.length}…`); await reject(o, why); }
+      sel.clear(); return `已驳回 ${todo.length} 张到指令列表`;
+    });
+  }
+}
+
+main.addEventListener('input', (e) => {
+  const t = e.target, scope = scopeOf(t), S = scope && stateOf(scope); if (!S) return;
+  if (t.hasAttribute('data-pickq')) { pick = { scope, q: t.value }; renderPick(); return; }
+  if (t.dataset.o === 'note') { S.note = t.value; return; }
+  const tr = t.closest('tr[data-r]');
+  if (tr && t.dataset.k) {
+    const r = S.rows.find((x) => x.id === +tr.dataset.r); r[t.dataset.k] = t.value;
+    if (t.dataset.k === 'perBox' || t.dataset.k === 'boxes') {
+      tr.querySelector('[data-total]').textContent = tot(r) ? tot(r).toLocaleString() : '—';
+      const s = sumOf(S.rows), box = scope === 'new' ? main : t.closest('.order');
+      box.querySelectorAll('[data-sumboxes]').forEach((x) => x.textContent = s.boxes);
+      box.querySelectorAll('[data-sumqty]').forEach((x) => x.textContent = s.qty.toLocaleString());
+    }
+    return;
+  }
+  const sh = t.closest('.ship'); if (sh && t.dataset.k) S.ships[+sh.dataset.i][t.dataset.k] = t.value;
+});
+main.addEventListener('change', (e) => {
+  const t = e.target;
+  if (t.hasAttribute('data-sel')) { const no = t.closest('[data-no]').dataset.no; t.checked ? sel.add(no) : sel.delete(no); render(); return; }
+  if (t.hasAttribute('data-selall')) { main.querySelectorAll('[data-sel]').forEach((x) => { const no = x.closest('[data-no]').dataset.no; t.checked ? sel.add(no) : sel.delete(no); }); render(); return; }
+  if (t.dataset.batch) { batch[t.dataset.batch] = Math.max(1, +t.value || 1); render(); return; }
+  const scope = scopeOf(t), S = scope && stateOf(scope); if (!S) return;
+  if (t.dataset.o === 'shipDate') { S.shipDate = t.value; render(); return; }
+  if (t.closest('.ship') && t.dataset.k === 'ch') { render(); return; }
+  if (t.closest('tr[data-r]') && t.dataset.k === 'perBox') render();
+});
+document.addEventListener('mousedown', (e) => { if (pick.scope && !e.target.closest('.picker')) { closePick(); render(); } });
+$('tabs').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) { view = b.dataset.v; rejecting = null; copying = null; sel.clear(); bulkRej = false; closePick(); render(); } });
+$('reload').addEventListener('click', () => reload().then(() => toast('已刷新')).catch((e) => toast('刷新失败：' + e.message, 5000)));
+$('selfcheck').addEventListener('click', () => selfCheck());
+
+// ================= ⑨ 自检（认人 / 读表 / 写删权限），截图即可定位 =================
+async function selfCheck(auto) {
+  const res = [];
+  const t = async (name, fn) => {
+    try {
+      const v = await Promise.race([fn(), new Promise((_, rej) => setTimeout(() => rej(new Error('超时 10s')), 10000))]);
+      let shown; try { shown = typeof v === 'string' ? v : JSON.stringify(v); } catch (x) { shown = String(v); }
+      res.push(['✔', name, String(shown ?? '').slice(0, 300)]); return v;
+    } catch (e) { res.push(['✘', name, e && e.message ? e.message : String(e)]); return undefined; }
+  };
+  busy('自检中…');
+  try {
+    if (SDK) {
+      await t('dashboard.state', async () => SDK.dashboard.state);
+      await t('bridge.getUserId', () => SDK.bitable.bridge.getUserId());
+      await t('bridge.getBaseUserId', () => SDK.bitable.bridge.getBaseUserId());
+      res.push(['ℹ', '本页认出的我', `${ME.name || '（未认出）'} · ids=${ME.ids.join(',')} · 审核人=${REVIEWER.name}(${REVIEWER.id || '无ID'}) · 我是审核人=${isReviewer()}`]);
+      for (const k of Object.keys(TABLES)) {
+        await t(`读「${TABLES[k].name}」`, async () => {
+          if (LOADERR[k]) throw new Error(LOADERR[k]);
+          const m = META[k]; return `${(DATA[k] || []).length} 行${m && m.missing.length ? '；缺字段：' + m.missing.join('、') : ''}`;
+        });
+      }
+      if (!auto) {
+        // 写一条测试行 → 看提交人是谁 → 删掉（验证 新增/读回/删除 权限 和 人员ID 对不对得上）
+        const rid = await t('发货指令：新增测试行', () => T('ord').addRecord({ fields: fieldsOf('ord', { '指令号': '_TEST 自检（会自动删）', '状态': '草稿' }) }));
+        if (rid) {
+          await t('读回测试行的「提交人」', async () => { const rec = await T('ord').getRecordById(rid); const u = users(rec.fields[META.ord.idByName['提交人']])[0]; return u ? `${u.name} (${u.id}) · 与 getUserId ${ME.ids.includes(u.id) ? '一致 ✔' : '不一致'}` : '空'; });
+          await t('发货指令：删除测试行', () => T('ord').deleteRecord(rid));
+        }
+        if (META.plan && isReviewer()) {
+          const pid = await t('发货计划：新增测试行（审核人才测）', () => T('plan').addRecord({ fields: fieldsOf('plan', { '指令号': '_TEST', '来源': '发货指令页自检，会自动删' }) }));
+          if (pid) await t('发货计划：删除测试行', () => T('plan').deleteRecord(pid));
+        }
+      }
+    } else res.push(['✘', 'SDK', '没加载上']);
+  } finally { busy(''); }
+  const html = `<div class="card"><h3>自检结果 <small>有 ✘ 的话把这块整体截图发回；点「⟳ 刷新」回到页面</small></h3><table class="tbl"><tbody>${res.map((r) =>
+    `<tr><td style="width:24px">${r[0]}</td><td>${esc(r[1])}</td><td style="white-space:normal;color:var(--sub)">${esc(r[2])}</td></tr>`).join('')}</tbody></table></div>`;
+  $('main').innerHTML = html + ($('main').innerHTML.includes('加载失败') ? '' : '');
+  return html;
+}
+
+// ================= ⑩ 保存到页面 / 布局 / 启动 =================
+function setupSave() {
+  const dash = SDK && SDK.dashboard; let st = '';
+  try { st = dash && dash.state; } catch (e) { st = '读取失败'; }
+  $('saveMsg').textContent = `（插件状态：${st || '未知'}）`;
+  if (dash && typeof dash.saveConfig === 'function' && st !== 'View' && st !== 'FullScreen') {
+    $('savebar').classList.add('show');
+    $('saveBtn').onclick = async () => {
+      $('saveBtn').disabled = true; $('saveMsg').textContent = '保存中…';
+      try {
+        const ok = await dash.saveConfig({
+          dataConditions: Object.values(TABLES).map((x) => ({ tableId: x.id, baseToken: BASE_TOKEN, dataRange: { type: 'ALL' }, series: 'COUNTA' })),
+          customConfig: { page: '发货指令', version: 1 },
+        });
+        $('saveMsg').textContent = ok === false ? '保存失败，请重试' : '已保存 ✔';
+      } catch (e) { $('saveMsg').textContent = '保存失败：' + (e && e.message ? e.message : e); }
+      finally { $('saveBtn').disabled = false; }
+    };
+  } else if (dash && dash.setRendered) dash.setRendered().catch(() => {});
+}
+function layoutCheck() { $('tallTip').style.display = innerHeight > (screen.availHeight || screen.height || 1080) + 40 ? '' : 'none'; }
+window.addEventListener('resize', layoutCheck); layoutCheck();
+main.addEventListener('scroll', () => $('sticky').classList.toggle('stuck', main.scrollTop > 0), { passive: true });
+
+async function loadSdk() {
+  if (MOCK) return await import('./mock-sdk.mjs');
+  const errs = [];
+  for (const u of SDK_URLS) {
+    try { return await Promise.race([import(u), new Promise((_, rej) => setTimeout(() => rej(new Error('超时 12s')), 12000))]); }
+    catch (e) { errs.push(`${u} → ${e && e.message ? e.message : e}`); }
+  }
+  throw new Error('飞书 SDK 三个来源都没加载上（也就没有「保存到页面」按钮），请截图：' + errs.join(' ｜ '));
+}
+
+try {
+  SDK = await loadSdk();
+  setupSave();
+  for (const f of ['getUserId', 'getBaseUserId']) { try { const id = await SDK.bitable.bridge[f](); if (id && !ME.ids.includes(id)) ME.ids.push(id); } catch (e) { /* 自检里看 */ } }
+  await Promise.all(Object.keys(TABLES).map(loadKey));
+  buildRef(); buildOrders();
+  if (isReviewer()) view = 'list';
+  render();
+} catch (e) {
+  const msg = esc(e && e.message ? e.message : e);
+  $('main').innerHTML = `<div class="card err">加载失败：${msg}</div>`;
+  if (SDK) { try { $('main').innerHTML = `<div class="card err">加载失败：${msg}</div>` + await selfCheck(true); } catch (e2) { /* 保留报错 */ } }
+}
+</script>
+</body>
+</html>
