@@ -124,6 +124,10 @@
   .up:hover, .up.drag { border-color: var(--or); color: var(--or-d); background: var(--or-soft); }
   .up.busy { pointer-events: none; opacity: .6; }
   .upmsg { font-size: 12px; margin: 2px 0 4px; }
+  .att { position: relative; }
+  .att .del { position: absolute; top: 4px; right: 4px; width: 22px; height: 22px; border-radius: 11px; border: none; background: rgba(0,0,0,.55); color: #fff; font-size: 14px; line-height: 22px; padding: 0; cursor: pointer; opacity: 0; transition: opacity .15s; }
+  .att:hover .del, .att .del.sure { opacity: 1; }
+  .att .del.sure { width: auto; padding: 0 8px; background: var(--red); font-size: 12px; }
   .ah { font-size: 12px; color: var(--sub); margin: 8px 0 4px; }
   .ah b { color: var(--ink); }
   .lightbox { position: fixed; inset: 0; background: rgba(20,14,8,.82); z-index: 60; display: flex; align-items: center; justify-content: center; cursor: zoom-out; }
@@ -262,7 +266,7 @@ const BASE_TOKEN = 'JGvebyaAYapWtOslxc9cuKYXnwd';   // 灯具组-全流程
 const COPY = ['标题', '亮点', '卖点1', '卖点2', '卖点3', '卖点4', '卖点5', 'ST'];
 const DONE = ['文案完成', '图片完成', 'A+完成', '视频完成', '品牌故事完成', '旗舰店完成'];
 const ATT = ['主副图', 'A+', '品牌故事', '旗舰店'];
-const UPLOAD = ['主副图'];                                                 // 页面可上传的附件列（10-27 试验先开主副图）
+const UPLOAD = ['主副图', 'A+', '品牌故事', '旗舰店'];                      // 页面可上传/删除的附件列（10-27 主副图实测通过后全开）
 const COPY_MOD = ['标题', '亮点', '卖点1', '卖点2', '卖点3', '卖点4', '卖点5'];   // 每个模块有「备注-xx」列（10-13 建）
 const IMG_MOD = [['主副图', '图片完成'], ['A+', 'A+完成'], ['视频', '视频完成'], ['品牌故事', '品牌故事完成'], ['旗舰店', '旗舰店完成']];
 const NOTE_F = [...COPY_MOD, ...IMG_MOD.map((m) => m[0])].map((m) => '备注-' + m);
@@ -645,7 +649,7 @@ function renderOne(list) {
     const a = ATT.includes(m) ? (r[m] || []) : null, nf = '备注-' + m;
     const up = a && UPLOAD.includes(m) ? `<label class="up" data-up="${m}" title="点击选图，或把图片拖到这里"><b>＋</b>上传图片<span class="meta">可多选 / 拖拽</span><input type="file" accept="image/*" multiple hidden></label>` : '';
     const gallery = a == null ? '<div class="meta">表里没有视频附件列，按备注和「视频完成」勾选审核</div>'
-      : a.length || up ? `<div class="atts">${a.map((t, k) => `<a class="att" data-f="${m}" data-k="${k}" title="${esc(t.name)}"><div class="ph">${SNAP ? '本地预览不显示<br>飞书里显示' : '加载中…'}</div><div class="n">${esc(t.name)}</div></a>`).join('')}${up}</div>${up ? `<div class="upmsg meta" data-upmsg="${m}"></div>` : ''}`
+      : a.length || up ? `<div class="atts">${a.map((t, k) => `<a class="att" data-f="${m}" data-k="${k}" title="${esc(t.name)}"><div class="ph">${SNAP ? '本地预览不显示<br>飞书里显示' : '加载中…'}</div>${up ? `<button class="del" data-tk="${esc(t.token)}" title="从表里删除这张">×</button>` : ''}<div class="n">${esc(t.name)}</div></a>`).join('')}${up}</div>${up ? `<div class="upmsg meta" data-upmsg="${m}"></div>` : ''}`
       : '<div class="meta">还没有上传</div>';
     return `<div class="mod"><div class="fh"><b>${m}</b>${a ? `<span class="meta">${a.length} 个</span>` : ''}<span class="sp"></span>${ck(doneF, '完成')}${noteBtn(nf)}</div>
       ${gallery}${noteBody(nf, m)}</div>`;
@@ -703,10 +707,42 @@ function renderOne(list) {
       if (fs.length) uploadAtts(r, box.dataset.up, fs, box); else toast('只能上传图片');
     };
   });
+  // 删除：点 × 变成「确认删除」，再点一次才删；3 秒不点自动复原
+  $('main').querySelectorAll('.att .del').forEach((b) => b.onclick = (e) => {
+    e.preventDefault(); e.stopPropagation();
+    if (!b.classList.contains('sure')) {
+      b.classList.add('sure'); b.textContent = '确认删除';
+      setTimeout(() => { if (b.isConnected && !b.disabled) { b.classList.remove('sure'); b.textContent = '×'; } }, 3000);
+      return;
+    }
+    b.disabled = true; b.textContent = '删除中…';
+    delAtt(r, b.closest('.att').dataset.f, b.dataset.tk, b);
+  });
   if (state.tab === 'img') loadAtts(r);
 }
 
-// 附件上传（10-27 试验，先只开主副图）：传到飞书拿 token → 追加到该格已有附件后面写回，不覆盖旧图
+async function delAtt(r, f, token, btn) {
+  const msg = document.querySelector(`[data-upmsg="${CSS.escape(f)}"]`);
+  if (SNAP) { toast('本地预览不能删除，请在飞书里操作'); return; }
+  const fid = FIDS.lr[f];
+  let step = '读取当前附件';
+  try {
+    let cur = await TBLS.lr.getCellValue(fid, r._id);                     // 写前重读，只拿掉这一张
+    cur = Array.isArray(cur) ? cur.filter((x) => x && x.token) : [];
+    const left = cur.filter((x) => x.token !== token);
+    step = '写回审核表';
+    if (left.length !== cur.length) await TBLS.lr.setRecord(r._id, { fields: { [fid]: left.length ? left : null } });
+    r[f] = left;
+    toast(`已从「${f}」删除 1 张`);
+    if (state.cur === r._id) { keepNav = true; const top = $('list').scrollTop, y = $('main').scrollTop; render(); $('list').scrollTop = top; $('main').scrollTop = y; }
+  } catch (e) {
+    btn.disabled = false; btn.classList.remove('sure'); btn.textContent = '×';
+    if (msg) { msg.textContent = `删除失败（${step}）：${e && e.message ? e.message : e}`; msg.style.color = 'var(--red)'; }
+    console.error('delAtt', step, e);
+  }
+}
+
+// 附件上传（10-27 主副图实测通过）：传到飞书拿 token → 追加到该格已有附件后面写回，不覆盖旧图
 async function uploadAtts(r, f, files, box) {
   const msg = document.querySelector(`[data-upmsg="${CSS.escape(f)}"]`);
   const say = (t, bad) => { if (msg) { msg.textContent = t; msg.style.color = bad ? 'var(--red)' : ''; } };
