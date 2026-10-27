@@ -8,7 +8,9 @@
   飞书应用「灯具组-全流程」自定义插件页 · 出口单证追踪（2026-10-15）
   一张合同（=一张报关单）一张卡：左 采购单（领星）｜中 报关明细（财务出口退税表）｜右 货件状态时间线（领星发货单 + FBA 货件）
   读三张表（只读）：出口退税明细 / 出口货件 / 出口采购单；数据由 tools/claude-workspace/sync_export_trace.py 每日同步
-  读表授权：应用页「数据授权2（勿删）」pgezWolk3vEpdQPp 的 3 个原生列表组件
+  读表授权：应用页「数据授权2（勿删）」pgezWolk3vEpdQPp 的原生列表组件（出口三表 + 出口对账-采购合同/货件明细）
+  2026-10-27 加「按合同单号」页签（给曾舒婷）：读 出口对账-采购合同 + 出口对账-货件明细（sync_export_recon.py 维护），
+  已发 = 已报关数量（报关明细匹配到该采购行的数量），没有报关数据的行 已发/未发 留空；切到该页签才加载这两张表
   基于 tools/feishu-page-kit/template.html（硬规矩见 wiki/页面设计/概念/飞书应用自定义插件页.md）。页面里只有 base token 和表 ID，无密钥。
 -->
 <style>
@@ -107,7 +109,7 @@
   <div class="sticky" id="sticky">
     <div class="bar">
       <h1>出口单证追踪</h1>
-      <div class="seg" id="viewSeg"><button data-v="contract" class="on">按合同</button><button data-v="ship">按货件</button></div>
+      <div class="seg" id="viewSeg"><button data-v="contract" class="on">按合同协议号</button><button data-v="po">按合同单号</button><button data-v="ship">按货件</button></div>
       <select id="fOp"><option value="">全部运营</option></select>
       <select id="fMonth"><option value="">全部出口月份</option></select>
       <input id="fQ" placeholder="搜 货件号 / 合同号 / 采购单号 / 品名">
@@ -136,6 +138,11 @@ const TABLES = {
   po: { id: 'tblbh0XaF0WGTfs0', name: '出口采购单', links: [],
     fields: ['采购单号', '单据状态', '到货状态', '付款状态', '供应商', '采购员', '下单日', '预计到货日', '首次到货日', '最近到货日',
       '采购量', '已到货量', '采购金额', '含税', '明细', '采购备注', '领星匹配'] },
+  // 以下两张只在「按合同单号」页签懒加载
+  rpo: { id: 'tblZGnfj9md5isLj', name: '出口对账-采购合同', links: [], lazy: true,
+    fields: ['采购合同', 'SKU', '名称', '数量', '已报关数量', '对账状态', '供应商', '下单日期', '到货状态', '单据状态', '归属', '含税单价', '已报关金额'] },
+  rship: { id: 'tblJO6ZnfU62ALPz', name: '出口对账-货件明细', links: ['采购合同'], lazy: true,
+    fields: ['货件编号', '采购合同', '合同协议号', '数量', '时间', '领星状态', '店铺'] },
 };
 const SAVE_TABLE = 'det';
 
@@ -214,10 +221,12 @@ const DIAG = [];
 let DATA = {};
 let M = null;            // 整理后的模型
 const UI = { view: 'contract', op: '', month: '', q: '', st: '', focus: '' };
+let RECON = null;        // 按合同单号：{ pos: [...] }
+let reconLoading = null;
 
 async function load() {
   if (window.__SNAPSHOT__) { DATA = window.__SNAPSHOT__.data; return; }
-  const keys = Object.keys(TABLES);
+  const keys = Object.keys(TABLES).filter((k) => !TABLES[k].lazy);
   const results = await Promise.all(keys.map(readTable));
   keys.forEach((k, i) => { DATA[k] = results[i]; });
 }
@@ -285,10 +294,19 @@ function buildModel() {
 }
 
 function fillFilters() {
+  if (UI.view === 'po') {
+    const own = [...new Set((RECON?.pos || []).flatMap((p) => p.own))].sort();
+    $('fOp').innerHTML = '<option value="">全部归属</option>' + own.map((o) => `<option>${esc(o)}</option>`).join('');
+    const ms = [...new Set((RECON?.pos || []).map((p) => p.ord != null ? fmtFull(p.ord).slice(0, 7) : '').filter(Boolean))].sort().reverse();
+    $('fMonth').innerHTML = '<option value="">全部下单月份</option>' + ms.map((m) => `<option>${m}</option>`).join('');
+    $('fOp').value = UI.op; $('fMonth').value = UI.month;
+    return;
+  }
   const ops = [...new Set((DATA.det || []).map((d) => d['运营']).filter(Boolean))].sort();
   $('fOp').innerHTML = '<option value="">全部运营</option>' + ops.map((o) => `<option>${esc(o)}</option>`).join('');
   const months = [...new Set(M.contracts.map((c) => c.exp != null ? fmtFull(c.exp).slice(0, 7) : '').filter(Boolean))].sort().reverse();
   $('fMonth').innerHTML = '<option value="">全部出口月份</option>' + months.map((m) => `<option>${m}</option>`).join('');
+  $('fOp').value = UI.op; $('fMonth').value = UI.month;
 }
 
 function matchQ(c, q) {
@@ -388,9 +406,109 @@ function renderShips(cs) {
   $('main').querySelectorAll('a[data-c]').forEach((a) => a.onclick = () => { UI.view = 'contract'; UI.focus = a.dataset.c; UI.q = ''; UI.st = ''; $('fQ').value = ''; syncSeg(); render(); });
   $('main').querySelectorAll('a[data-q]').forEach((a) => a.onclick = () => { UI.view = 'contract'; UI.q = a.dataset.q; UI.st = ''; $('fQ').value = a.dataset.q; syncSeg(); render(); });
 }
+// ===== 按合同单号（采购单）=====
+async function loadRecon() {
+  if (window.__SNAPSHOT__) { DATA.rpo = window.__SNAPSHOT__.data.rpo; DATA.rship = window.__SNAPSHOT__.data.rship; }
+  else { [DATA.rpo, DATA.rship] = await Promise.all([readTable('rpo'), readTable('rship')]); }
+  if (!DATA.rpo) throw new Error('本地快照里没有 出口对账 两张表');
+  const lines = new Map();
+  for (const r of DATA.rpo) {
+    const q = n0(r['数量']), dq = n0(r['已报关数量']);
+    lines.set(r._id, { ...r, q, dq, has: dq > 0, segs: [] });
+  }
+  // 报关段：货件明细里 有合同协议号 的行 = 报关挂到某采购行的数量
+  for (const s of DATA.rship || []) {
+    if (!s['合同协议号']) continue;
+    for (const id of s['采购合同'] || []) lines.get(id)?.segs.push(s);
+  }
+  const byPo = new Map();
+  for (const l of lines.values()) {
+    const k = l['采购合同'] || '(无单号)';
+    if (!byPo.has(k)) byPo.set(k, { no: k, lines: [] });
+    byPo.get(k).lines.push(l);
+  }
+  const pos = [...byPo.values()].map((p) => {
+    const f = p.lines[0];
+    const data = p.lines.filter((l) => l.has);
+    const q = p.lines.reduce((a, l) => a + l.q, 0), dq = data.reduce((a, l) => a + l.dq, 0);
+    const left = data.reduce((a, l) => a + Math.max(0, l.q - l.dq), 0);
+    const st = !data.length ? 'none' : data.length === p.lines.length && left === 0 ? 'full' : 'part';
+    p.lines.sort((a, b) => (b.has - a.has) || String(a['SKU']).localeCompare(String(b['SKU'])));
+    const ships = new Set(), cts = new Set();
+    p.lines.forEach((l) => l.segs.forEach((s) => { ships.add(s['货件编号']); cts.add(String(s['合同协议号'])); }));
+    return { ...p, q, dq, left, st, nData: data.length, sup: f['供应商'], ord: dayOf(f['下单日期']), arr: f['到货状态'],
+      own: [...new Set(p.lines.flatMap((l) => String(l['归属'] || '').split('、')).filter(Boolean))], ships: [...ships], cts: [...cts] };
+  });
+  RECON = { pos };
+}
+const PST = { part: ['部分已发', 'p-yellow', 0], full: ['已全部发出', 'p-green', 1], none: ['无报关数据', 'p-gray', 2] };
+function poFilter() {
+  const q = UI.q.trim().toUpperCase();
+  return RECON.pos.filter((p) => (!UI.op || p.own.includes(UI.op)) && (!UI.month || (p.ord != null && fmtFull(p.ord).startsWith(UI.month)))
+    && (!q || q.split(/\s+/).every((w) => [p.no, p.sup, ...p.ships, ...p.cts, ...p.lines.map((l) => `${l['SKU']} ${l['名称']}`)].join(' ').toUpperCase().includes(w))));
+}
+function renderPoKpis(ps) {
+  const cnt = (k) => ps.filter((p) => p.st === k).length;
+  const items = [['', '全部合同单号', ps.length, ''], ['part', '部分已发', cnt('part'), 'yellow'], ['full', '已全部发出', cnt('full'), 'green'], ['none', '无报关数据', cnt('none'), '']];
+  const wd = ps.filter((p) => p.st !== 'none');
+  $('kpis').innerHTML = items.map(([k, t, n, c]) => `<span class="kpi ${c} ${UI.st === k ? 'on' : ''}" data-st="${k}">${t}<b>${n}</b></span>`).join('')
+    + `<span class="meta" style="align-self:center">有报关数据的单：已发 ${fmtN(wd.reduce((a, p) => a + p.dq, 0))} · 未发 ${fmtN(wd.reduce((a, p) => a + p.left, 0))}　·　已发 = 报关明细匹配到的数量，没报关的 SKU 已发/未发留空</span>`;
+  $('kpis').querySelectorAll('.kpi').forEach((el) => el.onclick = () => { UI.st = UI.st === el.dataset.st ? '' : el.dataset.st; render(); });
+}
+function poCard(p) {
+  const s = PST[p.st];
+  const segHtml = (l) => l.segs.map((x) => {
+    const ct = String(x['合同协议号']);
+    const link = M.contracts.some((c) => c.no === ct) ? `<a class="chip" data-c="${esc(ct)}">${esc(ct)}</a>` : esc(ct);
+    return `<span title="${esc(x['店铺'] || '')} ${esc(x['领星状态'] || '')} ${fD(x['时间'])}">${esc(x['货件编号'])} ×${fmtN(x['数量'])} → ${link}</span>`;
+  }).join('<br>');
+  const rows = p.lines.map((l) => {
+    const pct = l.has && l.q ? Math.min(100, Math.round(l.dq / l.q * 100)) : 0;
+    const left = Math.max(0, l.q - l.dq);
+    return `<tr><td title="${esc(l['名称'] || '')}"><b>${esc(l['SKU'] || '')}</b><div class="meta" style="overflow:hidden;text-overflow:ellipsis">${esc(l['名称'] || '')}</div></td>
+      <td class="r">${fmtN(l.q)}</td><td class="r">${l.has ? fmtN(l.dq) : ''}</td>
+      <td class="r">${l.has ? `<b style="color:${left ? 'var(--yellow)' : 'var(--green)'}">${fmtN(left)}</b>` : ''}</td>
+      <td>${l.has ? `<div class="bar2" style="margin:0"><i style="width:${pct}%"></i></div><span class="meta">${pct}%</span>` : '<span class="meta">无报关数据</span>'}</td>
+      <td style="white-space:normal">${segHtml(l)}</td></tr>`;
+  }).join('');
+  return `<div class="card">
+    <div class="ch"><span class="no">${esc(p.no)}</span><span class="pill ${s[1]}">${s[0]}</span>
+      <span class="kv">供应商 <b>${esc(p.sup || '—')}</b></span><span class="kv">下单 <b>${p.ord != null ? fmtFull(p.ord) : '—'}</b></span>
+      <span class="kv">到货 <b>${esc(p.arr || '—')}</b></span><span class="kv">归属 <b>${esc(p.own.join('、') || '—')}</b></span>
+      <span class="kv">采购 <b>${fmtN(p.q)}</b></span>
+      ${p.st === 'none' ? '' : `<span class="kv">已发 <b>${fmtN(p.dq)}</b></span><span class="kv">未发 <b style="color:${p.left ? 'var(--yellow)' : 'var(--green)'}">${fmtN(p.left)}</b></span>`}
+      ${p.st !== 'none' && p.nData < p.lines.length ? `<span class="meta">（另有 ${p.lines.length - p.nData} 个 SKU 无报关数据，未计入未发）</span>` : ''}</div>
+    <table class="mini"><colgroup><col style="width:24%"><col style="width:8%"><col style="width:8%"><col style="width:8%"><col style="width:10%"><col style="width:42%"></colgroup>
+      <tr><th>SKU / 品名</th><th class="r">采购量</th><th class="r">已发</th><th class="r">未发</th><th>进度</th><th>货件 × 数量 → 合同协议号</th></tr>${rows}</table></div>`;
+}
+async function renderPo() {
+  if (!RECON) {
+    $('kpis').innerHTML = '';
+    $('main').innerHTML = '<div class="loading">正在读取 出口对账-采购合同 / 货件明细…（首次约 10 秒）</div>';
+    try { await (reconLoading ||= loadRecon()); }
+    catch (e) {
+      reconLoading = null;
+      $('main').innerHTML = `<div class="card err">按合同单号 加载失败：${esc(e && e.message ? e.message : e)}\n（出口对账两张表只开给曾舒婷角色，其他人看不到属正常）</div>`;
+      return;
+    }
+    fillFilters();
+    if (UI.view !== 'po') return;
+  }
+  const ps = poFilter();
+  renderPoKpis(ps);
+  const list = ps.filter((p) => !UI.st || p.st === UI.st)
+    .sort((a, b) => PST[a.st][2] - PST[b.st][2] || (b.ord ?? 0) - (a.ord ?? 0));
+  const MAX = 150;
+  $('main').innerHTML = (list.slice(0, MAX).map(poCard).join('') || '<div class="empty">没有符合条件的合同单号</div>')
+    + (list.length > MAX ? `<div class="empty">只显示前 ${MAX} 张，共 ${list.length} 张；用顶部筛选或搜索缩小范围</div>` : '');
+  $('main').scrollTop = 0;
+  $('main').querySelectorAll('a[data-c]').forEach((a) => a.onclick = () => { UI.view = 'contract'; UI.focus = a.dataset.c; UI.q = ''; UI.st = ''; UI.op = ''; UI.month = ''; $('fQ').value = ''; syncSeg(); fillFilters(); render(); });
+}
+
 function syncSeg() { $('viewSeg').querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.v === UI.view)); }
 
 function render() {
+  if (UI.view === 'po') { renderPo(); return; }
   const cs = baseFilter();
   renderKpis(cs);
   UI.view === 'contract' ? renderContracts(cs) : renderShips(cs);
@@ -398,7 +516,12 @@ function render() {
   UI.focus = '';
 }
 function bindUi() {
-  $('viewSeg').querySelectorAll('button').forEach((b) => b.onclick = () => { UI.view = b.dataset.v; UI.st = ''; syncSeg(); render(); });
+  $('viewSeg').querySelectorAll('button').forEach((b) => b.onclick = () => {
+    const wasPo = UI.view === 'po', isPo = b.dataset.v === 'po';
+    UI.view = b.dataset.v; UI.st = '';
+    if (wasPo !== isPo) { UI.op = ''; UI.month = ''; fillFilters(); }
+    syncSeg(); render();
+  });
   $('fOp').onchange = (e) => { UI.op = e.target.value; render(); };
   $('fMonth').onchange = (e) => { UI.month = e.target.value; render(); };
   let t; $('fQ').oninput = (e) => { clearTimeout(t); t = setTimeout(() => { UI.q = e.target.value; render(); }, 200); };
