@@ -504,7 +504,7 @@ function shipRow(x, onlyAsin) {
     <td class="nw">${esc(shortStore(x.store))} → ${esc(x.dest || '—')}<div class="sub nw" title="${esc(x.ch)}">${esc(x.ch.length > 14 ? x.ch.slice(0, 14) + '…' : x.ch)}${x.s['物流商箱数'] ? ` · ${x.s['物流商箱数']} 箱` : ''}</div></td>
     <td class="pls">${pill(x)}</td>
     <td>${stepsHtml(x)}</td>
-    <td class="its">${items.map((i) => `<div title="${esc(i.name)} | ${esc(i.msku)} | ${esc(i.asin)}"><span class="in">${esc(i.name)}</span><span class="mk">${esc(i.msku)}</span>${items.length > 1 ? `<b>×${f(i.qty)}</b>` : ''}</div>`).join('')}</td>
+    <td class="its">${items.map((i) => `<div title="${esc(i.name)} | ${esc(i.msku)} | ${esc(i.asin)}"><span class="in">${esc(i.name)}</span><span class="mk">${esc(i.msku)}</span><b>×${f(i.qty)}</b></div>`).join('')}</td>
     <td class="n"><b>${f(qty)}</b></td>
     <td class="tk" title="${esc(tkFull)}"><div class="tkc"><span class="sr ${x.src === '物流商' ? 'c' : 'l'}">${x.src}</span>${esc(tk)}</div></td></tr>`;
 }
