@@ -125,6 +125,9 @@
   .its .in { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; } .its .mk { flex: 0 1 auto; max-width: 96px; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-family: Consolas, Menlo, monospace; font-size: 11px; color: var(--sub); } .its b { flex: none; }
   .tk { max-width: 240px; min-width: 130px; font-size: 12px; color: var(--sub); }
   .tkc { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; } .tk .src { display: inline-block; font-size: 11px; color: var(--sub); background: var(--gray-soft); border-radius: 4px; padding: 0 4px; margin-right: 4px; }
+  /* 信息来源标签：物流商橙、领星蓝（描边，和填色的状态标签区分） */
+  .sr { display: inline-block; padding: 0 6px; border-radius: 4px; font-size: 11px; line-height: 18px; white-space: nowrap; border: 1px solid; margin-right: 4px; vertical-align: 1px; }
+  .sr.c { color: #d46b08; border-color: #ffc069; background: #fff7e6; } .sr.l { color: var(--blue); border-color: #94b4ff; background: var(--blue-soft); }
   .st2 .pl { margin: 0 3px 3px 0; } .pls { min-width: 84px; max-width: 120px; }
   .empty { padding: 30px; text-align: center; color: var(--sub); }
 
@@ -359,7 +362,7 @@ function filt() {
 // ===== ⑤ 渲染 =====
 function pill(x) {
   const cls = x.phase === 'done' ? 'g' : x.delay || x.late ? 'r' : x.phase === 'last' ? 'y' : '';
-  return `<span class="pl ${cls}">${esc(x.status)}</span>${x.late ? `<span class="pl r">逾期 ${x.late} 天</span>` : ''}<span class="pl x">${x.src}</span>`;
+  return `<span class="pl ${cls}">${esc(x.status)}</span>${x.late ? `<span class="pl r">逾期 ${x.late} 天</span>` : ''}<span class="sr ${x.src === '物流商' ? 'c' : 'l'}">${x.src}</span>`;
 }
 function stepsHtml(x) {
   const date = [dayOf(x.s['发货单建单日']) ?? dayOf(x.s['FBA建单时间']), x.sent, x.sail, null, x.sign, x.recv];
@@ -384,7 +387,7 @@ function shipRow(x, onlyAsin) {
     <td>${stepsHtml(x)}</td>
     <td class="its">${items.map((i) => `<div title="${esc(i.name)} | ${esc(i.msku)} | ${esc(i.asin)}"><span class="in">${esc(i.name)}</span><span class="mk">${esc(i.msku)}</span>${items.length > 1 ? `<b>×${f(i.qty)}</b>` : ''}</div>`).join('')}</td>
     <td class="n"><b>${f(qty)}</b></td>
-    <td class="tk" title="${esc(tkFull)}"><div class="tkc"><span class="src">${x.src}</span>${esc(tk)}</div></td></tr>`;
+    <td class="tk" title="${esc(tkFull)}"><div class="tkc"><span class="sr ${x.src === '物流商' ? 'c' : 'l'}">${x.src}</span>${esc(tk)}</div></td></tr>`;
 }
 const shipTable = (L, onlyAsin) => `<div class="tbl"><table class="t st2"><thead>${SHIP_HEAD(onlyAsin)}</thead><tbody>${L.map((x) => shipRow(x, onlyAsin)).join('')}</tbody></table></div>`;
 
