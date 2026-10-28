@@ -363,7 +363,7 @@ const T = (key) => META[key].table;
 
 // ================= ④ 数据整理 =================
 let PM = {}, PRODS = [], poBySku = {}, poRec = {}, POS = [], chByName = {}, CHS = [], planById = {};
-let ORDERS = [], REVIEWER = { id: '', name: REVIEWER_FALLBACK }, CONFIG_ID = null;
+let ORDERS = [], REVIEWER = { ids: [], names: [REVIEWER_FALLBACK], name: REVIEWER_FALLBACK }, CONFIG_ID = null;   // 审核人可多个（配置行人员字段）
 let ME = { ids: [], name: '', known: false };
 
 function buildRef() {
@@ -406,7 +406,7 @@ function buildOrders() {
   ORDERS = []; CONFIG_ID = null;
   for (const r of DATA.ord) {
     const no = r['指令号'] || '';
-    if (no === CONFIG_NO) { CONFIG_ID = r._id; const u = users(r._raw['审核人'])[0]; if (u) REVIEWER = u; continue; }
+    if (no === CONFIG_NO) { CONFIG_ID = r._id; const us = users(r._raw['审核人']); if (us.length) REVIEWER = { ids: us.map((u) => u.id), names: us.map((u) => u.name), name: us.map((u) => u.name).join('/') }; continue; }
     if (no.startsWith('_')) continue;
     const by = users(r._raw['提交人'])[0] || { id: '', name: '?' };
     const ships = json(r['货件JSON'], []); while (ships.length < SHIP_SLOTS) ships.push({ no: '', ch: '', eta: '' });
@@ -421,7 +421,7 @@ function buildOrders() {
   const hit = seen.find((u) => ME.ids.includes(u.id));
   if (hit) { ME.name = hit.name; ME.known = true; }
 }
-const isReviewer = () => (REVIEWER.id && ME.ids.includes(REVIEWER.id)) || (ME.known && ME.name === REVIEWER.name);
+const isReviewer = () => REVIEWER.ids.some((id) => ME.ids.includes(id)) || (ME.known && REVIEWER.names.includes(ME.name));
 const isMine = (o) => ME.ids.includes(o.byId);
 
 // ================= ⑤ 页面状态 =================
@@ -1302,7 +1302,7 @@ async function selfCheck(auto) {
       await t('dashboard.state', async () => SDK.dashboard.state);
       await t('bridge.getUserId', () => SDK.bitable.bridge.getUserId());
       await t('bridge.getBaseUserId', () => SDK.bitable.bridge.getBaseUserId());
-      res.push(['ℹ', '本页认出的我', `${ME.name || '（未认出）'} · ids=${ME.ids.join(',')} · 审核人=${REVIEWER.name}(${REVIEWER.id || '无ID'}) · 我是审核人=${isReviewer()}`]);
+      res.push(['ℹ', '本页认出的我', `${ME.name || '（未认出）'} · ids=${ME.ids.join(',')} · 审核人=${REVIEWER.name}(${REVIEWER.ids.join(',') || '无ID'}) · 我是审核人=${isReviewer()}`]);
       for (const k of Object.keys(TABLES)) {
         await t(`读「${TABLES[k].name}」`, async () => {
           if (LOADERR[k]) throw new Error(LOADERR[k]);
