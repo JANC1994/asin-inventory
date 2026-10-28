@@ -69,6 +69,7 @@
   .po-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 12px; border-bottom: 1px solid var(--line); background: #fafbfc; }
   .po-q { flex: 1; min-width: 220px; }
   .store-cell { font-size: 12px; color: #3b4a6b; background: #eef3ff; border-radius: 4px; padding: 1px 6px; white-space: nowrap; }
+  .row-store { height: 28px; font-size: 12px; max-width: 170px; }
   .store-filter { height: 28px; font-size: 12.5px; } .store-filter.on { border-color: var(--blue); color: var(--blue); background: var(--blue-soft); }
   .po-ctl { display: contents; }
   .store-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
@@ -444,7 +445,7 @@ const byBox = (r) => +r.perBox > 0 && +r.boxes > 0;
 const tot = (r) => byBox(r) ? +r.perBox * +r.boxes : (+r.qty || 0);   // 没箱规的直接填总数
 const countryOf = (rows) => rows.length ? P(rows[0]).c : '';
 // 一张指令只能一个店铺：有明细取明细的店铺，没明细取手选的
-const storeOf = (S) => (S.rows.length ? P(S.rows[0]).s : '') || (S.rows.length ? S.store : '') || S.store || '';
+const storeOf = (S) => S.rows.length ? (S.store || P(S.rows[0]).s || '') : '';   // 整单一个店铺：自动带出，可在明细行里改
 const storeCountry = (s) => /-CA\b|-CA-|CA$/.test(s || '') ? '加拿大' : s ? '美国' : '';
 // 店铺清单 = 产品主表-灯类+精铺 / 产品主表-鞋类 两张表「店铺」字段的全部选项（7 个店 × 美国/加拿大站），读不到字段时退回产品里出现过的店铺
 function storeList() {
@@ -457,7 +458,7 @@ function storeList() {
   return g;
 }
 // only = 只列这个国家的店铺（明细里已有产品时）
-const storeOptions = (sel, empty, only) => `<option value="">${empty}</option>` + Object.entries(storeList()).filter(([c, ss]) => ss.length && (!only || c === only))
+const storeOptions = (sel, empty, only) => (empty === '—' ? '' : `<option value="">${empty}</option>`) + Object.entries(storeList()).filter(([c, ss]) => ss.length && (!only || c === only))
   .map(([c, ss]) => `<optgroup label="${c}">${ss.map((s) => `<option value="${esc(s)}" ${s === sel ? 'selected' : ''}>${esc(s)}</option>`).join('')}</optgroup>`).join('');
 // 换店铺：明细里每个产品换成新店铺里同 SKU、同国家的 MSKU；有对不上的就不换
 function switchStore(S, to) {
@@ -466,9 +467,10 @@ function switchStore(S, to) {
     const p = P(r), q = PRODS.find((x) => x.s === to && x.sku === p.sku && x.c === p.c);
     if (!q) miss.push(p.m); else map.push([r, q]);
   }
-  if (miss.length) return `「${to}」没有这些产品（按 SKU 找不到）：${[...new Set(miss)].slice(0, 6).join('、')}${miss.length > 6 ? ' 等 ' + miss.length + ' 个' : ''}，没换店铺`;
+  // 新店铺有同 SKU 的产品 → 换成它的 MSKU/FNSKU；没有 → 店铺照改，MSKU/FNSKU 沿用，行上标红让人核对
   for (const [r, q] of map) Object.assign(r, { key: q.c + '|' + q.m, c: q.c, m: q.m, a: q.a, n: q.n, fn: q.fn, sku: q.sku, s: q.s, line: q.line || '灯', spu: q.spu || '', color: q.color || '', size: q.size || '' });
-  S.store = to; return '';
+  S.store = to;
+  return `已改成「${to}」` + (map.length ? `；${map.length} 行换成了该店铺的 MSKU/FNSKU` : '') + (miss.length ? `；${miss.length} 行产品主表里该店铺没有，MSKU/FNSKU 沿用原来的（标红），请核对` : '');
 }
 const sumOf = (rows) => ({ msku: new Set(rows.map((r) => r.key)).size, boxes: rows.reduce((s, r) => s + (byBox(r) ? +r.boxes : 0), 0), qty: rows.reduce((s, r) => s + tot(r), 0) });
 const usedShips = (o) => o.split === '是' ? o.ships.map((s, i) => ({ ...s, i })).filter((s) => s.ch || s.eta || s.no) : [{ ...o.ships[0], i: 0 }];
@@ -745,18 +747,22 @@ function shoeHTML(S, err) {
     const p = P(rows[0]), tot0 = rows.reduce((s, r) => s + tot(r), 0), noFn = rows.filter((r) => !P(r).fn).length;
     const pos = [...new Set(rows.flatMap((r) => (poBySku[P(r).sku] || []).map((o) => o.po)))];
     return `<div class="shoe-grp" data-ids="${rows.map((r) => r.id).join(',')}">
-      <div class="sg-name"><b>${esc(p.spu)}</b> <span class="sg-color">${esc(p.color) || '—'}</span> <span class="badge ${p.c === '美国' ? 'b-blue' : 'b-green'}">${p.c}</span> <span class="store-cell">${esc(p.s)}</span>${noFn ? ` <span class="badge b-red" title="鞋类主表没有 FNSKU">缺FNSKU ${noFn}</span>` : ''}</div>
+      <div class="sg-name"><b>${esc(p.spu)}</b> <span class="sg-color">${esc(p.color) || '—'}</span> <span class="badge ${p.c === '美国' ? 'b-blue' : 'b-green'}">${p.c}</span> ${storeSel(S, p)}${noFn ? ` <span class="badge b-red" title="鞋类主表没有 FNSKU">缺FNSKU ${noFn}</span>` : ''}</div>
       <div class="sg-sizes">${rows.map((r) => `<label class="sz" data-r="${r.id}" title="${esc(P(r).m)}"><span>${esc(P(r).size || P(r).m)}</span><input class="num ${err && !(tot(r) > 0) ? 'miss' : ''}" data-k="qty" value="${esc(r.qty ?? '')}"><b class="x" data-act="delRow">×</b></label>`).join('')}</div>
       <div class="sg-tot">合计 <b data-gtot>${tot0.toLocaleString()}</b> 件</div>
       <div class="sg-po"><input class="po" data-k="gpo" list="gpo-${rows[0].id}" value="${esc(rows[0].po || '')}" placeholder="采购单号(可空)"><datalist id="gpo-${rows[0].id}">${pos.map((x) => `<option value="${esc(x)}">`).join('')}</datalist>
         <button class="link red" data-act="delGroup">删这组</button></div></div>`;
   }).join('')}</div>`;
 }
+function storeSel(S, p) {
+  const cur = storeOf(S), off = cur && p.s && p.s !== cur;
+  return `<select class="row-store ${off ? 'miss' : ''}" data-o="store" title="${off ? `产品主表里这个 MSKU 属于「${esc(p.s)}」，这家店没有同 SKU 的产品` : '改这里 = 整张单换店铺'}">${storeOptions(cur, '—', p.c)}</select>${off ? '<div class="hint" style="color:var(--red)">主表无此店产品</div>' : ''}`;
+}
 function rowsHTML(S, err, list = S.rows) {
   const rows = grouped(list);
   return rows.map((r, i) => {
     const p = P(r), first = i === 0 || rows[i - 1].key !== r.key, last = i === rows.length - 1 || rows[i + 1].key !== r.key;
-    const info = first ? `<td>${esc(p.n)}</td><td>${p.c}</td><td class="store-cell">${esc(p.s)}</td><td class="mono">${p.a}</td><td class="mono auto">${esc(p.m)}</td><td class="mono auto">${esc(p.fn)}</td>`
+    const info = first ? `<td>${esc(p.n)}</td><td>${p.c}</td><td>${storeSel(S, p)}</td><td class="mono">${p.a}</td><td class="mono auto">${esc(p.m)}</td><td class="mono auto">${esc(p.fn)}</td>`
                        : `<td colspan="6" class="hint" style="padding-left:24px">↳ 同一 MSKU 另一种装箱</td>`;
     const pos = poBySku[p.sku] || [];
     return `<tr data-r="${r.id}" class="${first ? '' : 'cont'} ${last ? 'grp-end' : ''}">${info}
@@ -825,11 +831,12 @@ function renderPick() {
 // 按采购单导入：勾采购单 → 完成时把单上的产品（选定国家的 MSKU）全部加进明细，数量取剩余发货数（没有就取采购数量）
 const poQty = (it) => it.rem != null && it.rem > 0 ? it.rem : it.q;
 function poProds(it, store) { return store ? PRODS.filter((p) => p.sku === it.sku && p.s === store) : []; }
+const poStoreKey = (S) => S.rows.length ? P(S.rows[0]).s : '';
 function renderPoPick() {
   const S = stateOf(pick.scope), panel = document.querySelector(`[data-scope="${pick.scope}"] [data-pickpanel]`);
   if (!S || !panel) return;
   const keep = panel.querySelector('.pick-list')?.scrollTop || 0;
-  const locked = S.rows.length ? P(S.rows[0]).s : '', c = locked || pick.store || '', q = pick.q.trim().toLowerCase();
+  const locked = storeOf(S), c = (S.rows.length ? poStoreKey(S) : '') || pick.store || '', q = pick.q.trim().toLowerCase();
   const list = POS.filter((g) => !c || g.items.some((it) => poProds(it, c).length)).filter((g) => !q || g.po.toLowerCase().includes(q) || g.items.some((it) => [it.sku, it.name, ...PRODS.filter((p) => p.sku === it.sku).map((p) => p.n + ' ' + p.m + ' ' + (p.spu || ''))].some((x) => (x || '').toLowerCase().includes(q))));
   const html = list.map((g) => {
     const on = pick.poSel.has(g.po);
@@ -854,7 +861,7 @@ function renderPoPick() {
 }
 function applyPoImport(S) {
   const c = (S.rows.length ? P(S.rows[0]).s : '') || pick.store; let added = 0; const skipped = [], dup = [];
-  if (c) S.store = c;
+  if (c && !S.rows.length) S.store = c;
   for (const g of POS.filter((x) => pick.poSel.has(x.po))) for (const it of g.items) {
     const ps = poProds(it, c);
     if (!ps.length) { skipped.push(it.sku); continue; }
@@ -874,7 +881,8 @@ function applyPoImport(S) {
 }
 function applyPick(S) {
   const want = pick.pending;
-  for (const k of want) { if (PM[k]?.s) S.store = PM[k].s; break; }
+  if (!S.rows.length) S.store = '';
+  for (const k of want) { if (PM[k]?.s && !S.store) S.store = PM[k].s; break; }
   S.rows = S.rows.filter((r) => want.has(r.key));
   for (const p of PRODS) { const k = p.c + '|' + p.m; if (want.has(k) && !S.rows.some((r) => r.key === k)) S.rows.push(newRow(p)); }
 }
@@ -882,7 +890,6 @@ function applyPick(S) {
 function problems(o) {
   const e = [], c = countryOf(o.rows);
   if (!o.rows.length) e.push('还没选产品');
-  if (new Set(o.rows.map((r) => P(r).s)).size > 1) e.push('明细里有不同店铺的产品（一张指令只能一个店铺）');
   o.rows.forEach((r) => { if (!(tot(r) > 0)) e.push(`${P(r).m} 没填数量（填 每箱×箱数，或直接填总数）`); });
   if (!o.shipDate) e.push('没填发货日期');
   if (!o.ships[0].eta) e.push(o.split === '是' ? '至少填货件1的预计到达' : '没填预计到达');
@@ -1336,10 +1343,7 @@ main.addEventListener('change', (e) => {
   const scope = scopeOf(t), S = scope && stateOf(scope); if (!S) return;
   if (t.dataset.o === 'shipDate') { S.shipDate = t.value; render(); return; }
   if (t.dataset.o === 'store') {
-    if (S.rows.length && t.value && t.value !== P(S.rows[0]).s) {
-      const err = switchStore(S, t.value);
-      toast(err || `已换成「${t.value}」，明细里 ${S.rows.length} 行的 MSKU / FNSKU 已跟着换`, err ? 6000 : 3500); render(); return;
-    }
+    if (S.rows.length && t.value && t.value !== storeOf(S)) { toast(switchStore(S, t.value), 6000); render(); return; }
     if (S.rows.length && !t.value) { render(); return; }
     S.store = t.value; render(); return;
   }
