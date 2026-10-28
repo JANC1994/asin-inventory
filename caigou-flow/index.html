@@ -1071,18 +1071,21 @@ async function boot(again) {
     if (!SDK) { PROG['飞书开发包'] = '加载中…'; showProg(); const t = Date.now(); SDK = await loadSdk(); PROG['飞书开发包'] = `✔ ${((Date.now() - t) / 1000).toFixed(1)} 秒`; setupSave(); }
     if (!again) {
       ME = { ids: [], name: '', known: false };
-      // 认人和读表同时进行（某个认人接口不响应时不拖慢读表）
-      boot.who = Promise.all(['getUserId', 'getBaseUserId'].map((f) => withTimeout(SDK.bitable.bridge[f](), 4000, f).then((id) => { if (id && !ME.ids.includes(id)) ME.ids.push(id); }).catch(() => {})))
-        .then(() => { PROG['识别当前用户'] = ME.ids.length ? '✔' : '没认出（不影响看数据）'; if (READY.apply) { whoAmI(); renderTop(); } });
       if (loadCache()) afterLoad(false);   // 先用缓存把页面显示出来
     }
     if (again) { REFRESHING = true; READY.apply = READY.pm = READY.mgmt = false; }
-    const main = Promise.all(['apply', 'pm'].map(readTable));
+    // 启动顺序照能用的插件页（产品主表页）：开发包 → 逐张读表；认人放到页面显示之后（10-28：启动时并发认人+开表，飞书那边全部超时）
+    const main = (async () => { await readTable('apply'); await readTable('pm'); })();
+    await main;
     const mg = readTable('mgmt').then(() => { if (READY.apply && READY.pm) { renderTop(); if (VIEW === 'track') renderMain(); } })
       .catch((e) => { PROG[TABLES.mgmt.name] = '✘ ' + (e && e.message ? e.message : e); if (READY.apply) toast('采购进度（管理表）没读出来：' + (e && e.message ? e.message : e), 6000); });
-    await main;
     FROM_CACHE = false; clearInterval(slowTimer);
     afterLoad(again); REFRESHING = false;
+    if (!again && !ME.ids.length) {   // 页面出来后再认人，只问 getUserId；认不出不影响看数据
+      try { const id = await withTimeout(SDK.bitable.bridge.getUserId(), 5000, 'getUserId'); if (id) ME.ids.push(id); } catch (e) { /* 自检里看 */ }
+      PROG['识别当前用户'] = ME.ids.length ? '✔' : '没认出（不影响看数据）';
+      whoAmI(); renderTop();
+    }
     if (/[?&]debug\b/.test(location.search)) $('main').insertAdjacentHTML('afterbegin', `<div class="card"><h3>加载耗时</h3>${Object.entries(PROG).map(([k, v]) => `${esc(k)}：${esc(v)}`).join('<br>')}</div>` + await diagnose());
     await mg;
   } catch (e) {
