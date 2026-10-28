@@ -99,11 +99,17 @@
   .chip { border: 1px solid #d0d3d6; background: #fff; border-radius: 14px; padding: 3px 12px; cursor: pointer; font: inherit; font-size: 12px; }
   .chip.on { border-color: var(--blue); color: var(--blue); background: var(--blue-soft); }
   .order { padding: 0; overflow: hidden; }
-  .order-head { display: flex; gap: 10px 16px; align-items: center; flex-wrap: wrap; padding: 10px 14px; border-bottom: 1px solid var(--line); background: #fafbfc; }
-  .order-head .no { font-weight: 600; font-family: Consolas, monospace; font-size: 14px; }
-  .order-head .kv { font-size: 12px; color: var(--sub); } .order-head .kv b { color: var(--ink); font-weight: 500; }
+  .order-head { display: flex; gap: 10px 16px; align-items: center; flex-wrap: wrap; padding: 10px 14px; background: var(--blue); color: #fff; }
+  .order-head .no { font-weight: 700; font-family: Consolas, monospace; font-size: 15px; color: #fff; }
+  .order-head .kv { font-size: 12.5px; color: rgba(255,255,255,.82); } .order-head .kv b { color: #fff; font-weight: 600; }
+  .order-head .badge { box-shadow: 0 0 0 1px rgba(255,255,255,.6); }
+  .order-head .btn.ghost { border-color: #fff; }
+  .order-head .btn:not(.ghost):not(.red):not(.green) { background: #fff; color: var(--blue); font-weight: 600; }
+  .order-head .btn.green { box-shadow: 0 0 0 1px #fff; }
+  .card.order { border: 1px solid #b9cdfb; margin-bottom: 16px; }
+  .order.editing .order-head { background: #1d4fd8; }
   .order-head .acts { margin-left: auto; display: flex; gap: 6px; flex-wrap: wrap; }
-  .order .tbl th { background: #fff; }
+  .order .tbl th { background: #f0f5ff; color: #3b4a6b; }
   .order-foot { padding: 8px 14px; display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px; color: var(--sub); border-top: 1px solid var(--line); }
   .reason { margin: 0 14px 10px; padding: 8px 12px; border-radius: 6px; background: var(--red-soft); color: #c0322e; font-size: 12.5px; }
   .rejbox { display: flex; gap: 8px; padding: 10px 14px; background: #fff8f8; border-bottom: 1px solid var(--line); }
@@ -116,6 +122,17 @@
   .batch { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12.5px; }
   .batch input { width: 56px; text-align: right; }
   .order-head input[type=checkbox] { width: 16px; height: 16px; margin: 0; }
+  .modal { position: fixed; inset: 0; background: rgba(15,23,42,.45); z-index: 95; display: none; align-items: flex-start; justify-content: center; padding: 24px 12px; overflow: auto; }
+  .modal.show { display: flex; }
+  .modal-box { background: #fff; border-radius: 10px; width: min(980px, 100%); box-shadow: 0 12px 40px rgba(0,0,0,.25); }
+  .modal-box > h3 { margin: 0; padding: 14px 18px; border-bottom: 1px solid var(--line); font-size: 16px; }
+  .modal-body { padding: 12px 18px; max-height: 70vh; overflow: auto; }
+  .modal-foot { padding: 12px 18px; border-top: 1px solid var(--line); display: flex; gap: 10px; justify-content: flex-end; align-items: center; }
+  .cf-order { border: 1px solid #b9cdfb; border-radius: 8px; margin-bottom: 12px; overflow: hidden; }
+  .cf-order .cf-head { background: var(--blue); color: #fff; padding: 8px 12px; font-size: 13px; display: flex; gap: 14px; flex-wrap: wrap; }
+  .cf-order .cf-head b { font-family: Consolas, monospace; font-size: 14px; }
+  .chk { color: var(--red); font-weight: 700; background: var(--red-soft); border-radius: 4px; padding: 1px 6px; }
+  .cf-ships { padding: 6px 12px 10px; font-size: 12.5px; color: var(--sub); display: flex; gap: 14px; flex-wrap: wrap; }
   .ship { grid-template-columns: 60px 1fr; }
   .ship .sug { grid-column: 1 / -1; font-size: 12px; color: var(--sub); }
   .ship .sug b { color: var(--ink); }
@@ -168,6 +185,9 @@
   <div id="main"><div class="loading">正在读取多维表数据…</div></div>
 </div>
 <div class="toast" id="toast"></div>
+<div class="modal" id="modal"><div class="modal-box"><h3 id="mTitle"></h3><div class="modal-body" id="mBody"></div>
+  <div class="modal-foot"><span class="hint" style="margin-right:auto">红色的 FNSKU / SKU / 数量 请逐个核对，提交后由审核人建货件</span>
+  <button class="btn ghost" id="mNo">返回修改</button><button class="btn" id="mYes">确认无误，提交审核</button></div></div></div>
 <div class="busy" id="busy"><div class="card" id="busyMsg">处理中…</div></div>
 
 <script type="module">
@@ -340,7 +360,7 @@ const emptyShips = () => Array.from({ length: SHIP_SLOTS }, () => ({ no: '', ch:
 const blankForm = () => ({ rows: [], shipDate: '', split: '是', ships: emptyShips(), note: '' });
 function newRow(p, perBox) { return { id: ++rowSeq, key: p.c + '|' + p.m, c: p.c, m: p.m, a: p.a, n: p.n, fn: p.fn, sku: p.sku, s: p.s, perBox: perBox ?? (p.box || ''), boxes: '', po: '', note: '' }; }
 let F = blankForm(), E = null, editNo = null, showErr = null, pick = { scope: null, q: '' };
-let listFilter = { mine: true, st: '全部' }, rejecting = null, sel = new Set(), bulkRej = false, copying = null, batch = { n: 1, gap: 7 }, shipFilter = '全部';
+let listFilter = { mine: true, st: '全部' }, rejecting = null, sel = new Set(), bulkRej = false, copying = null, shipFilter = '全部';
 
 const P = (r) => PM[r.key] || { c: r.c, m: r.m, a: r.a, n: r.n, fn: r.fn, sku: r.sku, s: r.s, box: 0 };   // 主表里删了也能用明细里的快照
 const tot = (r) => (+r.perBox || 0) * (+r.boxes || 0);
@@ -373,7 +393,7 @@ function orderFields(S) {
   return {
     '国家': c || null, '发货日期': S.shipDate || null, '是否分仓': S.split, '合计箱数': s.boxes, '合计件数': s.qty,
     '摘要': grouped(S.rows).map((r) => `${P(r).n} ${P(r).m} ×${tot(r)}`).join('；').slice(0, 900),
-    '明细JSON': JSON.stringify(rows), '货件JSON': JSON.stringify(S.ships), '备注': S.note || null,
+    '明细JSON': JSON.stringify(rows), '货件JSON': JSON.stringify(S.ships.map(({ no, ch, eta }) => ({ no, ch, eta }))), '备注': S.note || null,
   };
 }
 async function createOrder(S, extra = {}) {
@@ -470,6 +490,30 @@ async function reload(silent) {
   finally { if (!silent) busy(''); }
 }
 
+// ================= 开船日 / 预计到达 默认值 =================
+// 下一开船日期：美国 = 今天之后最近的周三；加拿大 = 下一周（周一起）的周五
+function nextSail(c) {
+  const t = dn(TODAY), wd = new Date(t * DAY).getUTCDay();          // 0=周日
+  if (c === '加拿大') { const mon = (wd + 6) % 7; return ds(t + (7 - mon) + 4); }
+  return ds(t + (((3 - wd + 7) % 7) || 7));
+}
+// 预计到达默认 = 开船日 + 天数：分仓 5 个货件 30/30/35/45/55；不分仓 美国 35、加拿大 40
+const ETA_SPLIT = [30, 30, 35, 45, 55];
+function etaOffsets(S, c) { return S.split === '是' ? ETA_SPLIT : [c === '加拿大' ? 40 : 35]; }
+// 只填「空着的」或「还是上次自动填的」格子，手改过的不动
+function applyDefaults(S) {
+  const c = countryOf(S.rows); if (!c) return;
+  const a = S._auto || (S._auto = { ship: '', eta: [] });
+  const sail = nextSail(c);
+  if (!S.shipDate || S.shipDate === a.ship) { S.shipDate = sail; a.ship = sail; }
+  if (!S.shipDate) return;
+  const off = etaOffsets(S, c);
+  S.ships.forEach((s, i) => {
+    const def = i < off.length ? ds(dn(S.shipDate) + off[i]) : '';
+    if (!s.eta || s.eta === a.eta[i]) { s.eta = def; a.eta[i] = def; }
+  });
+}
+
 // ================= ⑦ 渲染 =================
 function render() {
   const n = (f) => ORDERS.filter(f).length, rev = isReviewer();
@@ -485,6 +529,7 @@ function render() {
 }
 
 function editorHTML(S, scope) {
+  applyDefaults(S);
   const c = countryOf(S.rows), err = showErr === scope;
   const chs = CHS.filter((x) => !c || !x.c || x.c === c);
   const n = S.split === '是' ? SHIP_SLOTS : 1;
@@ -501,7 +546,7 @@ function editorHTML(S, scope) {
     <tbody>${rowsHTML(S, err)}</tbody></table></div>` : '<div class="empty">先在上面选产品</div>'}
   <h4>③ 发货安排 <span class="hint">一票货同一天发；分仓的每个货件单独选渠道和预计到达，渠道可空；货件号留空，审核人建货件后回填</span></h4>
   <div class="grid">
-    <label class="f"><span>发货日期 <b>*</b></span><input type="date" data-o="shipDate" value="${S.shipDate}" class="${err && !S.shipDate ? 'miss' : ''}"></label>
+    <label class="f"><span>下一开船日期 <b>*</b> <span class="hint">美国=下个周三，加拿大=下周五；选产品后自动填，可改</span></span><input type="date" data-o="shipDate" value="${S.shipDate}" class="${err && !S.shipDate ? 'miss' : ''}"></label>
     <label class="f"><span>是否分仓</span><span class="seg">${['否', '是'].map((x) => `<button data-split="${x}" class="${S.split === x ? 'on' : ''}">${x}</button>`).join('')}</span></label>
   </div>
   <datalist id="ch-${scope}">${chs.map((x) => `<option value="${esc(x.n)}">${esc(x.t)} · 约${x.d || '?'}天</option>`).join('')}</datalist>
@@ -571,11 +616,8 @@ function renderNew() {
     <div><div class="hint">箱数</div><div class="n" data-sumboxes>${s.boxes}</div></div>
     <div><div class="hint">总数</div><div class="n" data-sumqty>${s.qty.toLocaleString()}</div></div>
     <div class="hint">提交人：<b>${esc(ME.name || '当前登录人')}</b>（自动）</div>
-    <div class="batch">分 <input type="number" min="1" max="20" data-batch="n" value="${batch.n}"> 批，每批间隔
-      <input type="number" min="1" max="90" data-batch="gap" value="${batch.gap}" ${batch.n > 1 ? '' : 'disabled'}> 天
-      ${batch.n > 1 ? `<span class="hint">→ 存成 ${batch.n} 张单，每张 ${s.qty.toLocaleString()} 件，合计 <b>${(s.qty * batch.n).toLocaleString()}</b> 件${F.shipDate ? `，发货日 ${Array.from({ length: Math.min(batch.n, 6) }, (_, k) => md(ds(dn(F.shipDate) + k * batch.gap))).join('、')}${batch.n > 6 ? '…' : ''}` : ''}</span>` : ''}</div>
     <div style="margin-left:auto;display:flex;gap:8px"><button class="btn ghost" data-act="clearNew">清空</button><button class="btn" data-act="saveNew">保存到指令列表</button></div></div>
-    <div class="hint" style="margin-top:6px">一批货要分几次发：先按「第一批」填好，选分几批 + 间隔天数，一次存成多张单（日期自动往后推，每张都能再单独改）。保存后在「指令列表」检查，勾选后可批量提交审核。</div>
+    <div class="hint" style="margin-top:6px">保存后在「指令列表」检查，再点「提交审核」。同一批货要分几次发：在指令列表里点那张单的「复制」，填复制几张、每张推后几天。</div>
     ${showErr === 'new' && errs.length ? `<div class="errs">还差：${errs.map(esc).join('；')}</div>` : ''}</div>`;
 }
 
@@ -654,7 +696,7 @@ function orderCard(o, mode) {
   const head = `<div class="order-head">${can ? `<input type="checkbox" data-sel ${sel.has(o.no) ? 'checked' : ''}>` : ''}<span class="no">${esc(o.no)}</span>${st}${dueBadge(S)}
       ${pl ? `<span class="badge b-blue" title="同一批货分批发">分批 ${pl.idx}/${pl.n} · 计划合计 ${pl.qty.toLocaleString()} 件</span>` : ''}
       <span class="kv">提交人 <b>${esc(o.by)}</b></span><span class="kv"><b>${c}</b></span>
-      <span class="kv">发货 <b>${md(S.shipDate)}</b></span><span class="kv">${S.split === '是' ? `分仓 <b>${usedShips(S).length}</b> 个货件` : `预计到达 <b>${md(S.ships[0].eta)}</b>`}</span>
+      <span class="kv">开船 <b>${md(S.shipDate)}</b></span><span class="kv">${S.split === '是' ? `分仓 <b>${usedShips(S).length}</b> 个货件` : `预计到达 <b>${md(S.ships[0].eta)}</b>`}</span>
       ${S.split === '是' ? '' : `<span class="kv">渠道 <b>${esc(chs.join(' / ') || '未定')}</b></span>`}
       <span class="kv">${s.msku} 个MSKU · <b data-sumboxes>${s.boxes}</b> 箱 · <b data-sumqty>${s.qty.toLocaleString()}</b> 件</span>
       <div class="acts">${acts}</div></div>
@@ -681,6 +723,26 @@ function orderCard(o, mode) {
     ${shipCards(o, (x) => [...new Set(o.rows.map((r) => r.planRec && planById[r.planRec]?.['货件' + (x.i + 1)]).filter(Boolean))].join(' / '))}
     <div class="order-foot">${o.editedAt ? `<span>最后修改 ${o.editedAt}</span>` : ''}${o.checkedAt ? `<span>审核通过 ${o.checkedAt}</span>` : ''}${mode === 'ship' ? `<span class="wrote">✓ 已写入发货计划 ${o.rows.filter((r) => r.planRec).length} 行</span>` : ''}${o.note ? `<span>备注：<span style="color:var(--ink)">${esc(o.note)}</span></span>` : ''}</div>
   </div>`;
+}
+
+// 提交前确认：把 FNSKU / SKU / 数量 标红让运营再核一遍
+function confirmSubmit(os) {
+  const body = os.map((o) => {
+    const s = sumOf(o.rows);
+    return `<div class="cf-order"><div class="cf-head"><b>${esc(o.no)}</b><span>${countryOf(o.rows)}</span><span>开船 ${md(o.shipDate)}</span><span>${o.split === '是' ? '分仓 ' + usedShips(o).length + ' 个货件' : '不分仓'}</span><span>${s.boxes} 箱 · ${s.qty.toLocaleString()} 件</span></div>
+      <div class="lines"><table class="tbl"><thead><tr><th>品名</th><th>MSKU</th><th>FNSKU</th><th>SKU</th><th>每箱 × 箱数</th><th>数量</th><th>采购单号</th></tr></thead><tbody>
+      ${grouped(o.rows).map((r) => { const p = P(r); return `<tr><td>${esc(p.n)}</td><td class="mono">${esc(p.m)}</td><td class="mono"><span class="chk">${esc(p.fn) || '空'}</span></td>
+        <td class="mono"><span class="chk">${esc(p.sku) || '空'}</span></td><td>${esc(r.perBox)} × ${esc(r.boxes)}</td><td><span class="chk">${tot(r).toLocaleString()}</span></td><td class="mono">${esc(r.po) || '—'}</td></tr>`; }).join('')}
+      </tbody></table></div>
+      <div class="cf-ships">${usedShips(o).map((x) => `<span>${o.split === '是' ? '货件' + (x.i + 1) : '货件'}：${esc(x.ch) || '渠道未定'} · ${md(x.eta)} 到</span>`).join('')}</div></div>`;
+  }).join('');
+  $('mTitle').textContent = os.length > 1 ? `确认提交 ${os.length} 张发货指令` : `确认提交 ${os[0].no}`;
+  $('mBody').innerHTML = body;
+  $('modal').classList.add('show');
+  return new Promise((res) => {
+    const done = (v) => { $('modal').classList.remove('show'); $('mYes').onclick = $('mNo').onclick = null; res(v); };
+    $('mYes').onclick = () => done(true); $('mNo').onclick = () => done(false);
+  });
 }
 
 // ================= ⑧ 交互 =================
@@ -711,15 +773,14 @@ main.addEventListener('click', (e) => {
   }
   if (a === 'saveNew') {
     if (!F.rows.length) { showErr = 'new'; render(); toast('先选产品'); return; }
-    const n = Math.max(1, Math.min(20, +batch.n || 1)), gap = +batch.gap || 7, src = clone(F);
+    const src = clone(F);
     return act('保存中', async () => {
       const first = await createOrder(src);
-      if (n > 1) { await setOrder({ rid: first.rid }, { '分批计划': first.no }); await makeCopies(src, n - 1, gap, first.no); }
-      F = blankForm(); batch = { n: 1, gap: 7 }; showErr = null; closePick(); view = 'list'; listFilter.st = '全部';
-      return n > 1 ? `已存成 ${n} 张分批单（${first.no} 起），检查后勾选批量提交审核` : `${first.no} 已保存到指令列表，检查后点「提交审核」`;
+      F = blankForm(); showErr = null; closePick(); view = 'list'; listFilter.st = '全部';
+      return `${first.no} 已保存到指令列表，检查后点「提交审核」`;
     });
   }
-  if (a === 'clearNew') { F = blankForm(); batch = { n: 1, gap: 7 }; showErr = null; closePick(); render(); toast('已清空'); return; }
+  if (a === 'clearNew') { F = blankForm(); showErr = null; closePick(); render(); toast('已清空'); return; }
   if (a === 'bulkClear') { sel.clear(); bulkRej = false; render(); return; }
   if (a === 'bulkRejOpen') { bulkRej = true; render(); $('bulkReason')?.focus(); return; }
   if (a === 'bulkRejCancel') { bulkRej = false; render(); return; }
@@ -736,7 +797,7 @@ main.addEventListener('click', (e) => {
   }
   if (a === 'submit') {
     if (problems(o).length) { startEdit(o, true); render(); toast('还没填全，已打开编辑，看红框'); return; }
-    return act('提交中', async () => { await fresh(o, ['草稿', '已驳回']); await setOrder(o, { '状态': '待审核' }); return `${o.no} 已提交，等${REVIEWER.name}审核`; });
+    return confirmSubmit([o]).then((ok) => ok && act('提交中', async () => { await fresh(o, ['草稿', '已驳回']); await setOrder(o, { '状态': '待审核' }); return `${o.no} 已提交，等${REVIEWER.name}审核`; }));
   }
   if (a === 'withdraw') return act('撤回中', async () => { await fresh(o, ['待审核']); await setOrder(o, { '状态': '草稿' }); return '已撤回为草稿'; });
   if (a === 'del') return act('删除中', async () => { await fresh(o, ['草稿', '已驳回']); await T('ord').deleteRecord(o.rid); return `${o.no} 已删除`; });
@@ -764,12 +825,21 @@ main.addEventListener('click', (e) => {
 
 function bulk(a) {
   const os = ORDERS.filter((o) => sel.has(o.no));
-  if (a === 'bulkSubmit') return act('批量提交中', async () => {
+  if (a === 'bulkSubmit') {
     const mine = os.filter((o) => isMine(o) && o.status !== '待审核'), bad = mine.filter((o) => problems(o).length), good = mine.filter((o) => !problems(o).length);
+    if (!good.length) { toast(`勾选的 ${bad.length} 张都没填全：${bad.map((o) => o.no).join('、')}`, 5000); return; }
+    return confirmSubmit(good).then((ok) => ok && bulkSubmit(good, bad));
+  }
+  return bulk2(a, os);
+}
+function bulkSubmit(good, bad) {
+  return act('批量提交中', async () => {
     for (const [i, o] of good.entries()) { busy(`提交 ${i + 1}/${good.length}…`); await fresh(o, ['草稿', '已驳回']); await setOrder(o, { '状态': '待审核' }); }
     sel = new Set(bad.map((o) => o.no));
     return `已提交 ${good.length} 张` + (bad.length ? `；${bad.length} 张没填全仍勾着：${bad.map((o) => o.no).join('、')}` : '');
   });
+}
+function bulk2(a, os) {
   if (a === 'bulkDel') return act('批量删除中', async () => {
     const del = os.filter((o) => isMine(o) && (o.status === '草稿' || o.status === '已驳回'));
     for (const o of del) await T('ord').deleteRecord(o.rid);
@@ -812,7 +882,6 @@ main.addEventListener('change', (e) => {
   const t = e.target;
   if (t.hasAttribute('data-sel')) { const no = t.closest('[data-no]').dataset.no; t.checked ? sel.add(no) : sel.delete(no); render(); return; }
   if (t.hasAttribute('data-selall')) { main.querySelectorAll('[data-sel]').forEach((x) => { const no = x.closest('[data-no]').dataset.no; t.checked ? sel.add(no) : sel.delete(no); }); render(); return; }
-  if (t.dataset.batch) { batch[t.dataset.batch] = Math.max(1, +t.value || 1); render(); return; }
   const scope = scopeOf(t), S = scope && stateOf(scope); if (!S) return;
   if (t.dataset.o === 'shipDate') { S.shipDate = t.value; render(); return; }
   if (t.closest('.ship') && t.dataset.k === 'ch') { render(); return; }
@@ -900,19 +969,24 @@ async function loadSdk() {
   throw new Error('飞书 SDK 三个来源都没加载上（也就没有「保存到页面」按钮），请截图：' + errs.join(' ｜ '));
 }
 
-try {
-  SDK = await loadSdk();
-  setupSave();
-  for (const f of ['getUserId', 'getBaseUserId']) { try { const id = await SDK.bitable.bridge[f](); if (id && !ME.ids.includes(id)) ME.ids.push(id); } catch (e) { /* 自检里看 */ } }
-  await Promise.all(Object.keys(TABLES).map(loadKey));
-  buildRef(); buildOrders();
-  if (isReviewer()) view = 'list';
-  render();
-} catch (e) {
-  const msg = esc(e && e.message ? e.message : e);
-  $('main').innerHTML = `<div class="card err">加载失败：${msg}</div>`;
-  if (SDK) { try { $('main').innerHTML = `<div class="card err">加载失败：${msg}</div>` + await selfCheck(true); } catch (e2) { /* 保留报错 */ } }
+// 启动（预览版换人时会再调一次：重新认人、重读表）
+async function boot() {
+  try {
+    if (!SDK) { SDK = await loadSdk(); setupSave(); }
+    ME = { ids: [], name: '', known: false }; sel.clear(); editNo = null; E = null; rejecting = null; copying = null; closePick();
+    for (const f of ['getUserId', 'getBaseUserId']) { try { const id = await SDK.bitable.bridge[f](); if (id && !ME.ids.includes(id)) ME.ids.push(id); } catch (e) { /* 自检里看 */ } }
+    await Promise.all(Object.keys(TABLES).map(loadKey));
+    buildRef(); buildOrders();
+    view = isReviewer() ? 'list' : 'new';
+    render();
+  } catch (e) {
+    const msg = esc(e && e.message ? e.message : e);
+    $('main').innerHTML = `<div class="card err">加载失败：${msg}</div>`;
+    if (SDK) { try { $('main').innerHTML = `<div class="card err">加载失败：${msg}</div>` + await selfCheck(true); } catch (e2) { /* 保留报错 */ } }
+  }
 }
+if (MOCK) window.__fahuoBoot = boot;
+await boot();
 </script>
 </body>
 </html>
