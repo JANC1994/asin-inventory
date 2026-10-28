@@ -122,6 +122,9 @@
   .batch { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12.5px; }
   .batch input { width: 56px; text-align: right; }
   .order-head input[type=checkbox] { width: 16px; height: 16px; margin: 0; }
+  .pick-panel { display: flex; flex-direction: column; overflow: hidden; }
+  .pick-list { overflow: auto; max-height: 300px; }
+  .pick-grp { position: sticky; top: 0; z-index: 1; background: #eef3ff; padding: 5px 12px; font-size: 12.5px; font-weight: 600; color: #2b3a5c; border-bottom: 1px solid #dbe5ff; }
   .pick-err { position: sticky; top: 0; z-index: 2; background: var(--red-soft); color: var(--red); font-weight: 600; padding: 8px 12px; border-bottom: 1px solid #f9b9b7; }
   .modal { position: fixed; inset: 0; background: rgba(15,23,42,.45); z-index: 95; display: none; align-items: flex-start; justify-content: center; padding: 24px 12px; overflow: auto; }
   .modal.show { display: flex; }
@@ -320,7 +323,8 @@ function buildRef() {
     if (!r['ASIN'] || !m || !c) continue;
     PM[c + '|' + m] ||= { c, m, a: r['ASIN'], n: r['品名'] || '', s: r['店铺'] || '', fn: r['FNSKU'] || '', sku: r['领星SKU'] || '', box: num(r['单箱数量']), spu: r['SPU'] || '' };
   }
-  PRODS = Object.values(PM).sort((a, b) => (a.c + a.n).localeCompare(b.c + b.n, 'zh'));
+  const cRank = (c) => c === '美国' ? 0 : c === '加拿大' ? 1 : 2;
+  PRODS = Object.values(PM).sort((a, b) => cRank(a.c) - cRank(b.c) || (!a.spu) - (!b.spu) || (a.spu || '').localeCompare(b.spu || '', 'zh') || a.n.localeCompare(b.n, 'zh'));
   poBySku = {}; poRec = {};
   for (const r of DATA.po || []) {
     if (!r['SKU'] || !r['采购合同']) continue;
@@ -588,18 +592,35 @@ function rowsHTML(S, err) {
   }).join('');
 }
 
+// 下拉里的勾选只改 pick.pending，不动页面；点「完成」才把勾选结果加进明细
+const pendCountry = () => { for (const k of pick.pending || []) return PM[k]?.c || ''; return ''; };
 function renderPick() {
   const S = stateOf(pick.scope), panel = document.querySelector(`[data-scope="${pick.scope}"] [data-pickpanel]`);
   if (!S || !panel) return;
-  const c = countryOf(S.rows), q = pick.q.trim().toLowerCase(), chosen = new Set(S.rows.map((r) => r.key));
+  const keep = panel.querySelector('.pick-list')?.scrollTop || 0;
+  const c = pendCountry(), q = pick.q.trim().toLowerCase(), chosen = pick.pending;
   const list = PRODS.filter((p) => !q || [p.n, p.a, p.m, p.spu, p.sku].some((x) => (x || '').toLowerCase().includes(q)));
-  panel.innerHTML = (pick.err ? `<div class="pick-err">✘ ${esc(pick.err)}</div>` : '') + (list.slice(0, 120).map((p) => {
+  let html = '', grp = null;
+  const cnt = {}; list.forEach((p) => { const g = p.c + '·' + (p.spu || '未填SPU'); cnt[g] = (cnt[g] || 0) + 1; });
+  for (const p of list) {
+    const g = p.c + '·' + (p.spu || '未填SPU');
+    if (g !== grp) { grp = g; html += `<div class="pick-grp"><span class="badge ${p.c === '美国' ? 'b-blue' : 'b-green'}">${p.c}</span> ${esc(p.spu || '未填SPU')} <span class="hint">${cnt[g]}</span></div>`; }
     const k = p.c + '|' + p.m, dis = c && p.c !== c;
-    return `<div class="pick-item ${dis ? 'dis' : ''}" data-key="${esc(k)}"><input type="checkbox" ${chosen.has(k) ? 'checked' : ''} ${dis ? 'disabled' : ''}>
+    html += `<div class="pick-item ${dis ? 'dis' : ''}" data-key="${esc(k)}"><input type="checkbox" ${chosen.has(k) ? 'checked' : ''} ${dis ? 'disabled' : ''}>
       <div><div class="nm">${esc(p.n)}</div><div class="sub">${p.a} · ${esc(p.m)} · ${esc(p.s)}</div></div>
-      <span class="badge ${p.c === '美国' ? 'b-blue' : 'b-green'}">${p.c}</span></div>`; }).join('') || '<div class="empty" style="margin:10px">没有匹配的产品</div>') +
-    `<div class="pick-foot"><span class="hint">${list.length > 120 ? `共 ${list.length} 个，只显示前 120，请输入关键词` : `共 ${list.length} 个`}${c ? ` · 已锁定 ${c}，其他国家灰掉` : ''}</span>
-     <button class="btn sm" data-pickdone>完成</button></div>`;
+      <span class="badge ${p.c === '美国' ? 'b-blue' : 'b-green'}">${p.c}</span></div>`;
+  }
+  const add = [...chosen].filter((k) => !S.rows.some((r) => r.key === k)).length, del = new Set(S.rows.filter((r) => !chosen.has(r.key)).map((r) => r.key)).size;
+  panel.innerHTML = (pick.err ? `<div class="pick-err">✘ ${esc(pick.err)}</div>` : '') +
+    `<div class="pick-list">${html || '<div class="empty" style="margin:10px">没有匹配的产品</div>'}</div>` +
+    `<div class="pick-foot"><span class="hint">共 ${list.length} 个 · 已勾 <b>${chosen.size}</b>${add || del ? `（点完成：新增 ${add}${del ? `，移除 ${del}` : ''}）` : ''}${c ? ` · 已锁定 ${c}` : ''}</span>
+     <span style="display:flex;gap:6px"><button class="btn sm ghost" data-pickcancel>取消</button><button class="btn sm" data-pickdone>完成</button></span></div>`;
+  const pl = panel.querySelector('.pick-list'); if (pl) pl.scrollTop = keep;
+}
+function applyPick(S) {
+  const want = pick.pending;
+  S.rows = S.rows.filter((r) => want.has(r.key));
+  for (const p of PRODS) { const k = p.c + '|' + p.m; if (want.has(k) && !S.rows.some((r) => r.key === k)) S.rows.push(newRow(p)); }
 }
 
 function problems(o) {
@@ -765,16 +786,17 @@ main.addEventListener('click', (e) => {
   const t = e.target, a = t.dataset.act, scope = scopeOf(t), S = scope && stateOf(scope);
   if (t.dataset.sf) { shipFilter = t.dataset.sf; render(); return; }
   if (S) {
-    if (t.closest('[data-pickbox]')) { if (pick.scope !== scope) { pick = { scope, q: '' }; render(); main.querySelector(`[data-scope="${scope}"] [data-pickq]`)?.focus(); } return; }
+    if (t.closest('[data-pickbox]')) { if (pick.scope !== scope) { pick = { scope, q: '', err: '', pending: new Set(S.rows.map((r) => r.key)) }; render(); main.querySelector(`[data-scope="${scope}"] [data-pickq]`)?.focus(); } return; }
     const it = t.closest('.pick-item');
     if (it) {
-      if (it.classList.contains('dis')) { pick.err = `美国和加拿大的产品不能建在同一张指令里：已选的是${countryOf(S.rows)}产品，${PM[it.dataset.key]?.c || ''}产品请另建一张`; renderPick(); toast(pick.err, 4000); return; }
+      if (it.classList.contains('dis')) { pick.err = `美国和加拿大的产品不能建在同一张指令里：已勾的是${pendCountry()}产品，${PM[it.dataset.key]?.c || ''}产品请另建一张`; renderPick(); toast(pick.err, 4000); return; }
       pick.err = '';
       const k = it.dataset.key;
-      if (S.rows.some((r) => r.key === k)) S.rows = S.rows.filter((r) => r.key !== k); else S.rows.push(newRow(PM[k]));
-      render(); return;
+      pick.pending.has(k) ? pick.pending.delete(k) : pick.pending.add(k);
+      renderPick(); return;
     }
-    if (t.closest('[data-pickdone]')) { closePick(); render(); return; }
+    if (t.closest('[data-pickdone]')) { applyPick(S); closePick(); render(); return; }
+    if (t.closest('[data-pickcancel]')) { closePick(); render(); return; }
     if (t.dataset.split) { S.split = t.dataset.split; if (S._auto) S._auto.split = null; render(); return; }
     if (t.dataset.sug) { S.ships[+t.closest('.ship').dataset.i].eta = t.dataset.sug; render(); return; }
     const row = S.rows.find((r) => r.id === +t.closest('tr')?.dataset.r);
@@ -873,7 +895,7 @@ function bulk2(a, os) {
 
 main.addEventListener('input', (e) => {
   const t = e.target, scope = scopeOf(t), S = scope && stateOf(scope); if (!S) return;
-  if (t.hasAttribute('data-pickq')) { pick = { scope, q: t.value }; renderPick(); return; }
+  if (t.hasAttribute('data-pickq')) { if (pick.scope !== scope) pick = { scope, q: '', err: '', pending: new Set(S.rows.map((r) => r.key)) }; pick.q = t.value; renderPick(); return; }
   if (t.dataset.o === 'note') { S.note = t.value; return; }
   const tr = t.closest('tr[data-r]');
   if (tr && t.dataset.k) {
