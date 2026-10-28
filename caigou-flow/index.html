@@ -398,7 +398,7 @@ const BUYERS = () => {
 
 // ===== ⑤ 状态 =====
 let VIEW = lsGet('caigou_view', 'apply');
-const F = { colors: new Set(), colorSpu: '', line: lsGet('caigou_line', 'four'), store: '', q: '', spu: '__all', approve: 'todo', track: 'open', person: '' };
+const F = { fill: {}, colors: new Set(), colorSpu: '', line: lsGet('caigou_line', 'four'), store: '', q: '', spu: '__all', approve: 'todo', track: 'open', person: '' };
 let DRAFT = lsGet('caigou_draft_v1', {});        // rid → {qty, 收货地, 是否开票, 可开发票类型, 有无运费, SKU备注_采购}（只存本浏览器）
 let BATCH_NOTE = lsGet('caigou_note_v1', '');
 const saveDraft = () => { lsSet('caigou_draft_v1', DRAFT); lsSet('caigou_note_v1', BATCH_NOTE); };
@@ -469,7 +469,7 @@ const draftVal = (r, k) => {
   if (OLD_MAP[k] && OLD_MAP[k][v]) v = OLD_MAP[k][v];
   return k === 'SKU仓库_采购' && !v ? DEFAULT_WH : v;
 };
-const optSel = (opts, cur) => uniq(['', ...opts, cur]).map((v) => `<option value="${esc(v)}" ${v === cur ? 'selected' : ''}>${v && !opts.includes(v) ? '原：' + esc(v) : esc(v)}</option>`).join('');
+const optSel = (opts, cur) => ['', ...uniq([...opts, cur])].map((v) => `<option value="${esc(v)}" ${v === cur ? 'selected' : ''}>${v && !opts.includes(v) ? '原：' + esc(v) : esc(v)}</option>`).join('');
 const picked = () => (DATA.apply || []).filter((r) => !locked(r) && n0(draftOf(r)?.qty) > 0);
 
 function batchLabel(key) {
@@ -653,9 +653,9 @@ function renderApply() {
       <td>${inp('SKU备注_采购', '', 'style="width:96px" placeholder="给采购的备注"')}</td></tr>`;
   };
   const fill = `<div class="fillbar">给本页已填数量的行统一填：
-    仓库 <select id="fa0" style="width:150px"><option></option>${whOpts('').replace(/ selected/g, '')}</select>
-    收货地 <select id="fa1">${optSel(ADDR_OPTS, '')}</select> 是否开票 <select id="fa2"><option></option><option>是</option><option>否</option></select>
-    发票类型 <select id="fa3">${optSel(INV_OPTS, '')}</select> 运费 <input id="fa4" list="dlFee">
+    仓库 <select class="fa" data-f="SKU仓库_采购" style="width:150px">${optSel(uniq([DEFAULT_WH, ...whNames]), F.fill['SKU仓库_采购'] || '')}</select>
+    收货地 <select class="fa" data-f="收货地">${optSel(ADDR_OPTS, F.fill['收货地'] || '')}</select> 是否开票 <select class="fa" data-f="是否开票">${optSel(['是', '否'], F.fill['是否开票'] || '')}</select>
+    发票类型 <select class="fa" data-f="可开发票类型">${optSel(INV_OPTS, F.fill['可开发票类型'] || '')}</select> 运费 <input class="fa" data-f="有无运费" list="dlFee" value="${esc(F.fill['有无运费'] || '')}">
     <button class="btn" id="faGo" title="只填到本页已填数量的行">填入已填数量的行</button><button class="btn pri" id="faAll" title="本页所有可申请的行（审批中的除外）">全部应用</button>
     ${colorBar}<span style="margin-left:auto">收货地 = 货去哪（晋江/直发/泉州…）</span></div>`;
   $('main').innerHTML = `${lists}<div class="split">${side}<div>
@@ -676,16 +676,18 @@ function renderApply() {
       d[k] = k === 'qty' ? (el.value === '' ? '' : Math.max(0, Math.round(n0(el.value)))) : el.value;
       if (!n0(d.qty) && WRITE_FIELDS.every((f) => d[f] == null || d[f] === (r[f] ?? ''))) delete DRAFT[rid];
       saveDraft();
-      if (e.type === 'change') { const sc = $('main').scrollTop; renderApply(); $('main').scrollTop = sc; renderTop(); }
-      else {
+      // 不整块重画（会把正在点的下拉框换掉，选的值丢失——10-28 统一填 bug）；只更新本行 + 顶部合计/页签
+      {
+        if (el.tagName === 'SELECT') el.classList.toggle('warn', k === '收货地' && !el.value && !!n0(DRAFT[rid]?.qty));
         el.closest('tr').classList.toggle('picked', k === 'qty' ? n0(el.value) > 0 : el.closest('tr').classList.contains('picked'));
         const bq = k === 'qty' && el.parentNode.querySelector('.boxq'); if (bq) bq.innerHTML = boxText(el.value, +bq.dataset.box);
-        renderCart();
+        if (e.type === 'change') renderTop(); else renderCart();
       }
     };
   });
+  $('main').querySelectorAll('.fa').forEach((el) => { el.onchange = el.oninput = () => { F.fill[el.dataset.f] = el.value; }; });
   const fillRows = (all) => {
-    const v = { 'SKU仓库_采购': $('fa0').value, '收货地': $('fa1').value, '是否开票': $('fa2').value, '可开发票类型': $('fa3').value, '有无运费': $('fa4').value };
+    const v = { ...F.fill };
     if (!Object.values(v).some(Boolean)) { toast('先在左边选/填要统一的值'); return; }
     const tgt = shown.filter((r) => !locked(r) && (all || n0(draftOf(r)?.qty) > 0));
     if (!tgt.length) { toast(all ? '本页没有可申请的行' : '本页还没有填数量的行，可以点「全部应用」'); return; }
