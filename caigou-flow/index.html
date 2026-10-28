@@ -90,6 +90,9 @@
   .tbl select.t { width: 64px; }
   .tbl select.store { width: 112px; }
   .tbl select.wh { width: 150px; }
+  .tbl select.addr { width: 108px; }
+  .tbl select.inv { width: 80px; }
+  .tbl select.warn { border-color: #ffb54d; background: #fffaf0; }
   .colors { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-left: 10px; padding-left: 10px; border-left: 1px solid #d0d3d6; }
   .colors button { border: 1px solid #d0d3d6; background: #fff; border-radius: 12px; padding: 1px 10px; cursor: pointer; font: inherit; font-size: 12px; color: var(--ink); }
   .colors button.on { background: var(--blue); border-color: var(--blue); color: #fff; }
@@ -457,7 +460,16 @@ function skuCmp(a, b) {
   return String(a['父ASIN/SKU']).localeCompare(String(b['父ASIN/SKU']));
 }
 const draftOf = (r) => DRAFT[r._id] || null;
-const draftVal = (r, k) => { const d = draftOf(r); const v = d && d[k] != null ? d[k] : (r[k] ?? ''); return k === 'SKU仓库_采购' && !v ? DEFAULT_WH : v; };
+// 收货地 / 发票类型只给固定选项（用户 10-28 定）；表里的旧写法按下表折算，其余旧值显示「原：…」保留
+const ADDR_OPTS = ['晋江', '直发海外', '转第三方组装'];
+const INV_OPTS = ['专票', '普票', '不开票', '需确认'];
+const OLD_MAP = { '收货地': { '直发': '直发海外', '发宁波明亮家组装': '转第三方组装' }, '可开发票类型': { '开专票': '专票' } };
+const draftVal = (r, k) => {
+  const d = draftOf(r); let v = d && d[k] != null ? d[k] : (r[k] ?? '');
+  if (OLD_MAP[k] && OLD_MAP[k][v]) v = OLD_MAP[k][v];
+  return k === 'SKU仓库_采购' && !v ? DEFAULT_WH : v;
+};
+const optSel = (opts, cur) => uniq(['', ...opts, cur]).map((v) => `<option value="${esc(v)}" ${v === cur ? 'selected' : ''}>${v && !opts.includes(v) ? '原：' + esc(v) : esc(v)}</option>`).join('');
 const picked = () => (DATA.apply || []).filter((r) => !locked(r) && n0(draftOf(r)?.qty) > 0);
 
 function batchLabel(key) {
@@ -634,16 +646,17 @@ function renderApply() {
       <td>${lk ? `${stateBadge(st(r))}<div class="hint">${fmtN(r['实际采购量'])} 件 · ${esc(batchLabel(r['批次标识_采购']).when)}</div>`
         : `<div class="qwrap"><input class="qty" type="number" min="0" step="1" data-r="${r._id}" data-k="qty" value="${esc(d?.qty ?? '')}" placeholder="0">${r._box ? `<span class="boxq" data-box="${r._box}">${boxText(d?.qty, r._box)}</span>` : ''}</div>${last}`}</td>
       <td><select class="wh" data-r="${r._id}" data-k="SKU仓库_采购" ${lk ? 'disabled' : ''} title="领星采购仓库，默认 ${DEFAULT_WH}">${whOpts(draftVal(r, 'SKU仓库_采购'))}</select></td>
-      <td>${inp('收货地', on && !draftVal(r, '收货地') ? 'warn' : '', 'list="dlAddr"')}</td>
+      <td><select class="t addr ${on && !draftVal(r, '收货地') ? 'warn' : ''}" data-r="${r._id}" data-k="收货地" ${lk ? 'disabled' : ''}>${optSel(ADDR_OPTS, draftVal(r, '收货地'))}</select></td>
       <td><select class="t" data-r="${r._id}" data-k="是否开票" ${lk ? 'disabled' : ''}>${['', '是', '否'].map((v) => `<option ${draftVal(r, '是否开票') === v ? 'selected' : ''}>${v}</option>`).join('')}</select></td>
-      <td>${inp('可开发票类型', '', 'list="dlInv"')}</td>
+      <td><select class="t inv" data-r="${r._id}" data-k="可开发票类型" ${lk ? 'disabled' : ''}>${optSel(INV_OPTS, draftVal(r, '可开发票类型'))}</select></td>
       <td>${inp('有无运费', '', 'list="dlFee"')}</td>
       <td>${inp('SKU备注_采购', '', 'style="width:96px" placeholder="给采购的备注"')}</td></tr>`;
   };
   const fill = `<div class="fillbar">给本页已填数量的行统一填：
     仓库 <select id="fa0" style="width:150px"><option></option>${whOpts('').replace(/ selected/g, '')}</select>
-    收货地 <input id="fa1" list="dlAddr"> 是否开票 <select id="fa2"><option></option><option>是</option><option>否</option></select>
-    发票类型 <input id="fa3" list="dlInv"> 运费 <input id="fa4" list="dlFee"> <button class="btn" id="faGo">填入</button>
+    收货地 <select id="fa1">${optSel(ADDR_OPTS, '')}</select> 是否开票 <select id="fa2"><option></option><option>是</option><option>否</option></select>
+    发票类型 <select id="fa3">${optSel(INV_OPTS, '')}</select> 运费 <input id="fa4" list="dlFee">
+    <button class="btn" id="faGo" title="只填到本页已填数量的行">填入已填数量的行</button><button class="btn pri" id="faAll" title="本页所有可申请的行（审批中的除外）">全部应用</button>
     ${colorBar}<span style="margin-left:auto">收货地 = 货去哪（晋江/直发/泉州…）</span></div>`;
   $('main').innerHTML = `${lists}<div class="split">${side}<div>
     <div class="card" style="padding:12px 14px">
@@ -671,13 +684,16 @@ function renderApply() {
       }
     };
   });
-  $('faGo').onclick = () => {
+  const fillRows = (all) => {
     const v = { 'SKU仓库_采购': $('fa0').value, '收货地': $('fa1').value, '是否开票': $('fa2').value, '可开发票类型': $('fa3').value, '有无运费': $('fa4').value };
-    const tgt = shown.filter((r) => !locked(r) && n0(draftOf(r)?.qty) > 0);
-    if (!tgt.length) { toast('本页还没有填数量的行'); return; }
-    for (const r of tgt) for (const [k, x] of Object.entries(v)) if (x) DRAFT[r._id][k] = x;
-    saveDraft(); renderApply(); toast(`已填入 ${tgt.length} 行`);
+    if (!Object.values(v).some(Boolean)) { toast('先在左边选/填要统一的值'); return; }
+    const tgt = shown.filter((r) => !locked(r) && (all || n0(draftOf(r)?.qty) > 0));
+    if (!tgt.length) { toast(all ? '本页没有可申请的行' : '本页还没有填数量的行，可以点「全部应用」'); return; }
+    for (const r of tgt) { const d = DRAFT[r._id] || (DRAFT[r._id] = {}); for (const [k, x] of Object.entries(v)) if (x) d[k] = x; }
+    const sc = $('main').scrollTop; saveDraft(); renderApply(); $('main').scrollTop = sc; toast(`已应用到 ${tgt.length} 行`);
   };
+  $('faGo').onclick = () => fillRows(false);
+  $('faAll').onclick = () => fillRows(true);
   loadImages();
 }
 
