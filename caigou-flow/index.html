@@ -262,28 +262,62 @@ let SDK = null;
 const META = {};   // key → { 字段名: {id, type, options:[{id,name}]} }
 const TBL = {};
 const DATA = {};
+// 每一步都带超时：飞书某个接口不响应时页面不会永远转圈，而是告诉你卡在哪一步
+const withTimeout = (pr, ms, what) => Promise.race([pr, new Promise((_, rej) => setTimeout(() => rej(new Error(`${what} 超过 ${ms / 1000} 秒没响应`)), ms))]);
+const PROG = {};   // key → 进度文字（加载界面显示）
+let REFRESHING = false;   // 「刷新数据」/自动化触发后的重读：不盖掉当前页面
+function showProg() {
+  if (READY.apply || REFRESHING) return;
+  const t = ((Date.now() - T0) / 1000).toFixed(1);
+  $('main').innerHTML = `<div class="card"><h3>正在读取多维表数据… <small>${t} 秒</small></h3><table class="tbl"><tbody>${Object.entries(PROG).map(([k, v]) =>
+    `<tr><td style="width:180px">${esc(k)}</td><td>${esc(v)}</td></tr>`).join('')}</tbody></table>
+    ${Date.now() - T0 > 20000 ? '<div class="warnbox" style="margin-top:10px">超过 20 秒了，请把这块截图发回；下面在跑接口诊断…</div><div id="slowDiag"></div>' : ''}</div>`;
+}
+const T0 = Date.now();
+const READY = {};
 async function readTable(key) {
   const cfg = TABLES[key];
-  if (SNAP) { META[key] = SNAP.tables[key].meta; DATA[key] = SNAP.tables[key].rows.map((r) => ({ ...r })); return; }
-  const table = await SDK.bitable.base.getTableById(cfg.id);
+  if (SNAP) { META[key] = SNAP.tables[key].meta; DATA[key] = SNAP.tables[key].rows.map((r) => ({ ...r })); READY[key] = true; return; }
+  const tag = cfg.name, t1 = Date.now();
+  PROG[tag] = '打开表…'; showProg();
+  const table = await withTimeout(SDK.bitable.base.getTableById(cfg.id), 15000, `打开「${tag}」`);
   TBL[key] = table;
-  const fm = await table.getFieldMetaList();
+  PROG[tag] = '读字段…'; showProg();
+  const fm = await withTimeout(table.getFieldMetaList(), 15000, `读「${tag}」字段`);
   META[key] = Object.fromEntries(fm.map((f) => [f.name, { id: f.id, type: f.type, options: (f.property && f.property.options) || [] }]));
   const missing = cfg.fields.filter((w) => !META[key][w] && w !== '页面操作');
   if (missing.length) console.warn(`表 ${cfg.name} 缺字段：`, missing);
   const rows = [];
   let pageToken;
   for (let guard = 0; guard < 200; guard++) {
-    const res = await table.getRecordsByPage({ pageSize: 200, pageToken });
+    const res = await withTimeout(table.getRecordsByPage({ pageSize: 200, pageToken }), 20000, `读「${tag}」第 ${guard + 1} 页`);
     for (const r of res.records) {
       const o = { _id: r.recordId };
       for (const w of cfg.fields) { const m = META[key][w]; if (m) o[w] = norm(r.fields[m.id], m.type); }
       rows.push(o);
     }
+    PROG[tag] = `已读 ${rows.length} 行…`; showProg();
     if (!res.hasMore) break;
     pageToken = res.pageToken;
   }
-  DATA[key] = rows;
+  DATA[key] = rows; READY[key] = true;
+  PROG[tag] = `✔ ${rows.length} 行，${((Date.now() - t1) / 1000).toFixed(1)} 秒`; showProg();
+  saveCache();
+}
+// 本机缓存：下次打开先显示上次的数据（顶部标「缓存」），后台读完再刷新；缓存期间不能提交/审批
+const CACHE_KEY = 'caigou_cache_v1';
+let FROM_CACHE = false;
+function saveCache() {
+  if (SNAP || !READY.apply || !READY.pm) return;
+  try {
+    const slim = (rows) => rows.map(({ _imgData, ...r }) => r);
+    LS && LS.setItem(CACHE_KEY, JSON.stringify({ at: Date.now(), META, DATA: { apply: slim(DATA.apply), pm: DATA.pm, mgmt: READY.mgmt ? DATA.mgmt : (lsGet(CACHE_KEY, {}).DATA || {}).mgmt || [] } }));
+  } catch (e) { /* 存不下就算了 */ }
+}
+function loadCache() {
+  const c = lsGet(CACHE_KEY, null);
+  if (!c || !c.DATA || !c.DATA.apply || Date.now() - c.at > 7 * DAY) return false;
+  Object.assign(META, c.META); Object.assign(DATA, c.DATA); FROM_CACHE = c.at; return true;
 }
 // 页面值 → 写入值（按字段类型）
 function enc(key, name, v) {
@@ -302,6 +336,8 @@ function enc(key, name, v) {
 // updates: [{id, f:{字段名: 页面值}}]
 async function write(key, updates) {
   if (!updates.length) return;
+  if (FROM_CACHE) throw new Error('页面还在读最新数据（现在显示的是缓存），等顶部黄条消失再操作');
+  if (!SNAP && !TBL[key]) throw new Error('表还没读完，稍等几秒再操作');
   if (!SNAP) {
     const recs = updates.map((u) => ({ recordId: u.id, fields: Object.fromEntries(Object.entries(u.f).map(([k, v]) => [META[key][k].id, enc(key, k, v)])) }));
     const tb = TBL[key];
@@ -474,7 +510,7 @@ function renderTop() {
   $('meta').textContent = `申请表 ${(DATA.apply || []).length} 行 · 管理表 ${(DATA.mgmt || []).length} 行${SNAP ? ` · 快照 ${SNAP.at}` : ''}`;
   const role = [isMe(OPS_LEAD) || bs.some((b) => isMe(b.ops)) ? '运营主管' : '', isMe(BUY_LEAD) || bs.some((b) => isMe(b.buy)) ? '采购主管' : ''].filter(Boolean).join(' / ');
   $('who').innerHTML = `${SNAP ? simSwitch() : ''}<span class="avatar">${esc((ME.name || '?').slice(-2))}</span><span>${esc(ME.name || '未识别（提交一次后自动识别）')}</span>${role ? `<span class="badge b-blue">${role}</span>` : ''}<button class="link" id="reload">刷新数据</button>`;
-  $('reload').onclick = () => boot(true);
+  $('reload').onclick = () => { $('reload').textContent = '刷新中…'; boot(true); };
   const sw = $('simAs'); if (sw) sw.onchange = () => { ME = { ids: [sw.value], name: '', known: false }; whoAmI(); render(); };
 
   let f = '';
@@ -868,6 +904,7 @@ function simulate(kind, rows) {
 
 // ===== ⑨ ③ 采购进度 =====
 function renderTrack() {
+  if (!READY.mgmt && !(DATA.mgmt || []).length) { $('main').innerHTML = `<div class="card loading">采购计划管理表还在读… ${esc(PROG[TABLES.mgmt.name] || '')}</div>`; return; }
   const tb = trackBatches();
   const rowsAll = tb.flatMap((b) => b.rows);
   const k = { open: tb.filter((b) => !b.done).length, late: tb.filter((b) => b.late > 0).length, wait: rowsAll.filter((r) => progressOf(r) === '待下单').length,
@@ -995,7 +1032,7 @@ function simSwitch() {
 async function loadSdk() {
   const errs = [];
   for (const u of SDK_URLS) {
-    try { return await Promise.race([import(u), new Promise((_, rej) => setTimeout(() => rej(new Error('超时 12s')), 12000))]); }
+    try { return await Promise.race([import(u), new Promise((_, rej) => setTimeout(() => rej(new Error('超时 10s')), 10000))]); }
     catch (e) { errs.push(`${u} → ${e && e.message ? e.message : e}`); }
   }
   throw new Error('飞书 SDK 三个来源都没加载上（也就没有「保存到页面」按钮），请截图：' + errs.join(' ｜ '));
@@ -1007,26 +1044,55 @@ async function boot(again) {
     if (SNAP) {
       $('simTip').style.display = ''; $('simTip').textContent = `效果预览（${SNAP.at} 快照）：所有按钮都能点，写入只改这个网页的内存，并模拟自动化的效果；刷新网页恢复原样。`;
       if (!again) ME = { ids: ['ou_0eeed8196cfa61af28778d44cb29d9cd'], name: '', known: false };
-    } else {
-      if (!SDK) { SDK = await loadSdk(); setupSave(); }
-      if (!again) { ME = { ids: [], name: '', known: false }; for (const f of ['getUserId', 'getBaseUserId']) { try { const id = await SDK.bitable.bridge[f](); if (id && !ME.ids.includes(id)) ME.ids.push(id); } catch (e) { /* 诊断里看 */ } } }
+      if (!again) await Promise.all(Object.keys(TABLES).map(readTable));
+      afterLoad(again); return;
     }
-    if (!(again && SNAP)) await Promise.all(Object.keys(TABLES).map(readTable));
-    buildPm(); whoAmI();
-    if (!['four', 'season', 'shoe', 'other'].includes(F.line)) F.line = 'four';
-    if (!again && VIEW !== 'apply' && VIEW !== 'track' && VIEW !== 'approve') VIEW = 'apply';
-    if (!again && batches().some((b) => PENDING.includes(b.status) && myTurn(b))) { VIEW = 'approve'; F.approve = 'todo'; }
-    // 草稿里已不存在/已锁定的行清掉
+    const slowTimer = setInterval(async () => {
+      if (READY.apply && READY.pm) { clearInterval(slowTimer); return; }
+      showProg();
+      if (Date.now() - T0 > 20000 && SDK && !boot.diagOnce) { boot.diagOnce = true; try { const d = await diagnose(); const el = document.getElementById('slowDiag'); if (el) el.innerHTML = d; boot.diagHtml = d; } catch (e) { /* 留着进度表 */ } }
+    }, 1000);
+    if (!SDK) { PROG['飞书开发包'] = '加载中…'; showProg(); const t = Date.now(); SDK = await loadSdk(); PROG['飞书开发包'] = `✔ ${((Date.now() - t) / 1000).toFixed(1)} 秒`; setupSave(); }
+    if (!again) {
+      ME = { ids: [], name: '', known: false };
+      // 认人和读表同时进行（某个认人接口不响应时不拖慢读表）
+      boot.who = Promise.all(['getUserId', 'getBaseUserId'].map((f) => withTimeout(SDK.bitable.bridge[f](), 4000, f).then((id) => { if (id && !ME.ids.includes(id)) ME.ids.push(id); }).catch(() => {})))
+        .then(() => { PROG['识别当前用户'] = ME.ids.length ? '✔' : '没认出（不影响看数据）'; if (READY.apply) { whoAmI(); renderTop(); } });
+      if (loadCache()) afterLoad(false);   // 先用缓存把页面显示出来
+    }
+    if (again) { REFRESHING = true; READY.apply = READY.pm = READY.mgmt = false; }
+    const main = Promise.all(['apply', 'pm'].map(readTable));
+    const mg = readTable('mgmt').then(() => { if (READY.apply && READY.pm) { renderTop(); if (VIEW === 'track') renderMain(); } })
+      .catch((e) => { PROG[TABLES.mgmt.name] = '✘ ' + (e && e.message ? e.message : e); if (READY.apply) toast('采购进度（管理表）没读出来：' + (e && e.message ? e.message : e), 6000); });
+    await main;
+    FROM_CACHE = false; clearInterval(slowTimer);
+    afterLoad(again); REFRESHING = false;
+    if (/[?&]debug\b/.test(location.search)) $('main').insertAdjacentHTML('afterbegin', `<div class="card"><h3>加载耗时</h3>${Object.entries(PROG).map(([k, v]) => `${esc(k)}：${esc(v)}`).join('<br>')}</div>` + await diagnose());
+    await mg;
+  } catch (e) {
+    const msg = esc(e && e.message ? e.message : e);
+    if (FROM_CACHE || REFRESHING) { REFRESHING = false; toast('数据更新失败，页面显示的还是之前的数据：' + msg, 8000); render(); return; }
+    $('main').innerHTML = `<div class="card err">加载失败：${msg}</div><div class="card">${Object.entries(PROG).map(([k, v]) => `${esc(k)}：${esc(v)}`).join('<br>')}</div>`;
+    if (SDK) { try { $('main').insertAdjacentHTML('beforeend', boot.diagHtml || await diagnose()); } catch (e2) { /* 保留报错 */ } }
+  }
+}
+function afterLoad(again) {
+  READY.apply = READY.apply || !!FROM_CACHE;
+  buildPm(); whoAmI();
+  if (!['four', 'season', 'shoe', 'other'].includes(F.line)) F.line = 'four';
+  if (!again && VIEW !== 'apply' && VIEW !== 'track' && VIEW !== 'approve') VIEW = 'apply';
+  if (!again && !afterLoad.done && batches().some((b) => PENDING.includes(b.status) && myTurn(b))) { VIEW = 'approve'; F.approve = 'todo'; }
+  afterLoad.done = true;
+  if (!FROM_CACHE) {   // 草稿里已不存在/已锁定的行清掉（只按最新数据清）
     const ok = new Set((DATA.apply || []).filter((r) => !locked(r)).map((r) => r._id));
     for (const k of Object.keys(DRAFT)) if (!ok.has(k)) delete DRAFT[k];
     saveDraft();
-    render();
-    if (/[?&]debug\b/.test(location.search) && SDK) $('main').insertAdjacentHTML('afterbegin', await diagnose());
-  } catch (e) {
-    const msg = esc(e && e.message ? e.message : e);
-    $('main').innerHTML = `<div class="card err">加载失败：${msg}</div>`;
-    if (SDK) { try { $('main').innerHTML = `<div class="card err">加载失败：${msg}</div>` + await diagnose(); } catch (e2) { /* 保留报错 */ } }
   }
+  const sc = $('main').scrollTop;
+  render();
+  $('main').scrollTop = sc;
+  $('simTip').style.display = FROM_CACHE || SNAP ? '' : 'none';
+  if (FROM_CACHE) $('simTip').textContent = `先显示的是 ${fmtDT(FROM_CACHE)} 的缓存，正在读最新数据…（读完自动刷新；这期间不能提交和审批）`;
 }
 await boot(false);
 </script>
