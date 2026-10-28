@@ -68,6 +68,9 @@
   .btn.red-solid { background: var(--red); color: #fff; }
   .po-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 12px; border-bottom: 1px solid var(--line); background: #fafbfc; }
   .po-q { flex: 1; min-width: 220px; }
+  .po-ctl { display: contents; }
+  .store-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+  .store-row select { min-width: 220px; height: 32px; }
   .po-top .seg button:disabled { opacity: .35; cursor: not-allowed; }
   .po-item .sub div { line-height: 1.7; }
   .picker-box { display: flex; align-items: center; gap: 8px; border: 1px solid #d0d3d6; border-radius: 6px; padding: 4px 8px; background: #fff; cursor: text; }
@@ -253,7 +256,7 @@ const BASE_TOKEN = 'JGvebyaAYapWtOslxc9cuKYXnwd';   // 灯具组-全流程
 const TABLES = {
   // 第一张 = saveConfig 第一条 dataCondition（应用只认第一条给授权）；其余表在应用页「数据授权（勿删）/数据授权2（勿删）」有列表组件引用
   ord:  { id: 'tbl83YlBQgKzooyz', name: '发货指令', core: true,
-          fields: ['指令号', '序号', '状态', '提交人', '国家', '发货日期', '是否分仓', '合计箱数', '合计件数', '摘要', '明细JSON', '货件JSON', '备注', '驳回原因', '分批计划', '合并批次', '审核人', '审核时间', '最后修改'] },
+          fields: ['指令号', '序号', '状态', '提交人', '国家', '发货日期', '是否分仓', '合计箱数', '合计件数', '摘要', '明细JSON', '货件JSON', '备注', '驳回原因', '分批计划', '合并批次', '店铺', '审核人', '审核时间', '最后修改'] },
   pm:   { id: 'tblqksywqgYvywOT', name: '产品主表-灯类+精铺', core: true, fields: ['ASIN', '国家', '店铺', '品名', 'MSKU', 'FNSKU', '领星SKU', '单箱数量', 'SPU'] },
   shoe: { id: 'tbliQsJsOL5WwxVZ', name: '产品主表-鞋类', fields: ['ASIN', '国家', '店铺', '品名', 'MSKU', 'FNSKU', '领星SKU', 'SPU', '颜色'] },
   po:   { id: 'tblZGnfj9md5isLj', name: '出口对账-采购合同', fields: ['采购合同', 'SKU', '数量', '剩余发货数', '名称', '下单日期', '到货状态', '类型'] },
@@ -413,7 +416,7 @@ function buildOrders() {
     ORDERS.push({
       rid: r._id, no: no || `（未编号 ${r._id.slice(-4)}）`, seq: +(String(r['序号'] ?? '').match(/\d+/)?.[0] || 0), status: r['状态'] || '草稿', byId: by.id, by: by.name,
       shipDate: r['发货日期'] ? ds(dnMs(r['发货日期'])) : '', split: r['是否分仓'] || '否', rows: json(r['明细JSON'], []).map((x, i) => ({ ...x, id: ++rowSeq })),
-      ships, note: r['备注'] || '', reason: r['驳回原因'] || '', plan: r['分批计划'] || '', merge: r['合并批次'] || '', checkedAt: fmtTime(r['审核时间']), editedAt: fmtTime(r['最后修改']),
+      ships, note: r['备注'] || '', reason: r['驳回原因'] || '', plan: r['分批计划'] || '', merge: r['合并批次'] || '', store: r['店铺'] || '', checkedAt: fmtTime(r['审核时间']), editedAt: fmtTime(r['最后修改']),
     });
   }
   // 认人：先拿 SDK 给的 ID 对「提交人/审核人」字段里的人；对不上的话第一次建单后会对上
@@ -427,7 +430,7 @@ const isMine = (o) => ME.ids.includes(o.byId);
 // ================= ⑤ 页面状态 =================
 let view = 'new', rowSeq = 1;
 const emptyShips = () => Array.from({ length: SHIP_SLOTS }, () => ({ no: '', ch: '', eta: '' }));
-const blankForm = () => ({ rows: [], shipDate: '', split: '是', ships: emptyShips(), note: '' });
+const blankForm = () => ({ rows: [], store: '', shipDate: '', split: '是', ships: emptyShips(), note: '' });
 function newRow(p, perBox) { return { id: ++rowSeq, key: p.c + '|' + p.m, c: p.c, m: p.m, a: p.a, n: p.n, fn: p.fn, sku: p.sku, s: p.s, line: p.line || '灯', spu: p.spu || '', color: p.color || '', size: p.size || '', perBox: perBox ?? (p.box || ''), boxes: '', po: '', note: '' }; }
 let clearArm = null;   // 「清空明细」点了第一下，等第二下确认
 let F = blankForm(), E = null, editNo = null, showErr = null, pick = { scope: null, q: '' };
@@ -438,6 +441,17 @@ const isShoe = (r) => P(r).line === '鞋';   // 主表里删了也能用明细�
 const byBox = (r) => +r.perBox > 0 && +r.boxes > 0;
 const tot = (r) => byBox(r) ? +r.perBox * +r.boxes : (+r.qty || 0);   // 没箱规的直接填总数
 const countryOf = (rows) => rows.length ? P(rows[0]).c : '';
+// 一张指令只能一个店铺：有明细取明细的店铺，没明细取手选的
+const storeOf = (S) => (S.rows.length ? P(S.rows[0]).s : '') || S.store || '';
+const storeCountry = (s) => /-CA\b|-CA-|CA$/.test(s || '') ? '加拿大' : s ? '美国' : '';
+function storeList() {   // 按国家分组，产品多的店在前
+  const n = {}; PRODS.forEach((p) => { if (p.s) n[p.s] = (n[p.s] || 0) + 1; });
+  const g = { '美国': [], '加拿大': [] };
+  Object.keys(n).sort((a, b) => n[b] - n[a]).forEach((s) => (g[storeCountry(s)] ||= []).push(s));
+  return g;
+}
+const storeOptions = (sel, empty) => `<option value="">${empty}</option>` + Object.entries(storeList()).filter(([, ss]) => ss.length)
+  .map(([c, ss]) => `<optgroup label="${c}">${ss.map((s) => `<option value="${esc(s)}" ${s === sel ? 'selected' : ''}>${esc(s)}</option>`).join('')}</optgroup>`).join('');
 const sumOf = (rows) => ({ msku: new Set(rows.map((r) => r.key)).size, boxes: rows.reduce((s, r) => s + (byBox(r) ? +r.boxes : 0), 0), qty: rows.reduce((s, r) => s + tot(r), 0) });
 const usedShips = (o) => o.split === '是' ? o.ships.map((s, i) => ({ ...s, i })).filter((s) => s.ch || s.eta || s.no) : [{ ...o.ships[0], i: 0 }];
 const statusCls = (s) => ({ '草稿': 'b-gray', '待审核': 'b-yellow', '已驳回': 'b-red', '待发货': 'b-blue' }[s]);
@@ -468,7 +482,7 @@ function orderFields(S) {
   const s = sumOf(S.rows), c = countryOf(S.rows);
   const rows = S.rows.map(({ id, ...r }) => r);   // 页面行号不存
   return {
-    '国家': c || null, '发货日期': S.shipDate || null, '是否分仓': S.split, '合计箱数': s.boxes, '合计件数': s.qty,
+    '国家': c || null, '店铺': storeOf(S) || null, '发货日期': S.shipDate || null, '是否分仓': S.split, '合计箱数': s.boxes, '合计件数': s.qty,
     '摘要': grouped(S.rows).map((r) => `${P(r).n} ${P(r).m} ×${tot(r)}`).join('；').slice(0, 900),
     '明细JSON': JSON.stringify(rows), '货件JSON': JSON.stringify(S.ships.map(({ no, ch, eta }) => ({ no, ch, eta }))), '备注': S.note || null,
   };
@@ -630,7 +644,7 @@ const ETA_SPLIT = [30, 30, 35, 45, 55];
 function etaOffsets(S, c) { return S.split === '是' ? ETA_SPLIT : [c === '加拿大' ? 40 : 35]; }
 // 只填「空着的」或「还是上次自动填的」格子，手改过的不动
 function applyDefaults(S) {
-  const c = countryOf(S.rows); if (!c) return;
+  const c = countryOf(S.rows) || storeCountry(S.store); if (!c) return;
   const a = S._auto || (S._auto = { ship: '', eta: [] });
   const defSplit = c === '美国' ? '是' : '否';
   if (!('split' in a) || S.split === a.split) { S.split = defSplit; a.split = defSplit; }
@@ -665,7 +679,9 @@ function editorHTML(S, scope) {
   const chs = CHS.filter((x) => !c || !x.c || x.c === c);
   const n = S.split === '是' ? SHIP_SLOTS : 1;
   return `
-  <h4>① 选产品 <span class="hint">下拉里每个产品都带国家；勾选后自动带入品名、国家、ASIN、MSKU、FNSKU、每箱数量。一票货只发一个国家</span></h4>
+  <h4>① 店铺 · 选产品 <span class="hint">一张指令只能一个店铺（不同店铺不能进同一个货件）；先选店铺，或直接选产品自动带出店铺</span></h4>
+  <div class="store-row"><label>店铺 <b style="color:var(--red);font-weight:normal">*</b></label><select data-o="store" class="${err && !storeOf(S) ? 'miss' : ''}">${storeOptions(storeOf(S), '— 选店铺（选产品后自动带出）—')}</select>
+    ${storeOf(S) ? `<span class="badge ${storeCountry(storeOf(S)) === '美国' ? 'b-blue' : 'b-green'}">${storeCountry(storeOf(S))}</span>` : ''}${S.rows.length ? '<span class="hint">明细里已有产品，要换店铺先「清空明细」</span>' : ''}</div>
   <div class="picker"><div class="picker-row">
     <div class="picker-box ${pick.scope === scope && pick.mode !== 'po' ? 'open' : ''}" data-pickbox>🔍<input data-pickq value="${pick.scope === scope ? esc(pick.q) : ''}" placeholder="搜品名 / ASIN / MSKU / SPU，点开勾选" autocomplete="off">
       ${c ? `<span class="badge b-blue">${c}</span>` : ''}<span class="hint">已选 ${new Set(S.rows.map((r) => r.key)).size}</span></div>
@@ -740,6 +756,7 @@ function rowsHTML(S, err, list = S.rows) {
 
 // 下拉里的勾选只改 pick.pending，不动页面；点「完成」才把勾选结果加进明细
 const pendCountry = () => { for (const k of pick.pending || []) return PM[k]?.c || ''; return ''; };
+const pendStore = () => { for (const k of pick.pending || []) return PM[k]?.s || ''; return stateOf(pick.scope)?.store || ''; };
 function newPick(scope, S) {
   return { scope, q: '', err: '', pending: new Set(S.rows.map((r) => r.key)), open: new Set(), line: S.rows.length && S.rows.every(isShoe) ? '鞋' : '灯' };
 }
@@ -752,7 +769,7 @@ function renderShoeTree(list, c, chosen, q) {
     const nOn = ps.filter((p) => chosen.has(p.c + '|' + p.m)).length;
     let s = `<div class="pick-grp shoe-spu" data-spu="${esc(k)}">${open ? '▾' : '▸'} <span class="badge ${p0.c === '美国' ? 'b-blue' : 'b-green'}">${p0.c}</span> ${esc(p0.spu)} <span class="hint">${corder.length} 色 · ${ps.length} 个尺码${nOn ? ` · 已勾 <b style="color:var(--blue)">${nOn}</b>` : ''}</span></div>`;
     if (open) s += corder.map((col) => {
-      const cs = colors[col], keys = cs.map((p) => p.c + '|' + p.m), allOn = keys.every((x) => chosen.has(x)), dis = c && p0.c !== c;
+      const cs = colors[col], keys = cs.map((p) => p.c + '|' + p.m), allOn = keys.every((x) => chosen.has(x)), dis = c && p0.s !== pendStore() && !!pendStore();
       return `<div class="shoe-color"><span class="cn">${esc(col) || '—'}</span><button class="link" data-colorall="${esc(keys.join(','))}">${allOn ? '取消全选' : '全选'}</button>
         <span class="szs">${cs.map((p) => { const kk = p.c + '|' + p.m; return `<span class="szc ${chosen.has(kk) ? 'on' : ''} ${dis ? 'dis' : ''}" data-key="${esc(kk)}" title="${esc(p.m)}">${esc(p.size || '?')}</span>`; }).join('')}</span></div>`;
     }).join('');
@@ -764,11 +781,11 @@ function renderPick() {
   const S = stateOf(pick.scope), panel = document.querySelector(`[data-scope="${pick.scope}"] [data-pickpanel]`);
   if (!S || !panel) return;
   const keep = panel.querySelector('.pick-list')?.scrollTop || 0;
-  const c = pendCountry(), q = pick.q.trim().toLowerCase(), chosen = pick.pending, line = pick.line || '灯';
+  const lk = pendStore(), c = storeCountry(lk), q = pick.q.trim().toLowerCase(), chosen = pick.pending, line = pick.line || '灯';
   const nShoe = PRODS.filter((p) => p.line === '鞋').length;
-  const list = PRODS.filter((p) => (p.line || '灯') === line).filter((p) => !q || [p.n, p.a, p.m, p.spu, p.sku, p.color, p.size].some((x) => (x || '').toLowerCase().includes(q)));
+  const list = PRODS.filter((p) => (p.line || '灯') === line).filter((p) => !lk || p.s === lk).filter((p) => !q || [p.n, p.a, p.m, p.spu, p.sku, p.color, p.size].some((x) => (x || '').toLowerCase().includes(q)));
   const tabs = `<div class="po-top"><span class="seg"><button data-pline="灯" class="${line === '灯' ? 'on' : ''}">灯 / 精铺</button><button data-pline="鞋" class="${line === '鞋' ? 'on' : ''}">鞋 ${nShoe ? '' : '（读不到鞋类主表）'}</button></span>
-    <span class="hint">${line === '鞋' ? '点款展开颜色，点尺码勾选；「全选」勾该颜色所有尺码。鞋子发货也可以直接「按采购单导入」' : '按 国家·SPU 分组，美国在前'}</span></div>`;
+    <span class="hint">${lk ? `只显示「${esc(lk)}」的产品（一张指令一个店铺）；` : ''}${line === '鞋' ? '点款展开颜色，点尺码勾选；「全选」勾该颜色所有尺码' : '按 国家·SPU 分组，美国在前'}</span></div>`;
   let html = '', grp = null;
   if (line === '鞋') html = renderShoeTree(list, c, chosen, q);
   else {
@@ -776,7 +793,7 @@ function renderPick() {
   for (const p of list) {
     const g = p.c + '·' + (p.spu || '未填SPU');
     if (g !== grp) { grp = g; html += `<div class="pick-grp"><span class="badge ${p.c === '美国' ? 'b-blue' : 'b-green'}">${p.c}</span> ${esc(p.spu || '未填SPU')} <span class="hint">${cnt[g]}</span></div>`; }
-    const k = p.c + '|' + p.m, dis = c && p.c !== c;
+    const k = p.c + '|' + p.m, dis = lk && p.s !== lk;
     html += `<div class="pick-item ${dis ? 'dis' : ''}" data-key="${esc(k)}"><input type="checkbox" ${chosen.has(k) ? 'checked' : ''} ${dis ? 'disabled' : ''}>
       <div><div class="nm">${esc(p.n)}</div><div class="sub">${p.a} · ${esc(p.m)} · ${esc(p.s)}</div></div>
       <span class="badge ${p.c === '美国' ? 'b-blue' : 'b-green'}">${p.c}</span></div>`;
@@ -791,32 +808,37 @@ function renderPick() {
 }
 // 按采购单导入：勾采购单 → 完成时把单上的产品（选定国家的 MSKU）全部加进明细，数量取剩余发货数（没有就取采购数量）
 const poQty = (it) => it.rem != null && it.rem > 0 ? it.rem : it.q;
-function poProds(it, c) { return PRODS.filter((p) => p.sku === it.sku && p.c === c); }
+function poProds(it, store) { return store ? PRODS.filter((p) => p.sku === it.sku && p.s === store) : []; }
 function renderPoPick() {
   const S = stateOf(pick.scope), panel = document.querySelector(`[data-scope="${pick.scope}"] [data-pickpanel]`);
   if (!S || !panel) return;
   const keep = panel.querySelector('.pick-list')?.scrollTop || 0;
-  const locked = countryOf(S.rows), c = locked || pick.country, q = pick.q.trim().toLowerCase();
-  const list = POS.filter((g) => !q || g.po.toLowerCase().includes(q) || g.items.some((it) => [it.sku, it.name, ...poProds(it, c).map((p) => p.n + ' ' + p.m)].some((x) => (x || '').toLowerCase().includes(q))));
+  const locked = S.rows.length ? P(S.rows[0]).s : '', c = locked || pick.store || '', q = pick.q.trim().toLowerCase();
+  const list = POS.filter((g) => !c || g.items.some((it) => poProds(it, c).length)).filter((g) => !q || g.po.toLowerCase().includes(q) || g.items.some((it) => [it.sku, it.name, ...PRODS.filter((p) => p.sku === it.sku).map((p) => p.n + ' ' + p.m + ' ' + (p.spu || ''))].some((x) => (x || '').toLowerCase().includes(q))));
   const html = list.map((g) => {
     const on = pick.poSel.has(g.po);
     const items = g.items.map((it) => { const ps = poProds(it, c);
       return ps.length ? `<div>${esc(ps[0].n)} <span class="mono">${esc(ps.map((p) => p.m).join(' / '))}</span> · <b>${poQty(it)}</b> 件${it.rem != null && it.rem !== it.q ? ` <span class="hint">（采购 ${it.q}）</span>` : ''}</div>`
-                       : `<div class="hint">${esc(it.name || it.sku)} · ${c}没有对应产品，不导入</div>`; }).join('');
+                       : c ? `<div class="hint">${esc(it.name || it.sku)} · 本店铺没有对应产品，不导入</div>`
+                           : `<div>${esc(PRODS.find((p) => p.sku === it.sku)?.n || it.name || it.sku)} · <b>${poQty(it)}</b> 件 <span class="hint">（选店铺后带出 MSKU）</span></div>`; }).join('');
     return `<div class="pick-item po-item" data-po="${esc(g.po)}"><input type="checkbox" ${on ? 'checked' : ''}>
       <div><div class="nm mono">${esc(g.po)} <span class="hint" style="font-family:inherit">下单 ${md(g.d)} · ${esc(g.st)}</span></div><div class="sub" style="font-family:inherit">${items}</div></div>
       <span class="badge b-gray">${g.items.length} 个SKU</span></div>`;
   }).join('');
   const n = [...pick.poSel].reduce((s, po) => s + (POS.find((g) => g.po === po)?.items.filter((it) => poProds(it, c).length).length || 0), 0);
-  panel.innerHTML = `<div class="po-top"><input class="po-q" data-poq value="${esc(pick.q)}" placeholder="🔍 搜采购单号 / 品名 / SKU / 款式" autocomplete="off"><span>导入到</span><span class="seg">${['美国', '加拿大'].map((x) => `<button data-pocountry="${x}" class="${c === x ? 'on' : ''}" ${locked && locked !== x ? 'disabled' : ''}>${x}</button>`).join('')}</span>
-      <span class="hint">${locked ? `明细里已是${locked}产品，只能导入${locked}` : '同一个 SKU 美国/加拿大各有 MSKU，先选国家'}</span></div>` +
+  // 搜索框只建一次，之后只换下面的内容 —— 每次重绘输入框会打断中文输入法
+  if (!panel.querySelector('[data-poq]')) panel.innerHTML = `<div class="po-top"><input class="po-q" data-poq value="${esc(pick.q)}" placeholder="🔍 搜采购单号 / 品名 / SKU / 款式" autocomplete="off"><span class="po-ctl"></span></div><div class="po-body"></div>`;
+  panel.querySelector('.po-ctl').innerHTML = `<span>导入到店铺</span><select data-postore ${locked ? 'disabled' : ''} class="${c ? '' : 'miss'}">${storeOptions(c, '— 先选店铺 —')}</select>
+      <span class="hint">${locked ? '明细里已是这个店铺的产品' : '只列有本店铺产品的采购单'}</span>`;
+  panel.querySelector('.po-body').innerHTML =
     `<div class="pick-list">${html || `<div class="empty" style="margin:10px">${POS.length ? '没有匹配的采购单' : (LOADERR.po ? '读不到采购合同表（应用权限没开）' : '没有本组产品的采购单')}</div>`}</div>` +
     `<div class="pick-foot"><span class="hint">共 ${list.length} 张 · 已勾 <b>${pick.poSel.size}</b> 张${n ? `（点完成：加入 ${n} 个产品，按 剩余发货数 ÷ 每箱 自动填箱数，零头另起一行；没箱规的直接填总数）` : ''}</span>
      <span style="display:flex;gap:6px"><button class="btn sm ghost" data-pickcancel>取消</button><button class="btn sm" data-podone>完成</button></span></div>`;
   const pl = panel.querySelector('.pick-list'); if (pl) pl.scrollTop = keep;
 }
 function applyPoImport(S) {
-  const c = countryOf(S.rows) || pick.country; let added = 0; const skipped = [], dup = [];
+  const c = (S.rows.length ? P(S.rows[0]).s : '') || pick.store; let added = 0; const skipped = [], dup = [];
+  if (c) S.store = c;
   for (const g of POS.filter((x) => pick.poSel.has(x.po))) for (const it of g.items) {
     const ps = poProds(it, c);
     if (!ps.length) { skipped.push(it.sku); continue; }
@@ -836,6 +858,7 @@ function applyPoImport(S) {
 }
 function applyPick(S) {
   const want = pick.pending;
+  for (const k of want) { if (PM[k]?.s) S.store = PM[k].s; break; }
   S.rows = S.rows.filter((r) => want.has(r.key));
   for (const p of PRODS) { const k = p.c + '|' + p.m; if (want.has(k) && !S.rows.some((r) => r.key === k)) S.rows.push(newRow(p)); }
 }
@@ -843,6 +866,7 @@ function applyPick(S) {
 function problems(o) {
   const e = [], c = countryOf(o.rows);
   if (!o.rows.length) e.push('还没选产品');
+  if (new Set(o.rows.map((r) => P(r).s)).size > 1) e.push('明细里有不同店铺的产品（一张指令只能一个店铺）');
   o.rows.forEach((r) => { if (!(tot(r) > 0)) e.push(`${P(r).m} 没填数量（填 每箱×箱数，或直接填总数）`); });
   if (!o.shipDate) e.push('没填发货日期');
   if (!o.ships[0].eta) e.push(o.split === '是' ? '至少填货件1的预计到达' : '没填预计到达');
@@ -955,7 +979,7 @@ function orderCard(o, mode) {
   const pl = planOf(o), can = !editing && canSel(o, mode);
   const head = `<div class="order-head">${can ? `<input type="checkbox" data-sel ${sel.has(o.no) ? 'checked' : ''}>` : ''}<span class="no">${esc(o.no)}</span>${st}${dueBadge(S)}
       ${pl ? `<span class="badge b-blue" title="同一批货分批发">分批 ${pl.idx}/${pl.n} · 计划合计 ${pl.qty.toLocaleString()} 件</span>` : ''}
-      <span class="kv">提交人 <b>${esc(o.by)}</b></span><span class="kv"><b>${c}</b></span>
+      <span class="kv">提交人 <b>${esc(o.by)}</b></span><span class="kv">店铺 <b>${esc(storeOf(S)) || '未定'}</b> · ${c}</span>
       <span class="kv">开船 <b>${md(S.shipDate)}</b></span><span class="kv">${S.split === '是' ? `分仓 <b>${usedShips(S).length}</b> 个货件` : `预计到达 <b>${md(S.ships[0].eta)}</b>`}</span>
       ${S.split === '是' ? '' : `<span class="kv">渠道 <b>${esc(chs.join(' / ') || '未定')}</b></span>`}
       <span class="kv">${s.msku} 个MSKU · <b data-sumboxes>${s.boxes}</b> 箱 · <b data-sumqty>${s.qty.toLocaleString()}</b> 件</span>
@@ -1018,6 +1042,7 @@ function fbaCandidates(os) {
     if (!mskus.has(it['MSKU'])) continue;
     const no = it['货件号'], s = ship[no]; if (!no || (taken.has(no) && !mine.has(no))) continue;
     if (s && s['国家'] && c && s['国家'] !== c) continue;
+    if (s && s['店铺'] && storeOf(os[0]) && s['店铺'] !== storeOf(os[0])) continue;   // 货件只属于一个店铺
     const t = s && s['FBA建单时间'] ? dnMs(typeof s['FBA建单时间'] === 'number' ? s['FBA建单时间'] : Date.parse(String(s['FBA建单时间']).replace(' ', 'T') + '+08:00')) : null;
     if (t != null && t < since && !mine.has(no)) continue;
     const h0 = hit[no] ||= { no, name: s?.['货件名称'] || '', fc: s?.['目的仓'] || '', t, n: 0, qty: 0 };
@@ -1027,6 +1052,7 @@ function fbaCandidates(os) {
 }
 let FILL = null;   // { os, slots:[i], cands }
 function openFill(os) {
+  if (new Set(os.map(storeOf)).size > 1) { toast('不同店铺的单不能合并（不能进同一个货件）', 4000); return; }
   const c = new Set(os.map((o) => countryOf(o.rows))), sp = new Set(os.map((o) => o.split));
   if (c.size > 1) { toast('美国和加拿大的单不能合并'); return; }
   if (sp.size > 1) { toast('分仓和不分仓的单不能合并填货件号'); return; }
@@ -1079,7 +1105,7 @@ async function saveFba(os, nos) {
 function confirmSubmit(os) {
   const body = os.map((o) => {
     const s = sumOf(o.rows);
-    return `<div class="cf-order"><div class="cf-head"><b>${esc(o.no)}</b><span>${countryOf(o.rows)}</span><span>开船 <span class="chk" style="background:#fff">${md(o.shipDate)}</span></span><span>${o.split === '是' ? '分仓 ' + usedShips(o).length + ' 个货件' : '不分仓'}</span><span>${s.boxes} 箱 · ${s.qty.toLocaleString()} 件</span></div>
+    return `<div class="cf-order"><div class="cf-head"><b>${esc(o.no)}</b><span>${esc(storeOf(o))} · ${countryOf(o.rows)}</span><span>开船 <span class="chk" style="background:#fff">${md(o.shipDate)}</span></span><span>${o.split === '是' ? '分仓 ' + usedShips(o).length + ' 个货件' : '不分仓'}</span><span>${s.boxes} 箱 · ${s.qty.toLocaleString()} 件</span></div>
       ${o.rows.some((r) => !isShoe(r)) ? `<div class="lines"><table class="tbl"><thead><tr><th>品名</th><th>MSKU</th><th>FNSKU</th><th>SKU</th><th>每箱 × 箱数</th><th>数量</th><th>采购单号</th></tr></thead><tbody>
       ${grouped(o.rows.filter((r) => !isShoe(r))).map((r) => { const p = P(r); return `<tr><td>${esc(p.n)}</td><td class="mono">${esc(p.m)}</td><td class="mono"><span class="chk">${esc(p.fn) || '空'}</span></td>
         <td class="mono"><span class="chk">${esc(p.sku) || '空'}</span></td><td>${byBox(r) ? `${esc(r.perBox)} × ${esc(r.boxes)}` : '<span class="hint">直接填总数</span>'}</td><td><span class="chk">${tot(r).toLocaleString()}</span></td><td class="mono">${esc(r.po) || '—'}</td></tr>`; }).join('')}
@@ -1114,12 +1140,13 @@ main.addEventListener('click', (e) => {
     }
     if (t.closest('[data-poimport]')) {
       if (pick.scope === scope && pick.mode === 'po') { closePick(); render(); return; }
-      pick = { scope, mode: 'po', q: '', err: '', poSel: new Set(), country: countryOf(S.rows) || '美国' }; render(); main.querySelector('[data-poq]')?.focus(); return;
+      pick = { scope, mode: 'po', q: '', err: '', poSel: new Set(), store: storeOf(S) }; render(); main.querySelector('[data-poq]')?.focus(); return;
     }
-    if (t.dataset.pocountry) { pick.country = t.dataset.pocountry; renderPoPick(); return; }
+
     const poIt = t.closest('.po-item');
     if (poIt) { const po = poIt.dataset.po; pick.poSel.has(po) ? pick.poSel.delete(po) : pick.poSel.add(po); renderPoPick(); return; }
     if (t.closest('[data-podone]')) {
+      if (!pick.store && !S.rows.length) { toast('先选导入到哪个店铺'); return; }
       if (!pick.poSel.size) { toast('先勾采购单'); return; }
       const msg = applyPoImport(S); closePick(); render(); toast(msg, 5000); return;
     }
@@ -1128,13 +1155,13 @@ main.addEventListener('click', (e) => {
     const spuH = t.closest('.shoe-spu');
     if (spuH) { const k = spuH.dataset.spu; pick.open.has(k) ? pick.open.delete(k) : pick.open.add(k); renderPick(); return; }
     if (t.dataset.colorall) {
-      const keys = t.dataset.colorall.split(','), pc = pendCountry(), kc = PM[keys[0]]?.c;
-      if (pc && kc !== pc) { pick.err = `美国和加拿大的产品不能建在同一张指令里：已勾的是${pc}产品`; renderPick(); return; }
+      const keys = t.dataset.colorall.split(','), ps = pendStore(), ks = PM[keys[0]]?.s;
+      if (ps && ks !== ps) { pick.err = `不同店铺的产品不能建在同一张指令里：已选「${ps}」`; renderPick(); return; }
       const allOn = keys.every((x) => pick.pending.has(x)); keys.forEach((x) => allOn ? pick.pending.delete(x) : pick.pending.add(x)); pick.err = ''; renderPick(); return;
     }
     const it = t.closest('.pick-item, .szc');
     if (it) {
-      if (it.classList.contains('dis')) { pick.err = `美国和加拿大的产品不能建在同一张指令里：已勾的是${pendCountry()}产品，${PM[it.dataset.key]?.c || ''}产品请另建一张`; renderPick(); toast(pick.err, 4000); return; }
+      if (it.classList.contains('dis')) { pick.err = `不同店铺的产品不能建在同一张指令里：已选「${pendStore()}」，「${PM[it.dataset.key]?.s || ''}」的产品请另建一张`; renderPick(); toast(pick.err, 4000); return; }
       pick.err = '';
       const k = it.dataset.key;
       pick.pending.has(k) ? pick.pending.delete(k) : pick.pending.add(k);
@@ -1245,11 +1272,12 @@ function bulk2(a, os) {
   }
 }
 
+main.addEventListener('compositionend', (e) => { if (e.target.matches('input')) e.target.dispatchEvent(new Event('input', { bubbles: true })); });
 main.addEventListener('input', (e) => {
+  if (e.isComposing) return;
   const t = e.target, scope = scopeOf(t), S = scope && stateOf(scope); if (!S) return;
   if (t.hasAttribute('data-poq')) {   // 采购单面板自带搜索：重绘后把光标放回去
-    pick.q = t.value; const pos = t.selectionStart; renderPoPick();
-    const ni = main.querySelector('[data-poq]'); if (ni) { ni.focus(); ni.setSelectionRange(pos, pos); } return;
+    pick.q = t.value; renderPoPick(); return;
   }
   if (t.hasAttribute('data-pickq')) { if (pick.scope !== scope) pick = newPick(scope, S); pick.q = t.value; renderPick(); return; }
   if (t.dataset.o === 'note') { S.note = t.value; if (scope === 'new') saveDraft(); return; }
@@ -1277,6 +1305,11 @@ main.addEventListener('change', (e) => {
   if (t.hasAttribute('data-selall')) { main.querySelectorAll('[data-sel]').forEach((x) => { const no = x.closest('[data-no]').dataset.no; t.checked ? sel.add(no) : sel.delete(no); }); render(); return; }
   const scope = scopeOf(t), S = scope && stateOf(scope); if (!S) return;
   if (t.dataset.o === 'shipDate') { S.shipDate = t.value; render(); return; }
+  if (t.dataset.o === 'store') {
+    if (S.rows.length && t.value !== P(S.rows[0]).s) { toast('明细里是「' + P(S.rows[0]).s + '」的产品，要换店铺先清空明细', 4000); render(); return; }
+    S.store = t.value; render(); return;
+  }
+  if (t.hasAttribute('data-postore')) { pick.store = t.value; pick.poSel.clear(); renderPoPick(); return; }
   if (t.closest('.ship') && t.dataset.k === 'ch') { render(); return; }
   if (t.closest('tr[data-r]') && t.dataset.k === 'perBox') render();
   if (t.dataset.k === 'gpo') render();
