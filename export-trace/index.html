@@ -76,6 +76,13 @@
   .box .s { color: var(--sub); font-size: 12px; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .box details summary { cursor: pointer; color: var(--blue); font-size: 12px; margin-top: 2px; }
   .box details pre { margin: 4px 0 0; white-space: pre-wrap; font: 12px/1.5 inherit; color: var(--ink); }
+  .skut { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 4px; }
+  .skut th { color: var(--sub); font-weight: normal; text-align: left; padding: 2px 4px; border-bottom: 1px solid var(--line); }
+  .skut td { padding: 3px 4px; border-bottom: 1px dashed var(--line); vertical-align: top; }
+  .skut td.r, .skut th.r { text-align: right; white-space: nowrap; }
+  .skut .sku { font-weight: 600; word-break: break-all; }
+  .skut .nm { color: var(--sub); font-size: 11px; }
+  .box .rmk { font-size: 12px; color: var(--sub); margin-top: 4px; white-space: pre-wrap; }
   .mini { width: 100%; table-layout: fixed; font-size: 12px; }
   .mini td, .mini th { padding: 3px 4px; border-bottom: 1px dashed var(--line); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .mini th { color: var(--sub); font-weight: normal; text-align: left; }
@@ -110,7 +117,8 @@
     <div class="bar">
       <h1>出口单证追踪</h1>
       <div class="seg" id="viewSeg"><button data-v="contract" class="on">按合同协议号</button><button data-v="po">按合同单号</button><button data-v="ship">按货件</button></div>
-      <select id="fOp"><option value="">全部运营</option></select>
+      <select id="fOp" style="display:none"></select>
+      <select id="fInv" style="display:none"><option value="">全部发票</option><option value="open">有未开发票</option><option value="no">发票全未开</option><option value="all">发票已开齐</option><option value="none">无报关数据</option></select>
       <select id="fMonth"><option value="">全部出口月份</option></select>
       <input id="fQ" placeholder="搜 货件号 / 合同号 / 采购单号 / 品名">
       <span class="meta" id="meta">数据加载中…</span>
@@ -217,7 +225,7 @@ async function readTable(key) {
 const DIAG = [];
 let DATA = {};
 let M = null;            // 整理后的模型
-const UI = { view: 'contract', op: '', month: '', q: '', st: '', focus: '' };
+const UI = { view: 'contract', op: '', month: '', q: '', st: '', focus: '', inv: '' };
 let RECON = null;        // 按合同单号：{ pos: [...] }
 let reconLoading = null;
 
@@ -263,7 +271,7 @@ function poModel(no, lines) {
     '首次到货日': fs.length ? fmtFull(Math.min(...fs)) : null, '最近到货日': ls.length ? fmtFull(Math.max(...ls)) : null,
     '采购量': sum('数量'), '已到货量': sum('已到货量'), '采购金额': sum('含税总价'), '含税': f['含税'], '单据状态': f['单据状态'],
     '到货状态': f['到货状态'], '付款状态': f['付款状态'], '采购员': f['采购员'], '采购备注': f['采购备注'], '领星匹配': '找到',
-    '明细': lines.map((l) => `${l['SKU']} × ${fmtN(l['数量'])} @ ${n0(l['含税单价'])}${l['名称'] ? `（${l['名称']}）` : ''}`).join('\n') };
+    _items: lines.map((l) => ({ sku: l['SKU'], name: l['名称'], q: l['数量'], price: l['含税单价'] })) };
 }
 
 function buildModel() {
@@ -295,6 +303,8 @@ function buildModel() {
   }
   const pos = {};
   const byC = new Map();
+  const decByLine = new Map(), decByPo = new Map();   // 发票状态用：采购行 / 采购单 → 报关明细行
+  const push = (m, k, v) => { if (!m.has(k)) m.set(k, []); m.get(k).push(v); };
   for (const raw of DATA.dec || []) {
     // 报关明细 → 页面沿用的字段名
     const d = { ...raw, '货物或应税劳务名称': raw['品名'], '出口数量': raw['开票数量'], '申报计量单位': raw['单位'],
@@ -311,7 +321,8 @@ function buildModel() {
     // 采购单：匹配程序挂的采购合同 + 采购单号栏里的 PO 号 / 1688 单号
     d._pos = [...new Set([...(d['采购合同'] || []).map((id) => rpoById[id]?.['采购合同']), ...poNos(d['采购单号']),
       ...(String(d['采购单号'] || '').match(/\d{15,}/g) || []).map((x) => by1688[x])].filter(Boolean))];
-    for (const no of d._pos) { pos[no] ||= poModel(no, poLines.get(no)); c.pos.add(no); }
+    for (const no of d._pos) { pos[no] ||= poModel(no, poLines.get(no)); c.pos.add(no); push(decByPo, no, d); }
+    for (const id of d['采购合同'] || []) push(decByLine, id, d);
   }
   const contracts = [...byC.values()].map((c) => {
     const f = c.lines[0];
@@ -334,10 +345,24 @@ function buildModel() {
     const r = (shipRefs[sid] ||= { contracts: new Set(), pos: new Set(), posExact: new Set() });
     r.contracts.add(c.no); c.pos.forEach((p) => r.pos.add(p['采购单号'])); d._pos.forEach((no) => r.posExact.add(no));
   }
-  return { ships, pos, contracts, shipRefs };
+  return { ships, pos, contracts, shipRefs, decByLine, decByPo };
 }
 
+// 发票状态：报关明细行里有发票号码的算已开
+function invState(rows) {
+  const n = (rows || []).length, k = (rows || []).filter((d) => d['发票号码']).length;
+  const st = !n ? 'none' : k === 0 ? 'no' : k < n ? 'part' : 'all';
+  const nos = [...new Set((rows || []).map((d) => d['发票号码']).filter(Boolean))];
+  return { n, k, st, nos };
+}
+const INV = { no: ['发票未开', 'p-red'], part: ['发票部分开', 'p-yellow'], all: ['发票已开齐', 'p-green'], none: ['无报关', 'p-gray'] };
+const invPill = (v, short) => v.st === 'none' ? (short ? '' : `<span class="pill p-gray">无报关</span>`)
+  : `<span class="pill ${INV[v.st][1]}" title="${esc(v.nos.join('、') || '未开')}">${short ? (v.st === 'all' ? '已开' : v.st === 'no' ? '未开' : '部分') : INV[v.st][0]} ${v.k}/${v.n}</span>`;
+
 function fillFilters() {
+  $('fOp').style.display = UI.view === 'po' ? '' : 'none';
+  $('fInv').style.display = UI.view === 'po' ? '' : 'none';
+  $('fInv').value = UI.inv;
   if (UI.view === 'po') {
     const own = [...new Set((RECON?.pos || []).flatMap((p) => p.own))].sort();
     $('fOp').innerHTML = '<option value="">全部归属</option>' + own.map((o) => `<option>${esc(o)}</option>`).join('');
@@ -346,11 +371,9 @@ function fillFilters() {
     $('fOp').value = UI.op; $('fMonth').value = UI.month;
     return;
   }
-  const ops = [...new Set((DATA.dec || []).map((d) => d['运营']).filter(Boolean))].sort();
-  $('fOp').innerHTML = '<option value="">全部运营</option>' + ops.map((o) => `<option>${esc(o)}</option>`).join('');
   const months = [...new Set(M.contracts.map((c) => c.exp != null ? fmtFull(c.exp).slice(0, 7) : '').filter(Boolean))].sort().reverse();
   $('fMonth').innerHTML = '<option value="">全部出口月份</option>' + months.map((m) => `<option>${m}</option>`).join('');
-  $('fOp').value = UI.op; $('fMonth').value = UI.month;
+  $('fMonth').value = UI.month;
 }
 
 function matchQ(c, q) {
@@ -400,7 +423,11 @@ function poBox(p) {
     <div class="s" title="${esc(p['供应商'])}">${esc(p['供应商'] || '')}</div>
     <div class="s">下单 ${fD(p['下单日']) || '—'}　到货 ${fD(p['首次到货日']) || '—'}${p['最近到货日'] && fD(p['最近到货日']) !== fD(p['首次到货日']) ? `~${fD(p['最近到货日'])}` : ''}　${fmtN(got)}/${fmtN(real)}</div>
     <div class="s">¥${fmtN(p['采购金额'], 2)} ${esc(p['含税'] || '')}　${esc(p['单据状态'] || '')}　付款:${esc(p['付款状态'] || '—')}　${esc(p['采购员'] || '')}</div>
-    ${p['明细'] || p['采购备注'] ? `<details><summary>SKU 明细${p['采购备注'] ? ' / 备注' : ''}</summary><pre>${esc(p['明细'] || '')}${p['采购备注'] ? `\n备注：${esc(p['采购备注'])}` : ''}</pre></details>` : ''}</div>`;
+    ${(p._items || []).length || p['采购备注'] ? `<details><summary>SKU 明细（${(p._items || []).length}）${p['采购备注'] ? ' / 备注' : ''}</summary>
+      ${(p._items || []).length ? `<table class="skut"><tr><th>SKU / 品名</th><th class="r">数量</th><th class="r">含税单价</th></tr>
+      ${p._items.map((x) => `<tr><td><div class="sku">${esc(x.sku || '')}</div>${x.name ? `<div class="nm">${esc(x.name)}</div>` : ''}</td>
+        <td class="r">${fmtN(x.q)}</td><td class="r">${x.price != null && x.price !== '' ? '¥' + fmtN(x.price, 2) : '—'}</td></tr>`).join('')}</table>` : ''}
+      ${p['采购备注'] ? `<div class="rmk">备注：${esc(p['采购备注'])}</div>` : ''}</details>` : ''}</div>`;
 }
 function contractCard(c) {
   const lv = LV[c.level];
@@ -456,7 +483,7 @@ async function loadRecon() {
   const lines = new Map();
   for (const r of DATA.rpo) {
     const q = n0(r['数量']), dq = n0(r['已报关数量']);
-    lines.set(r._id, { ...r, q, dq, has: dq > 0, segs: [] });
+    lines.set(r._id, { ...r, q, dq, has: dq > 0, segs: [], inv: invState(M.decByLine.get(r._id)) });
   }
   // 报关段：货件明细里 有合同协议号 的行 = 报关挂到某采购行的数量
   for (const s of DATA.rship || []) {
@@ -478,7 +505,7 @@ async function loadRecon() {
     p.lines.sort((a, b) => (b.has - a.has) || String(a['SKU']).localeCompare(String(b['SKU'])));
     const ships = new Set(), cts = new Set();
     p.lines.forEach((l) => l.segs.forEach((s) => { ships.add(s['货件编号']); cts.add(String(s['合同协议号'])); }));
-    return { ...p, q, dq, left, st, nData: data.length, sup: f['供应商'], ord: dayOf(f['下单日期']), arr: f['到货状态'],
+    return { ...p, q, dq, left, st, nData: data.length, inv: invState(M.decByPo.get(p.no)), sup: f['供应商'], ord: dayOf(f['下单日期']), arr: f['到货状态'],
       own: [...new Set(p.lines.flatMap((l) => String(l['归属'] || '').split('、')).filter(Boolean))], ships: [...ships], cts: [...cts] };
   });
   RECON = { pos };
@@ -486,16 +513,20 @@ async function loadRecon() {
 const PST = { part: ['部分已发', 'p-yellow', 0], full: ['已全部发出', 'p-green', 1], none: ['无报关数据', 'p-gray', 2] };
 function poFilter() {
   const q = UI.q.trim().toUpperCase();
-  return RECON.pos.filter((p) => (!UI.op || p.own.includes(UI.op)) && (!UI.month || (p.ord != null && fmtFull(p.ord).startsWith(UI.month)))
+  return RECON.pos.filter((p) => (!UI.op || p.own.includes(UI.op))
+    && (!UI.inv || (UI.inv === 'open' ? ['no', 'part'].includes(p.inv.st) : p.inv.st === UI.inv)) && (!UI.month || (p.ord != null && fmtFull(p.ord).startsWith(UI.month)))
     && (!q || q.split(/\s+/).every((w) => [p.no, p.sup, ...p.ships, ...p.cts, ...p.lines.map((l) => `${l['SKU']} ${l['名称']}`)].join(' ').toUpperCase().includes(w))));
 }
 function renderPoKpis(ps) {
   const cnt = (k) => ps.filter((p) => p.st === k).length;
   const items = [['', '全部合同单号', ps.length, ''], ['part', '部分已发', cnt('part'), 'yellow'], ['full', '已全部发出', cnt('full'), 'green'], ['none', '无报关数据', cnt('none'), '']];
   const wd = ps.filter((p) => p.st !== 'none');
+  const invOpen = ps.filter((p) => ['no', 'part'].includes(p.inv.st)).length;
   $('kpis').innerHTML = items.map(([k, t, n, c]) => `<span class="kpi ${c} ${UI.st === k ? 'on' : ''}" data-st="${k}">${t}<b>${n}</b></span>`).join('')
+    + `<span class="kpi red ${UI.inv === 'open' ? 'on' : ''}" id="kInv">有未开发票<b>${invOpen}</b></span>`
     + `<span class="meta" style="align-self:center">有报关数据的单：已发 ${fmtN(wd.reduce((a, p) => a + p.dq, 0))} · 未发 ${fmtN(wd.reduce((a, p) => a + p.left, 0))}　·　已发 = 报关明细匹配到的数量，没报关的 SKU 已发/未发留空</span>`;
-  $('kpis').querySelectorAll('.kpi').forEach((el) => el.onclick = () => { UI.st = UI.st === el.dataset.st ? '' : el.dataset.st; render(); });
+  $('kpis').querySelectorAll('.kpi[data-st]').forEach((el) => el.onclick = () => { UI.st = UI.st === el.dataset.st ? '' : el.dataset.st; render(); });
+  $('kInv').onclick = () => { UI.inv = UI.inv === 'open' ? '' : 'open'; $('fInv').value = UI.inv; render(); };
 }
 function poCard(p) {
   const s = PST[p.st];
@@ -511,17 +542,18 @@ function poCard(p) {
       <td class="r">${fmtN(l.q)}</td><td class="r">${l.has ? fmtN(l.dq) : ''}</td>
       <td class="r">${l.has ? `<b style="color:${left ? 'var(--yellow)' : 'var(--green)'}">${fmtN(left)}</b>` : ''}</td>
       <td>${l.has ? `<div class="bar2" style="margin:0"><i style="width:${pct}%"></i></div><span class="meta">${pct}%</span>` : '<span class="meta">无报关数据</span>'}</td>
+      <td>${invPill(l.inv, true)}</td>
       <td style="white-space:normal">${segHtml(l)}</td></tr>`;
   }).join('');
   return `<div class="card">
-    <div class="ch"><span class="no">${esc(p.no)}</span><span class="pill ${s[1]}">${s[0]}</span>
+    <div class="ch"><span class="no">${esc(p.no)}</span><span class="pill ${s[1]}">${s[0]}</span>${invPill(p.inv)}
       <span class="kv">供应商 <b>${esc(p.sup || '—')}</b></span><span class="kv">下单 <b>${p.ord != null ? fmtFull(p.ord) : '—'}</b></span>
       <span class="kv">到货 <b>${esc(p.arr || '—')}</b></span><span class="kv">归属 <b>${esc(p.own.join('、') || '—')}</b></span>
       <span class="kv">采购 <b>${fmtN(p.q)}</b></span>
       ${p.st === 'none' ? '' : `<span class="kv">已发 <b>${fmtN(p.dq)}</b></span><span class="kv">未发 <b style="color:${p.left ? 'var(--yellow)' : 'var(--green)'}">${fmtN(p.left)}</b></span>`}
       ${p.st !== 'none' && p.nData < p.lines.length ? `<span class="meta">（另有 ${p.lines.length - p.nData} 个 SKU 无报关数据，未计入未发）</span>` : ''}</div>
-    <table class="mini"><colgroup><col style="width:24%"><col style="width:8%"><col style="width:8%"><col style="width:8%"><col style="width:10%"><col style="width:42%"></colgroup>
-      <tr><th>SKU / 品名</th><th class="r">采购量</th><th class="r">已发</th><th class="r">未发</th><th>进度</th><th>货件 × 数量 → 合同协议号</th></tr>${rows}</table></div>`;
+    <table class="mini"><colgroup><col style="width:24%"><col style="width:8%"><col style="width:8%"><col style="width:8%"><col style="width:10%"><col style="width:8%"><col style="width:34%"></colgroup>
+      <tr><th>SKU / 品名</th><th class="r">采购量</th><th class="r">已发</th><th class="r">未发</th><th>进度</th><th>发票</th><th>货件 × 数量 → 合同协议号</th></tr>${rows}</table></div>`;
 }
 async function renderPo() {
   if (!RECON) {
@@ -562,11 +594,13 @@ function bindUi() {
   $('viewSeg').querySelectorAll('button').forEach((b) => b.onclick = () => {
     const wasPo = UI.view === 'po', isPo = b.dataset.v === 'po';
     UI.view = b.dataset.v; UI.st = '';
-    if (wasPo !== isPo) { UI.op = ''; UI.month = ''; fillFilters(); }
+    if (wasPo !== isPo) { UI.op = ''; UI.month = ''; UI.inv = ''; }
+    fillFilters();
     syncSeg(); render();
   });
   $('fOp').onchange = (e) => { UI.op = e.target.value; render(); };
   $('fMonth').onchange = (e) => { UI.month = e.target.value; render(); };
+  $('fInv').onchange = (e) => { UI.inv = e.target.value; render(); };
   let t; $('fQ').oninput = (e) => { clearTimeout(t); t = setTimeout(() => { UI.q = e.target.value; render(); }, 200); };
 }
 
