@@ -34,7 +34,13 @@
   .card { background: var(--card); border-radius: 8px; padding: 14px 16px; border: 1px solid var(--line); margin-bottom: 12px; }
   .card h3 { margin: 0 0 12px; font-size: 15px; display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
   .card h3 small { font-weight: normal; color: var(--sub); font-size: 12px; }
-  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px 16px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px 16px; align-items: end; }
+  .grid .seg { height: 32px; } .grid .seg button { height: 100%; }
+  .grid input[type=date] { height: 32px; }
+  .rg { font-weight: 600; padding: 0 6px; border-radius: 4px; font-size: 12.5px; }
+  span.rg.rg-w { color: #c2410c; background: #fff1e6; } span.rg.rg-m { color: #15803d; background: #e8f7ec; } span.rg.rg-e { color: #6d28d9; background: #f1ebff; }
+  .ship span.rg { font-size: 12.5px; }
+  .cf-head span.rg { background: #fff !important; }
   label.f { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--sub); }
   label.f b { color: var(--red); font-weight: normal; }
   input, select, textarea { font: inherit; color: var(--ink); border: 1px solid #d0d3d6; border-radius: 6px; padding: 5px 8px; background: #fff; min-width: 0; }
@@ -503,10 +509,11 @@ function nextSail(c) {
   return ds(nextMon + (c === '加拿大' ? 4 : 2));
 }
 // 美国分仓 5 个货件的大区；不分仓、加拿大不显示
-const REGION = ['美西', '美西', '美中', '美东', '美东'];
+const REGION = [{ n: '美西', d: '30-35天', k: 'w' }, { n: '美西', d: '30-35天', k: 'w' }, { n: '美中', d: '35-45天', k: 'm' }, { n: '美东', d: '40-50天', k: 'e' }, { n: '美东', d: '50-60天', k: 'e' }];
 function shipLabel(o, i) {
   if (o.split !== '是') return '货件';
-  return `货件${i + 1}` + (countryOf(o.rows) === '美国' ? ` · ${REGION[i]}` : '');
+  const r = countryOf(o.rows) === '美国' && REGION[i];
+  return `货件${i + 1}` + (r ? ` <span class="rg rg-${r.k}">${r.n} ${r.d}</span>` : '');
 }
 // 预计到达默认 = 开船日 + 天数：分仓 5 个货件 30/30/35/45/55；不分仓 美国 35、加拿大 40
 const ETA_SPLIT = [30, 30, 35, 45, 55];
@@ -559,9 +566,10 @@ function editorHTML(S, scope) {
     <tbody>${rowsHTML(S, err)}</tbody></table></div>` : '<div class="empty">先在上面选产品</div>'}
   <h4>③ 发货安排 <span class="hint">一票货同一天发；分仓的每个货件单独选渠道和预计到达，渠道可空；货件号留空，审核人建货件后回填</span></h4>
   <div class="grid">
-    <label class="f"><span>下一开船日期 <b>*</b> <span class="hint">美国=下周三，加拿大=下周五；选产品后自动填，可改</span></span><input type="date" data-o="shipDate" value="${S.shipDate}" class="${err && !S.shipDate ? 'miss' : ''}"></label>
+    <label class="f"><span>开船日期 <b>*</b></span><input type="date" data-o="shipDate" value="${S.shipDate}" class="${err && !S.shipDate ? 'miss' : ''}"></label>
     <label class="f"><span>是否分仓</span><span class="seg">${['否', '是'].map((x) => `<button data-split="${x}" class="${S.split === x ? 'on' : ''}">${x}</button>`).join('')}</span></label>
   </div>
+  <div class="hint" style="margin-top:4px">开船日期：美国 = 下周三，加拿大 = 下周五（选产品后自动填，可改）</div>
   <datalist id="ch-${scope}">${chs.map((x) => `<option value="${esc(x.n)}">${esc(x.t)} · 约${x.d || '?'}天</option>`).join('')}</datalist>
   <div class="ships">${S.ships.slice(0, n).map((s, i) => {
     const ch = chByName[s.ch], sug = ch && ch.d && S.shipDate ? ds(dn(S.shipDate) + ch.d) : '';
