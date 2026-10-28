@@ -89,6 +89,7 @@
   .mono { font-family: Consolas, monospace; font-size: 12.5px; }
   .auto { color: var(--blue); }
   .tbl input.num { width: 70px; text-align: right; }
+  .tbl input.tot-auto { background: var(--bg); color: var(--ink); font-weight: 600; border-color: transparent; }
   .tbl input.po { width: 130px; } .tbl input.rk { width: 150px; }
   .tbl td.total { font-weight: 600; }
   .empty { padding: 20px; text-align: center; color: var(--sub); border: 1px dashed #d0d3d6; border-radius: 8px; }
@@ -386,9 +387,10 @@ let F = blankForm(), E = null, editNo = null, showErr = null, pick = { scope: nu
 let listFilter = { mine: true, st: '全部' }, rejecting = null, sel = new Set(), bulkRej = false, copying = null, shipFilter = '全部';
 
 const P = (r) => PM[r.key] || { c: r.c, m: r.m, a: r.a, n: r.n, fn: r.fn, sku: r.sku, s: r.s, box: 0 };   // 主表里删了也能用明细里的快照
-const tot = (r) => (+r.perBox || 0) * (+r.boxes || 0);
+const byBox = (r) => +r.perBox > 0 && +r.boxes > 0;
+const tot = (r) => byBox(r) ? +r.perBox * +r.boxes : (+r.qty || 0);   // 没箱规的直接填总数
 const countryOf = (rows) => rows.length ? P(rows[0]).c : '';
-const sumOf = (rows) => ({ msku: new Set(rows.map((r) => r.key)).size, boxes: rows.reduce((s, r) => s + (+r.boxes || 0), 0), qty: rows.reduce((s, r) => s + tot(r), 0) });
+const sumOf = (rows) => ({ msku: new Set(rows.map((r) => r.key)).size, boxes: rows.reduce((s, r) => s + (byBox(r) ? +r.boxes : 0), 0), qty: rows.reduce((s, r) => s + tot(r), 0) });
 const usedShips = (o) => o.split === '是' ? o.ships.map((s, i) => ({ ...s, i })).filter((s) => s.ch || s.eta || s.no) : [{ ...o.ships[0], i: 0 }];
 const statusCls = (s) => ({ '草稿': 'b-gray', '待审核': 'b-yellow', '已驳回': 'b-red', '待发货': 'b-blue' }[s]);
 function grouped(rows) { const order = [], g = {}; rows.forEach((r) => { if (!g[r.key]) { g[r.key] = []; order.push(r.key); } g[r.key].push(r); }); return order.flatMap((k) => g[k]); }
@@ -502,7 +504,7 @@ async function approve(o) {
     const p = P(r), poId = r.po && poRec[r.po + '|' + p.sku];
     const memo = [r.po && !poId ? `采购单 ${r.po}（采购合同表没找到）` : '', r.note, o.note].filter(Boolean).join(' / ');
     const f = fieldsOf('plan', {
-      '日期': o.shipDate, '发货国家': p.c, '计划SKU': p.sku, '总数': tot(r), '每箱数量-手改': +r.perBox !== +(PM[r.key]?.box) ? +r.perBox : null,
+      '日期': o.shipDate, '发货国家': p.c, '计划SKU': p.sku, '总数': tot(r), '每箱数量-手改': byBox(r) && +r.perBox !== +(PM[r.key]?.box) ? +r.perBox : null,
       '是否分仓': o.split, '备注名': `${+o.shipDate.slice(5, 7)}.${+o.shipDate.slice(8, 10)}-${p.n}${o.split === '是' ? '-分仓' : ''}`,
       '备注': memo || null, '来源': `发货指令 ${o.no}`, '指令号': o.no, '指令状态': '待发货', '渠道': chTxt || null, '预计到达': o.ships[0].eta || null,
       '采购合同': poId || null,
@@ -618,7 +620,7 @@ function editorHTML(S, scope) {
     <button class="btn ${pick.scope === scope && pick.mode === 'po' ? '' : 'ghost'} po-btn" data-poimport>📦 按采购单导入</button></div>
     ${pick.scope === scope ? '<div class="pick-panel" data-pickpanel></div>' : ''}
   </div>
-  <h4>② 发货明细 <span class="hint">填箱数，总数 = 每箱数量 × 箱数。不整箱的：改每箱数量，或点「另起一行」填尾箱</span></h4>
+  <h4>② 发货明细 <span class="hint">有箱规的填箱数，总数 = 每箱 × 箱数（不整箱：改每箱或「另起一行」填尾箱）；没固定箱规的（如鞋子）每箱/箱数留空，直接填总数</span></h4>
   ${S.rows.length ? `<div class="lines"><table class="tbl"><thead><tr>
     <th>品名</th><th>国家</th><th>ASIN</th><th>MSKU</th><th>FNSKU</th><th>每箱数量</th><th>箱数</th><th>总数</th><th>采购单号 <span class="hint">(可空)</span></th><th>备注</th><th></th></tr></thead>
     <tbody>${rowsHTML(S, err)}</tbody></table></div>` : '<div class="empty">先在上面选产品</div>'}
@@ -640,6 +642,10 @@ function editorHTML(S, scope) {
   <label class="f" style="margin-top:12px"><span>备注（给审核人）</span><textarea data-o="note" rows="2" placeholder="如：圣诞前要到；外箱贴警告标">${esc(S.note)}</textarea></label>`;
 }
 
+function totInput(r, err) {
+  return byBox(r) ? `<input class="num tot-auto" data-k="qty" value="${tot(r)}" readonly title="每箱 × 箱数 自动算">`
+                  : `<input class="num ${err && !(tot(r) > 0) ? 'miss' : ''}" data-k="qty" value="${esc(r.qty ?? '')}" placeholder="填总数">`;
+}
 function rowsHTML(S, err) {
   const rows = grouped(S.rows);
   return rows.map((r, i) => {
@@ -648,9 +654,9 @@ function rowsHTML(S, err) {
                        : `<td colspan="5" class="hint" style="padding-left:24px">↳ 同一 MSKU 另一种装箱</td>`;
     const pos = poBySku[p.sku] || [];
     return `<tr data-r="${r.id}" class="${first ? '' : 'cont'} ${last ? 'grp-end' : ''}">${info}
-      <td><input class="num ${!(+r.perBox > 0) ? 'miss' : ''}" data-k="perBox" value="${esc(r.perBox)}" placeholder="主表空，手填">${PM[r.key] && +r.perBox !== +PM[r.key].box && PM[r.key].box ? `<div class="hint">主表 ${PM[r.key].box}</div>` : ''}</td>
-      <td><input class="num ${err && !(+r.boxes > 0) ? 'miss' : ''}" data-k="boxes" value="${esc(r.boxes)}" placeholder="箱数"></td>
-      <td class="total" data-total>${tot(r) ? tot(r).toLocaleString() : '—'}</td>
+      <td><input class="num" data-k="perBox" value="${esc(r.perBox)}" placeholder="可空">${PM[r.key] && +r.perBox !== +PM[r.key].box && PM[r.key].box ? `<div class="hint">主表 ${PM[r.key].box}</div>` : ''}</td>
+      <td><input class="num" data-k="boxes" value="${esc(r.boxes)}" placeholder="可空"></td>
+      <td class="total">${totInput(r, err)}</td>
       <td><input class="po" data-k="po" list="po-${r.id}" value="${esc(r.po)}" placeholder="${pos.length ? '可选/可空' : '可空'}">
         <datalist id="po-${r.id}">${pos.map((o) => `<option value="${esc(o.po)}">下单${md(o.d)} · 共${o.q} · ${esc(o.st)}</option>`).join('')}</datalist></td>
       <td><input class="rk" data-k="note" value="${esc(r.note)}" placeholder="备注"></td>
@@ -706,7 +712,7 @@ function renderPoPick() {
   panel.innerHTML = `<div class="po-top"><span>导入到</span><span class="seg">${['美国', '加拿大'].map((x) => `<button data-pocountry="${x}" class="${c === x ? 'on' : ''}" ${locked && locked !== x ? 'disabled' : ''}>${x}</button>`).join('')}</span>
       <span class="hint">${locked ? `明细里已是${locked}产品，只能导入${locked}` : '同一个 SKU 美国/加拿大各有 MSKU，先选国家'}；上面搜索框可搜采购单号/品名/SKU</span></div>` +
     `<div class="pick-list">${html || `<div class="empty" style="margin:10px">${POS.length ? '没有匹配的采购单' : (LOADERR.po ? '读不到采购合同表（应用权限没开）' : '没有本组产品的采购单')}</div>`}</div>` +
-    `<div class="pick-foot"><span class="hint">共 ${list.length} 张 · 已勾 <b>${pick.poSel.size}</b> 张${n ? `（点完成：加入 ${n} 个产品，按 剩余发货数 ÷ 每箱 自动填箱数，零头另起一行）` : ''}</span>
+    `<div class="pick-foot"><span class="hint">共 ${list.length} 张 · 已勾 <b>${pick.poSel.size}</b> 张${n ? `（点完成：加入 ${n} 个产品，按 剩余发货数 ÷ 每箱 自动填箱数，零头另起一行；没箱规的直接填总数）` : ''}</span>
      <span style="display:flex;gap:6px"><button class="btn sm ghost" data-pickcancel>取消</button><button class="btn sm" data-podone>完成</button></span></div>`;
   const pl = panel.querySelector('.pick-list'); if (pl) pl.scrollTop = keep;
 }
@@ -723,7 +729,7 @@ function applyPoImport(S) {
         const full = Math.floor(qty / box), tail = qty - full * box;
         if (full) { const r = newRow(p); r.boxes = full; r.po = g.po; S.rows.push(r); }
         if (tail) { const r = newRow(p, tail); r.boxes = 1; r.po = g.po; r.note = '尾箱'; S.rows.push(r); }
-      } else { const r = newRow(p); r.po = g.po; r.note = `采购单 ${qty} 件，主表没每箱数量`; S.rows.push(r); }
+      } else { const r = newRow(p); r.po = g.po; r.qty = qty; S.rows.push(r); }
       added++;
     }
   }
@@ -738,7 +744,7 @@ function applyPick(S) {
 function problems(o) {
   const e = [], c = countryOf(o.rows);
   if (!o.rows.length) e.push('还没选产品');
-  o.rows.forEach((r) => { if (!(+r.boxes > 0)) e.push(`${P(r).m} 没填箱数`); if (!(+r.perBox > 0)) e.push(`${P(r).m} 每箱数量为空`); });
+  o.rows.forEach((r) => { if (!(tot(r) > 0)) e.push(`${P(r).m} 没填数量（填 每箱×箱数，或直接填总数）`); });
   if (!o.shipDate) e.push('没填发货日期');
   if (!o.ships[0].eta) e.push(o.split === '是' ? '至少填货件1的预计到达' : '没填预计到达');
   usedShips(o).forEach((s) => {
@@ -859,7 +865,7 @@ function orderCard(o, mode) {
     <div class="lines"><table class="tbl"><thead><tr><th>品名</th><th>ASIN</th><th>MSKU</th><th>FNSKU</th><th>每箱</th><th>箱数</th><th>总数</th><th>采购单号</th>${mode === 'ship' ? '<th>货件号</th>' : ''}<th>备注</th></tr></thead><tbody>
     ${rows.map((r, i) => { const p = P(r), first = i === 0 || rows[i - 1].key !== r.key, fba = fbaOf(r);
       return `<tr class="${first ? '' : 'cont'}">${first ? `<td>${esc(p.n)}</td><td class="mono">${p.a}</td><td class="mono">${esc(p.m)}</td><td class="mono">${esc(p.fn)}</td>` : '<td colspan="4" class="hint" style="padding-left:24px">↳ 另一种装箱</td>'}
-        <td>${esc(r.perBox)}</td><td>${esc(r.boxes)}</td><td><b>${tot(r).toLocaleString()}</b></td><td class="mono">${esc(r.po) || '<span class="hint">—</span>'}</td>
+        <td>${byBox(r) ? esc(r.perBox) : '—'}</td><td>${byBox(r) ? esc(r.boxes) : '—'}</td><td><b>${tot(r).toLocaleString()}</b></td><td class="mono">${esc(r.po) || '<span class="hint">—</span>'}</td>
         ${mode === 'ship' ? `<td>${fba ? `<b class="mono">${esc(fba)}</b>` : `<span class="badge b-gray">${LOADERR.plan ? '读不到' : '未建'}</span>`}</td>` : ''}<td>${esc(r.note)}</td></tr>`; }).join('')}
     </tbody></table></div>
     ${shipCards(o, (x) => [...new Set(o.rows.map((r) => r.planRec && planById[r.planRec]?.['货件' + (x.i + 1)]).filter(Boolean))].join(' / '))}
@@ -874,7 +880,7 @@ function confirmSubmit(os) {
     return `<div class="cf-order"><div class="cf-head"><b>${esc(o.no)}</b><span>${countryOf(o.rows)}</span><span>开船 <span class="chk" style="background:#fff">${md(o.shipDate)}</span></span><span>${o.split === '是' ? '分仓 ' + usedShips(o).length + ' 个货件' : '不分仓'}</span><span>${s.boxes} 箱 · ${s.qty.toLocaleString()} 件</span></div>
       <div class="lines"><table class="tbl"><thead><tr><th>品名</th><th>MSKU</th><th>FNSKU</th><th>SKU</th><th>每箱 × 箱数</th><th>数量</th><th>采购单号</th></tr></thead><tbody>
       ${grouped(o.rows).map((r) => { const p = P(r); return `<tr><td>${esc(p.n)}</td><td class="mono">${esc(p.m)}</td><td class="mono"><span class="chk">${esc(p.fn) || '空'}</span></td>
-        <td class="mono"><span class="chk">${esc(p.sku) || '空'}</span></td><td>${esc(r.perBox)} × ${esc(r.boxes)}</td><td><span class="chk">${tot(r).toLocaleString()}</span></td><td class="mono">${esc(r.po) || '—'}</td></tr>`; }).join('')}
+        <td class="mono"><span class="chk">${esc(p.sku) || '空'}</span></td><td>${byBox(r) ? `${esc(r.perBox)} × ${esc(r.boxes)}` : '<span class="hint">直接填总数</span>'}</td><td><span class="chk">${tot(r).toLocaleString()}</span></td><td class="mono">${esc(r.po) || '—'}</td></tr>`; }).join('')}
       </tbody></table></div>
       <div class="cf-ships">${usedShips(o).map((x) => `<span>${shipLabel(o, x.i)}：${esc(x.ch) || '渠道未定'} · <span class="chk">${md(x.eta)}</span> 到</span>`).join('')}</div></div>`;
   }).join('');
@@ -1023,8 +1029,8 @@ main.addEventListener('input', (e) => {
   const tr = t.closest('tr[data-r]');
   if (tr && t.dataset.k) {
     const r = S.rows.find((x) => x.id === +tr.dataset.r); r[t.dataset.k] = t.value;
-    if (t.dataset.k === 'perBox' || t.dataset.k === 'boxes') {
-      tr.querySelector('[data-total]').textContent = tot(r) ? tot(r).toLocaleString() : '—';
+    if (t.dataset.k === 'perBox' || t.dataset.k === 'boxes' || t.dataset.k === 'qty') {
+      if (t.dataset.k !== 'qty') tr.querySelector('td.total').innerHTML = totInput(r);
       const s = sumOf(S.rows), box = scope === 'new' ? main : t.closest('.order');
       box.querySelectorAll('[data-sumboxes]').forEach((x) => x.textContent = s.boxes);
       box.querySelectorAll('[data-sumqty]').forEach((x) => x.textContent = s.qty.toLocaleString());
