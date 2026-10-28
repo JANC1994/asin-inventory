@@ -266,11 +266,15 @@ const DATA = {};
 const withTimeout = (pr, ms, what) => Promise.race([pr, new Promise((_, rej) => setTimeout(() => rej(new Error(`${what} 超过 ${ms / 1000} 秒没响应`)), ms))]);
 const PROG = {};   // key → 进度文字（加载界面显示）
 let REFRESHING = false;   // 「刷新数据」/自动化触发后的重读：不盖掉当前页面
+let FAILED = false;
+// 插件页只能嵌在飞书应用里用：直接用浏览器打开没有飞书宿主，SDK 调用永远不回
+const OUTSIDE = !window.__SNAPSHOT__ && (() => { try { return window.top === window; } catch (e) { return false; } })();
 function showProg() {
-  if (READY.apply || REFRESHING) return;
+  if (READY.apply || REFRESHING || FAILED) return;
   const t = ((Date.now() - T0) / 1000).toFixed(1);
   $('main').innerHTML = `<div class="card"><h3>正在读取多维表数据… <small>${t} 秒</small></h3><table class="tbl"><tbody>${Object.entries(PROG).map(([k, v]) =>
     `<tr><td style="width:180px">${esc(k)}</td><td>${esc(v)}</td></tr>`).join('')}</tbody></table>
+    ${OUTSIDE ? `<div class="warnbox" style="background:var(--red-soft);color:var(--red)">你是直接用浏览器打开的这个网址——插件页要在飞书应用里打开才读得到数据：打开应用「灯具组-全流程」→ 采购流程页面（或在页面里 + 添加组件 → 插件 → 添加自定义插件，填这个网址）。</div>` : ''}
     ${Date.now() - T0 > 20000 ? '<div class="warnbox" style="margin-top:10px">超过 20 秒了，请把这块截图发回；下面在跑接口诊断…</div><div id="slowDiag"></div>' : ''}</div>`;
 }
 const T0 = Date.now();
@@ -1047,7 +1051,8 @@ async function boot(again) {
       if (!again) await Promise.all(Object.keys(TABLES).map(readTable));
       afterLoad(again); return;
     }
-    const slowTimer = setInterval(async () => {
+    clearInterval(boot.slowTimer);
+    const slowTimer = boot.slowTimer = setInterval(async () => {
       if (READY.apply && READY.pm) { clearInterval(slowTimer); return; }
       showProg();
       if (Date.now() - T0 > 20000 && SDK && !boot.diagOnce) { boot.diagOnce = true; try { const d = await diagnose(); const el = document.getElementById('slowDiag'); if (el) el.innerHTML = d; boot.diagHtml = d; } catch (e) { /* 留着进度表 */ } }
@@ -1070,9 +1075,10 @@ async function boot(again) {
     if (/[?&]debug\b/.test(location.search)) $('main').insertAdjacentHTML('afterbegin', `<div class="card"><h3>加载耗时</h3>${Object.entries(PROG).map(([k, v]) => `${esc(k)}：${esc(v)}`).join('<br>')}</div>` + await diagnose());
     await mg;
   } catch (e) {
+    clearInterval(boot.slowTimer); FAILED = true;
     const msg = esc(e && e.message ? e.message : e);
     if (FROM_CACHE || REFRESHING) { REFRESHING = false; toast('数据更新失败，页面显示的还是之前的数据：' + msg, 8000); render(); return; }
-    $('main').innerHTML = `<div class="card err">加载失败：${msg}</div><div class="card">${Object.entries(PROG).map(([k, v]) => `${esc(k)}：${esc(v)}`).join('<br>')}</div>`;
+    $('main').innerHTML = `<div class="card err">加载失败：${msg}${OUTSIDE ? '<br><br>原因：这个网址是直接用浏览器打开的。插件页要在飞书应用「灯具组-全流程」里打开（采购流程页面里的插件），才读得到多维表。' : ''}</div><div class="card">${Object.entries(PROG).map(([k, v]) => `${esc(k)}：${esc(v)}`).join('<br>')}</div>`;
     if (SDK) { try { $('main').insertAdjacentHTML('beforeend', boot.diagHtml || await diagnose()); } catch (e2) { /* 保留报错 */ } }
   }
 }
