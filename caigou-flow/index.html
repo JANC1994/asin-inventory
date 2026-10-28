@@ -74,7 +74,7 @@
   .card h3 small { font-weight: normal; color: var(--sub); font-size: 12px; }
   table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
   .tbl th, .tbl td { padding: 6px 8px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; vertical-align: middle; }
-  .tbl th { color: var(--sub); font-weight: normal; background: #fafbfc; font-size: 12px; position: sticky; top: 0; z-index: 2; }
+  .tbl th { color: #fff; font-weight: 500; background: var(--blue); font-size: 12px; position: sticky; top: 0; z-index: 2; border-bottom-color: var(--blue); }
   .tbl td.r, .tbl th.r { text-align: right; }
   .tbl tr.locked td { background: #fafafa; color: var(--sub); }
   .tbl tr.picked td { background: #f3f7ff; }
@@ -337,7 +337,7 @@ const BUYERS = () => {
 
 // ===== ⑤ 状态 =====
 let VIEW = lsGet('caigou_view', 'apply');
-const F = { line: 'all', store: '', q: '', spu: '__all', approve: 'todo', track: 'open', person: '' };
+const F = { line: lsGet('caigou_line', 'four'), store: '', q: '', spu: '__all', approve: 'todo', track: 'open', person: '' };
 let DRAFT = lsGet('caigou_draft_v1', {});        // rid → {qty, 收货地, 是否开票, 可开发票类型, 有无运费, SKU备注_采购}（只存本浏览器）
 let BATCH_NOTE = lsGet('caigou_note_v1', '');
 const saveDraft = () => { lsSet('caigou_draft_v1', DRAFT); lsSet('caigou_note_v1', BATCH_NOTE); };
@@ -360,19 +360,22 @@ function buildPm() {
   const clean = (s) => String(s || '').replace(/[​\s]+$/g, '').replace(/^\s+/, '');
   for (const r of DATA.pm || []) {
     const k = clean(r['领星SKU']); if (!k) continue;
-    const o = PMX.get(k) || { box: 0, season: '' };
+    const o = PMX.get(k) || { box: 0, season: '', spu: '' };
+    if (!o.spu && r['SPU']) o.spu = String(r['SPU']).trim();
     if (!o.box && n0(r['单箱数量']) > 0) o.box = n0(r['单箱数量']);
     if (!o.season && r['销售季分类']) o.season = r['销售季分类'];
     PMX.set(k, o);
   }
+  // SPU 一律以产品主表为准（申请表里手填的 SPU 有写错的）；主表没登记的才用申请表自己的
+  for (const r of DATA.apply || []) { const p = PMX.get(clean(r['父ASIN/SKU'])) || {}; r._spu = p.spu || String(r['SPU'] || '').trim(); r._spuFix = !!(p.spu && p.spu !== String(r['SPU'] || '').trim()); }
   const vote = new Map();
   for (const r of DATA.apply || []) {
-    const s = (PMX.get(clean(r['父ASIN/SKU'])) || {}).season, spu = r['SPU'];
+    const s = (PMX.get(clean(r['父ASIN/SKU'])) || {}).season, spu = r._spu;
     if (s && spu) { const m = vote.get(spu) || {}; m[s] = (m[s] || 0) + 1; vote.set(spu, m); }
   }
   for (const r of DATA.pm || []) if (r['SPU'] && r['销售季分类']) { const m = vote.get(r['SPU']) || {}; m[r['销售季分类']] = (m[r['销售季分类']] || 0) + 1; vote.set(r['SPU'], m); }
   for (const [spu, m] of vote) SPU_SEASON.set(spu, Object.entries(m).sort((a, b) => b[1] - a[1])[0][0]);
-  for (const r of DATA.apply || []) { const p = PMX.get(clean(r['父ASIN/SKU'])) || {}; r._box = p.box || 0; r._season = p.season || SPU_SEASON.get(r['SPU']) || ''; }
+  for (const r of DATA.apply || []) { const p = PMX.get(clean(r['父ASIN/SKU'])) || {}; r._box = p.box || 0; r._season = p.season || SPU_SEASON.get(r._spu) || ''; }
 }
 // 分组：灯具四季品 → 灯具季节品（季节品/节日品）→ 其他（主表没登记，多为包材）→ 鞋类
 const GROUPS = [['four', '灯具 · 四季品'], ['season', '灯具 · 季节品'], ['other', '其他（产品主表没登记，多为包材/配件）'], ['shoe', '鞋类']];
@@ -387,8 +390,7 @@ function shoeKey(sku) {
 function skuCmp(a, b) {
   const ka = kindOf(a), kb = kindOf(b);
   if (ka !== kb) return GORD[ka] - GORD[kb];
-  if (ka === 'season' && a._season !== b._season) return a._season.localeCompare(b._season, 'zh');
-  const s = (a['SPU'] || '').localeCompare(b['SPU'] || '', 'zh'); if (s) return s;
+  const s = (a._spu || '').localeCompare(b._spu || '', 'zh'); if (s) return s;
   if (ka === 'shoe') {
     const x = shoeKey(a['父ASIN/SKU']), y = shoeKey(b['父ASIN/SKU']);
     return x.color.localeCompare(y.color) || x.tail.localeCompare(y.tail) || x.size - y.size;
@@ -473,7 +475,8 @@ function renderTop() {
   let f = '';
   if (VIEW === 'apply') {
     const stores = uniq((DATA.apply || []).map((r) => r['店铺'])).sort();
-    f = `<div class="chips" id="lineChips">${[['all', '全部'], ['lamp', '灯具'], ['shoe', '鞋类']].map(([k, t]) => `<button data-k="${k}" class="${F.line === k ? 'on' : ''}">${t}</button>`).join('')}</div>
+    const cnt = (k) => (DATA.apply || []).filter((r) => kindOf(r) === k).length;
+    f = `<div class="chips" id="lineChips">${[['four', '四季品'], ['season', '季节品'], ['shoe', '鞋类'], ['other', '未分类']].filter(([k]) => k !== 'other' || cnt(k)).map(([k, t]) => `<button data-k="${k}" class="${F.line === k ? 'on' : ''}" title="${k === 'other' ? '产品主表没登记的 SKU（多为包材/配件）' : ''}">${t} ${cnt(k)}</button>`).join('')}</div>
       <select id="fStore"><option value="">全部店铺</option>${stores.map((s) => `<option ${F.store === s ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select>
       <input id="fQ" placeholder="搜 SKU / 品名 / 父ASIN" value="${esc(F.q)}" style="width:200px">
       <span class="hint">灰色行 = 审批中，不能重复申请；数量填了就算选中</span>`;
@@ -489,7 +492,7 @@ function renderTop() {
       <span class="hint">数据来自「采购计划管理表」（领星建单后回流）；逾期 = 预计到货日已过、还没全部到货</span>`;
   }
   $('filters').innerHTML = f;
-  const lc = $('lineChips'); if (lc) lc.querySelectorAll('button').forEach((b) => { b.onclick = () => { F.line = b.dataset.k; F.spu = '__all'; render(); }; });
+  const lc = $('lineChips'); if (lc) lc.querySelectorAll('button').forEach((b) => { b.onclick = () => { F.line = b.dataset.k; lsSet('caigou_line', F.line); F.spu = '__all'; render(); }; });
   const ap = $('apChips'); if (ap) ap.querySelectorAll('button').forEach((b) => { b.onclick = () => { F.approve = b.dataset.k; render(); }; });
   if ($('fStore')) $('fStore').onchange = (e) => { F.store = e.target.value; F.spu = '__all'; render(); };
   if ($('fPerson')) $('fPerson').onchange = (e) => { F.person = e.target.value; render(); };
@@ -501,7 +504,7 @@ function renderCart() {
   if (VIEW !== 'apply' || !p.length) { $('cart').innerHTML = ''; return; }
   const total = p.reduce((a, r) => a + n0(draftOf(r).qty), 0);
   $('cart').innerHTML = `<div class="cart">本次申请 <b>${p.length}</b> 个 SKU · 合计 <b>${fmtN(total)}</b> 件
-    <span class="hint">（${esc(uniq(p.map((r) => r['SPU'] || '未填SPU')).slice(0, 4).join('、'))}${uniq(p.map((r) => r['SPU'])).length > 4 ? ' 等' : ''}）</span>
+    <span class="hint">（${esc(uniq(p.map((r) => r._spu || '未填SPU')).slice(0, 4).join('、'))}${uniq(p.map((r) => r._spu)).length > 4 ? ' 等' : ''}）</span>
     <button class="link" id="cartOnly">只看已选</button><button class="link" id="cartClear" style="color:var(--red)">清空</button>
     <button class="btn pri" id="cartGo" style="margin-left:auto">核对并提交申请 →</button></div>`;
   $('cartOnly').onclick = () => { F.spu = '__picked'; render(); };
@@ -510,16 +513,16 @@ function renderCart() {
 }
 
 // ===== ⑦ ① 发起申请 =====
-const qMatch = (r) => { const q = F.q.trim().toLowerCase(); if (!q) return true; return [r['父ASIN/SKU'], r['品名'], r['父ASIN'], r['SPU']].some((x) => String(x || '').toLowerCase().includes(q)); };
+const qMatch = (r) => { const q = F.q.trim().toLowerCase(); if (!q) return true; return [r['父ASIN/SKU'], r['品名'], r['父ASIN'], r._spu].some((x) => String(x || '').toLowerCase().includes(q)); };
 function applyPool() {
-  return (DATA.apply || []).filter((r) => (F.line === 'all' || (F.line === 'shoe') === isShoe(r)) && (!F.store || r['店铺'] === F.store) && qMatch(r));
+  return (DATA.apply || []).filter((r) => kindOf(r) === F.line && (!F.store || r['店铺'] === F.store) && qMatch(r));
 }
 function renderApply() {
   const pool = applyPool();
   const spus = new Map();
-  // SPU 按 分组 + SPU 名 归类（同名 SPU 分属两组时各算各的）
-  for (const r of pool) { const k = kindOf(r) + '|' + (r['SPU'] || '（未填 SPU）'); if (!spus.has(k)) spus.set(k, []); spus.get(k).push(r); }
-  const list = [...spus].sort((a, b) => skuCmp(a[1][0], b[1][0]) || a[0].localeCompare(b[0], 'zh'));
+  // 顶部已按 四季品/季节品/鞋类 分好，左栏只按 SPU 名排（SPU 取产品主表）
+  for (const r of pool) { const k = r._spu || '（未填 SPU）'; if (!spus.has(k)) spus.set(k, []); spus.get(k).push(r); }
+  const list = [...spus].sort((a, b) => a[0].localeCompare(b[0], 'zh'));
   const nPick = picked().length;
   const shortSeason = (s) => String(s || '').replace(/^(季节品|节日品)-/, '');
   const it = (k, label, rows, tag) => {
@@ -527,14 +530,8 @@ function renderApply() {
     return `<div class="it ${F.spu === k ? 'on' : ''}" data-k="${esc(k)}"><span class="nm">${esc(label)}</span>${tag ? `<span class="badge b-gray" style="padding:0 4px;line-height:16px;font-size:11px">${esc(tag)}</span>` : ''}
       ${dr ? `<span class="d" style="background:var(--blue);color:#fff">${dr}</span>` : ''}${lk ? `<span class="d" style="background:var(--yellow-soft);color:#b25e00" title="审批中">${lk}</span>` : ''}<span class="n">${rows.length}</span></div>`;
   };
-  const sideGroups = GROUPS.map(([g, title]) => {
-    const items = list.filter(([k]) => k.startsWith(g + '|'));
-    if (!items.length) return '';
-    const n = items.reduce((a, [, rs]) => a + rs.length, 0);
-    return `<div class="grp">${esc(title)} · ${items.length} 个 SPU / ${n}</div>` + items.map(([k, rs]) => it(k, k.slice(g.length + 1), rs, g === 'season' ? shortSeason(rs[0]._season) : '')).join('');
-  }).join('');
-  const side = `<div class="side" id="side"><div class="grp">蓝=本次已填 · 橙=审批中</div>
-    ${it('__all', '全部', pool)}${nPick ? it('__picked', '★ 只看已选', picked()) : ''}${sideGroups}</div>`;
+  const side = `<div class="side" id="side"><div class="grp">${list.length} 个 SPU · 蓝=本次已填 · 橙=审批中</div>
+    ${it('__all', '本类全部 SKU', pool)}${nPick ? it('__picked', '★ 只看已选（全部分类）', picked()) : ''}${list.map(([k, rs]) => it(k, k, rs, F.line === 'season' ? shortSeason(rs[0]._season) : '')).join('')}</div>`;
 
   let rows = F.spu === '__all' ? pool : F.spu === '__picked' ? picked() : (spus.get(F.spu) || []);
   rows = [...rows].sort(skuCmp);
@@ -550,7 +547,7 @@ function renderApply() {
     const last = r['申请时间_采购'] ? `<div class="hint">${stateBadge(st(r))} ${fmtD(r['申请时间_采购'])}</div>` : '';
     return `<tr class="${lk ? 'locked' : ''} ${on ? 'picked' : ''}">
       <td><span class="thumb" data-img="${r._id}">${(r['图片'] || []).length ? '' : '无图'}</span></td>
-      <td><div class="mono">${esc(r['父ASIN/SKU'])}</div><div class="nm" title="${esc(r['品名'])}">${esc(r['品名'])}</div></td>
+      <td><div class="mono">${esc(r['父ASIN/SKU'])}</div><div class="nm" title="${esc(r['品名'])}">${esc(r['品名'])}</div>${r._spuFix ? `<div class="hint" style="color:#b25e00" title="页面按产品主表显示 SPU；申请表里这行写的是左边这个">表里 SPU 写的是：${esc(r['SPU'] || '空')}</div>` : ''}</td>
       <td><select class="store" data-r="${r._id}" data-k="店铺" ${lk ? 'disabled' : ''} title="默认 = 表里现在的店铺，可改">${storeOpts(draftVal(r, '店铺'))}</select>
         ${draftOf(r)?.['店铺'] != null && draftOf(r)['店铺'] !== (r['店铺'] ?? '') ? `<div class="hint" style="color:var(--yellow)">原：${esc(r['店铺'] || '空')}</div>` : `<div class="hint mono">${esc(r['父ASIN'] || '')}</div>`}</td>
       <td class="r">${fmtN(r['上次采购量'])}</td>
@@ -568,7 +565,7 @@ function renderApply() {
     <span style="margin-left:auto">收货地 = 货去哪（晋江/直发/泉州…），不是领星仓库</span></div>`;
   $('main').innerHTML = `${lists}<div class="split">${side}<div>
     <div class="card" style="padding:12px 14px">
-      <h3>${esc(F.spu === '__all' ? '全部 SKU' : F.spu === '__picked' ? '本次已选' : F.spu.split('|').slice(1).join('|'))} <small>${rows.length} 个 SKU${rows.length > LIMIT ? `，先显示 ${LIMIT} 个，搜索或选 SPU 缩小范围` : ''}</small></h3>
+      <h3>${esc(F.spu === '__all' ? '全部 SKU' : F.spu === '__picked' ? '本次已选' : F.spu)} <small>${rows.length} 个 SKU${rows.length > LIMIT ? `，先显示 ${LIMIT} 个，搜索或选 SPU 缩小范围` : ''}</small></h3>
       ${fill}
       ${shown.length ? `<div style="overflow:auto"><table class="tbl"><thead><tr><th style="width:44px"></th><th>SKU / 品名</th><th>店铺</th><th class="r">上次采购量</th><th>本次采购量</th>
         <th>收货地</th><th>开票</th><th>发票类型</th><th>有无运费</th><th>SKU 备注</th></tr></thead><tbody>${shown.map(tr).join('')}</tbody></table></div>` : '<div class="empty">没有符合条件的 SKU</div>'}
@@ -733,7 +730,7 @@ function simulate(kind, rows) {
     setTimeout(() => {
       const key = rows[0]['批次标识_采购'];
       rows.forEach((r, i) => {
-        DATA.mgmt.unshift({ _id: 'recSim' + now + i, '来源申请批次': key, '计划编号': 'PP(预览)', '关联产品sku': r['父ASIN/SKU'], '品名': r['品名'], 'SPU': r['SPU'], '采购量': n0(r['实际采购量']),
+        DATA.mgmt.unshift({ _id: 'recSim' + now + i, '来源申请批次': key, '计划编号': 'PP(预览)', '关联产品sku': r['父ASIN/SKU'], '品名': r['品名'], 'SPU': r._spu, '采购量': n0(r['实际采购量']),
           '分配采购员': (r['采购员'] || [])[0]?.name, '采购员': r['采购员'], '申请人': r['采购申请人'], '日期': Date.now(), '采购进度': '🟡 待下单', '收货地': r['收货地'], '父记录': [] });
         Object.assign(r, { '采购流程': '已生成采购计划', '上次采购量': n0(r['实际采购量']), '实际采购量': null });
       });
@@ -890,6 +887,7 @@ async function boot(again) {
     }
     if (!(again && SNAP)) await Promise.all(Object.keys(TABLES).map(readTable));
     buildPm(); whoAmI();
+    if (!['four', 'season', 'shoe', 'other'].includes(F.line)) F.line = 'four';
     if (!again && VIEW !== 'apply' && VIEW !== 'track' && VIEW !== 'approve') VIEW = 'apply';
     if (!again && batches().some((b) => PENDING.includes(b.status) && myTurn(b))) { VIEW = 'approve'; F.approve = 'todo'; }
     // 草稿里已不存在/已锁定的行清掉
