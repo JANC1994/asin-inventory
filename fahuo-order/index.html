@@ -122,6 +122,7 @@
   .batch { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12.5px; }
   .batch input { width: 56px; text-align: right; }
   .order-head input[type=checkbox] { width: 16px; height: 16px; margin: 0; }
+  .pick-err { position: sticky; top: 0; z-index: 2; background: var(--red-soft); color: var(--red); font-weight: 600; padding: 8px 12px; border-bottom: 1px solid #f9b9b7; }
   .modal { position: fixed; inset: 0; background: rgba(15,23,42,.45); z-index: 95; display: none; align-items: flex-start; justify-content: center; padding: 24px 12px; overflow: auto; }
   .modal.show { display: flex; }
   .modal-box { background: #fff; border-radius: 10px; width: min(980px, 100%); box-shadow: 0 12px 40px rgba(0,0,0,.25); }
@@ -491,11 +492,17 @@ async function reload(silent) {
 }
 
 // ================= 开船日 / 预计到达 默认值 =================
-// 下一开船日期：美国 = 今天之后最近的周三；加拿大 = 下一周（周一起）的周五
+// 下一开船日期：都是「下一周」（周一起算）的日期 —— 美国 = 下周三，加拿大 = 下周五
 function nextSail(c) {
-  const t = dn(TODAY), wd = new Date(t * DAY).getUTCDay();          // 0=周日
-  if (c === '加拿大') { const mon = (wd + 6) % 7; return ds(t + (7 - mon) + 4); }
-  return ds(t + (((3 - wd + 7) % 7) || 7));
+  const t = dn(TODAY), mon = (new Date(t * DAY).getUTCDay() + 6) % 7;   // 0=周一
+  const nextMon = t + 7 - mon;
+  return ds(nextMon + (c === '加拿大' ? 4 : 2));
+}
+// 美国分仓 5 个货件的大区；不分仓、加拿大不显示
+const REGION = ['美西', '美西', '美中', '美东', '美东'];
+function shipLabel(o, i) {
+  if (o.split !== '是') return '货件';
+  return `货件${i + 1}` + (countryOf(o.rows) === '美国' ? ` · ${REGION[i]}` : '');
 }
 // 预计到达默认 = 开船日 + 天数：分仓 5 个货件 30/30/35/45/55；不分仓 美国 35、加拿大 40
 const ETA_SPLIT = [30, 30, 35, 45, 55];
@@ -504,6 +511,8 @@ function etaOffsets(S, c) { return S.split === '是' ? ETA_SPLIT : [c === '加�
 function applyDefaults(S) {
   const c = countryOf(S.rows); if (!c) return;
   const a = S._auto || (S._auto = { ship: '', eta: [] });
+  const defSplit = c === '美国' ? '是' : '否';
+  if (!('split' in a) || S.split === a.split) { S.split = defSplit; a.split = defSplit; }
   const sail = nextSail(c);
   if (!S.shipDate || S.shipDate === a.ship) { S.shipDate = sail; a.ship = sail; }
   if (!S.shipDate) return;
@@ -546,13 +555,13 @@ function editorHTML(S, scope) {
     <tbody>${rowsHTML(S, err)}</tbody></table></div>` : '<div class="empty">先在上面选产品</div>'}
   <h4>③ 发货安排 <span class="hint">一票货同一天发；分仓的每个货件单独选渠道和预计到达，渠道可空；货件号留空，审核人建货件后回填</span></h4>
   <div class="grid">
-    <label class="f"><span>下一开船日期 <b>*</b> <span class="hint">美国=下个周三，加拿大=下周五；选产品后自动填，可改</span></span><input type="date" data-o="shipDate" value="${S.shipDate}" class="${err && !S.shipDate ? 'miss' : ''}"></label>
+    <label class="f"><span>下一开船日期 <b>*</b> <span class="hint">美国=下周三，加拿大=下周五；选产品后自动填，可改</span></span><input type="date" data-o="shipDate" value="${S.shipDate}" class="${err && !S.shipDate ? 'miss' : ''}"></label>
     <label class="f"><span>是否分仓</span><span class="seg">${['否', '是'].map((x) => `<button data-split="${x}" class="${S.split === x ? 'on' : ''}">${x}</button>`).join('')}</span></label>
   </div>
   <datalist id="ch-${scope}">${chs.map((x) => `<option value="${esc(x.n)}">${esc(x.t)} · 约${x.d || '?'}天</option>`).join('')}</datalist>
   <div class="ships">${S.ships.slice(0, n).map((s, i) => {
     const ch = chByName[s.ch], sug = ch && ch.d && S.shipDate ? ds(dn(S.shipDate) + ch.d) : '';
-    return `<div class="ship" data-i="${i}"><div class="t">${n > 1 ? '货件' + (i + 1) : '货件'}</div>
+    return `<div class="ship" data-i="${i}"><div class="t">${shipLabel(S, i)}</div>
       <span>渠道</span><input list="ch-${scope}" data-k="ch" value="${esc(s.ch)}" placeholder="可空，搜 A6 / 普船">
       <span>预计到达${i === 0 ? ' <b style="color:var(--red);font-weight:normal">*</b>' : ''}</span><input type="date" data-k="eta" value="${s.eta}" class="${err && i === 0 && !s.eta ? 'miss' : ''}">
       <span>货件号</span><input value="${esc(s.no)}" placeholder="留空，建货件后回填" readonly>
@@ -584,7 +593,7 @@ function renderPick() {
   if (!S || !panel) return;
   const c = countryOf(S.rows), q = pick.q.trim().toLowerCase(), chosen = new Set(S.rows.map((r) => r.key));
   const list = PRODS.filter((p) => !q || [p.n, p.a, p.m, p.spu, p.sku].some((x) => (x || '').toLowerCase().includes(q)));
-  panel.innerHTML = (list.slice(0, 120).map((p) => {
+  panel.innerHTML = (pick.err ? `<div class="pick-err">✘ ${esc(pick.err)}</div>` : '') + (list.slice(0, 120).map((p) => {
     const k = p.c + '|' + p.m, dis = c && p.c !== c;
     return `<div class="pick-item ${dis ? 'dis' : ''}" data-key="${esc(k)}"><input type="checkbox" ${chosen.has(k) ? 'checked' : ''} ${dis ? 'disabled' : ''}>
       <div><div class="nm">${esc(p.n)}</div><div class="sub">${p.a} · ${esc(p.m)} · ${esc(p.s)}</div></div>
@@ -674,7 +683,7 @@ function renderShip() {
 function shipCards(o, noOf) {
   return `<div class="shipcards">${usedShips(o).map((x) => {
     const no = noOf(x), d = x.eta ? dn(x.eta) - dn(TODAY) : null;
-    return `<div class="shipcard ${no ? 'built' : ''}"><div class="h">${o.split === '是' ? '货件' + (x.i + 1) : '货件'}</div>
+    return `<div class="shipcard ${no ? 'built' : ''}"><div class="h">${shipLabel(o, x.i)}</div>
       <div class="ch ${x.ch ? '' : 'none'}">${esc(x.ch) || '渠道未定'}</div>
       <div class="eta">预计到达 <b>${md(x.eta)}</b>${d != null ? ` <span class="hint">（${d >= 0 ? d + ' 天后' : '已过 ' + -d + ' 天'}）</span>` : ''}</div>
       <div class="no">${no ? `<b>${esc(no)}</b>` : '<span class="hint">货件号：未建</span>'}</div></div>`; }).join('')}</div>`;
@@ -729,12 +738,12 @@ function orderCard(o, mode) {
 function confirmSubmit(os) {
   const body = os.map((o) => {
     const s = sumOf(o.rows);
-    return `<div class="cf-order"><div class="cf-head"><b>${esc(o.no)}</b><span>${countryOf(o.rows)}</span><span>开船 ${md(o.shipDate)}</span><span>${o.split === '是' ? '分仓 ' + usedShips(o).length + ' 个货件' : '不分仓'}</span><span>${s.boxes} 箱 · ${s.qty.toLocaleString()} 件</span></div>
+    return `<div class="cf-order"><div class="cf-head"><b>${esc(o.no)}</b><span>${countryOf(o.rows)}</span><span>开船 <span class="chk" style="background:#fff">${md(o.shipDate)}</span></span><span>${o.split === '是' ? '分仓 ' + usedShips(o).length + ' 个货件' : '不分仓'}</span><span>${s.boxes} 箱 · ${s.qty.toLocaleString()} 件</span></div>
       <div class="lines"><table class="tbl"><thead><tr><th>品名</th><th>MSKU</th><th>FNSKU</th><th>SKU</th><th>每箱 × 箱数</th><th>数量</th><th>采购单号</th></tr></thead><tbody>
       ${grouped(o.rows).map((r) => { const p = P(r); return `<tr><td>${esc(p.n)}</td><td class="mono">${esc(p.m)}</td><td class="mono"><span class="chk">${esc(p.fn) || '空'}</span></td>
         <td class="mono"><span class="chk">${esc(p.sku) || '空'}</span></td><td>${esc(r.perBox)} × ${esc(r.boxes)}</td><td><span class="chk">${tot(r).toLocaleString()}</span></td><td class="mono">${esc(r.po) || '—'}</td></tr>`; }).join('')}
       </tbody></table></div>
-      <div class="cf-ships">${usedShips(o).map((x) => `<span>${o.split === '是' ? '货件' + (x.i + 1) : '货件'}：${esc(x.ch) || '渠道未定'} · ${md(x.eta)} 到</span>`).join('')}</div></div>`;
+      <div class="cf-ships">${usedShips(o).map((x) => `<span>${shipLabel(o, x.i)}：${esc(x.ch) || '渠道未定'} · <span class="chk">${md(x.eta)}</span> 到</span>`).join('')}</div></div>`;
   }).join('');
   $('mTitle').textContent = os.length > 1 ? `确认提交 ${os.length} 张发货指令` : `确认提交 ${os[0].no}`;
   $('mBody').innerHTML = body;
@@ -750,7 +759,7 @@ const main = $('main');
 const scopeOf = (el) => el.closest('[data-scope]')?.dataset.scope;
 const orderOf = (el) => ORDERS.find((o) => o.no === el.closest('[data-no]')?.dataset.no);
 const closePick = () => { pick = { scope: null, q: '' }; };
-const startEdit = (o, err) => { editNo = o.no; E = clone(o); E.rows.forEach((r) => r.id = ++rowSeq); showErr = err ? o.no : null; closePick(); };
+const startEdit = (o, err) => { editNo = o.no; E = clone(o); E._auto = { ship: null, eta: [], split: null }; E.rows.forEach((r) => r.id = ++rowSeq); showErr = err ? o.no : null; closePick(); };
 
 main.addEventListener('click', (e) => {
   const t = e.target, a = t.dataset.act, scope = scopeOf(t), S = scope && stateOf(scope);
@@ -759,13 +768,14 @@ main.addEventListener('click', (e) => {
     if (t.closest('[data-pickbox]')) { if (pick.scope !== scope) { pick = { scope, q: '' }; render(); main.querySelector(`[data-scope="${scope}"] [data-pickq]`)?.focus(); } return; }
     const it = t.closest('.pick-item');
     if (it) {
-      if (it.classList.contains('dis')) { toast('一票货只能发一个国家'); return; }
+      if (it.classList.contains('dis')) { pick.err = `美国和加拿大的产品不能建在同一张指令里：已选的是${countryOf(S.rows)}产品，${PM[it.dataset.key]?.c || ''}产品请另建一张`; renderPick(); toast(pick.err, 4000); return; }
+      pick.err = '';
       const k = it.dataset.key;
       if (S.rows.some((r) => r.key === k)) S.rows = S.rows.filter((r) => r.key !== k); else S.rows.push(newRow(PM[k]));
       render(); return;
     }
     if (t.closest('[data-pickdone]')) { closePick(); render(); return; }
-    if (t.dataset.split) { S.split = t.dataset.split; render(); return; }
+    if (t.dataset.split) { S.split = t.dataset.split; if (S._auto) S._auto.split = null; render(); return; }
     if (t.dataset.sug) { S.ships[+t.closest('.ship').dataset.i].eta = t.dataset.sug; render(); return; }
     const row = S.rows.find((r) => r.id === +t.closest('tr')?.dataset.r);
     if (a === 'splitRow') { const nr = newRow(P(row)); nr.po = row.po; S.rows.splice(S.rows.indexOf(row) + 1, 0, nr); render(); return; }
