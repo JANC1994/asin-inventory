@@ -126,25 +126,22 @@ const SDK_URLS = [new URL('./sdk/index.mjs', location.href).href,
   'https://cdn.jsdelivr.net/npm/@lark-base-open/js-sdk@1.0.2/dist/index.mjs',
   'https://unpkg.com/@lark-base-open/js-sdk@1.0.2/dist/index.mjs'];
 const BASE_TOKEN = 'JGvebyaAYapWtOslxc9cuKYXnwd';   // 灯具组-全流程
+// 10-28 起数据全部来自「出口对账」表（旧 出口退税明细/出口货件/出口采购单-曾舒婷(9.30) 三表下线）
 const TABLES = {
-  det: { id: 'tbl0F3jfCuyNB1ud', name: '出口退税明细', links: ['货件', '采购单'],
-    fields: ['合同协议号', '报关单号', '提运单号', '出口日期', '运营', '货物或应税劳务名称', '出口数量', '申报计量单位',
-      '申报金额总价c&f', '币种', 'FOB（外币）', 'FOB金额（人民币）', '发票号码', '开票日期', '发票认证', '发票稽核',
-      '退税日期', '退税金额', '回款金额（外币）', '回款日期', 'FBA货件号', '采购单号', '货件', '采购单'] },
-  ship: { id: 'tblwKDnP6SpU3ydp', name: '出口货件', links: [],
-    fields: ['货件号', '店铺', '货件名称', '发货单号', '物流商', '物流渠道', '运输方式', '发货单建单日', '发货日', '预计到仓日',
-      'FBA状态', '目的仓', '发货量', '已收量', 'FBA建单时间', 'FBA已发货时间', 'FBA接收中时间', 'FBA关闭时间', 'FBA最近更新',
-      '领星匹配', '数据更新日'] },
-  po: { id: 'tblbh0XaF0WGTfs0', name: '出口采购单', links: [],
-    fields: ['采购单号', '单据状态', '到货状态', '付款状态', '供应商', '采购员', '下单日', '预计到货日', '首次到货日', '最近到货日',
-      '采购量', '已到货量', '采购金额', '含税', '明细', '采购备注', '领星匹配'] },
-  // 以下两张只在「按合同单号」页签懒加载
-  rpo: { id: 'tblZGnfj9md5isLj', name: '出口对账-采购合同', links: [], lazy: true,
-    fields: ['采购合同', 'SKU', '名称', '数量', '已报关数量', '对账状态', '供应商', '下单日期', '到货状态', '单据状态', '归属', '含税单价', '已报关金额'] },
-  rship: { id: 'tblJO6ZnfU62ALPz', name: '出口对账-货件明细', links: ['采购合同'], lazy: true,
-    fields: ['货件编号', '采购合同', '合同协议号', '数量', '时间', '领星状态', '店铺'] },
+  dec: { id: 'tbl6VbtZoxlBbC8F', name: '出口对账-报关明细', links: ['采购合同'],   // 首表：saveConfig 第一条
+    fields: ['合同协议号', '报关单号', '报关时间', '运营', '品名', '开票数量', '单位', '开票金额', '货件编号', '采购单号', '采购合同',
+      '匹配状态', '财务表核对', '提运单号', '申报金额总价c&f', '币种', 'FOB（外币）', 'FOB金额（人民币）', '发票号码', '发票认证',
+      '退税日期', '退税金额', '回款日期'] },
+  rpo: { id: 'tblZGnfj9md5isLj', name: '出口对账-采购合同', links: [],
+    fields: ['采购合同', '1688单号', 'SKU', '名称', '数量', '已报关数量', '对账状态', '供应商', '下单日期', '到货状态', '单据状态', '归属',
+      '含税', '含税单价', '含税总价', '已报关金额', '付款状态', '采购员', '首次到货日', '最近到货日', '已到货量', '采购备注'] },
+  rship: { id: 'tblJO6ZnfU62ALPz', name: '出口对账-货件明细', links: ['采购合同'],
+    fields: ['货件编号', '采购合同', '合同协议号', '数量', '时间', '领星状态', '店铺', '渠道', '发货单号'] },
+  // 只有未完结的货件（X33 每日同步）：叠加时间线 / 预计到仓 / 收货进度
+  lg: { id: 'tblB78mpJmyfEBHZ', name: '货件物流跟踪-灯', links: [],
+    fields: ['货件号', '店铺', '货件名称', '发货单号', '物流商', '物流渠道', '运输方式', '发货单建单日', '发货日', '预计到仓日', '领星状态',
+      '目的仓', '发货量', '已收量', 'FBA建单时间', 'FBA已发货时间', 'FBA接收中时间', '数据更新日'] },
 };
-const SAVE_TABLE = 'det';
 
 // ===== ② 通用工具 =====
 const $ = (id) => document.getElementById(id);
@@ -226,7 +223,7 @@ let reconLoading = null;
 
 async function load() {
   if (window.__SNAPSHOT__) { DATA = window.__SNAPSHOT__.data; return; }
-  const keys = Object.keys(TABLES).filter((k) => !TABLES[k].lazy);
+  const keys = Object.keys(TABLES);
   const results = await Promise.all(keys.map(readTable));
   keys.forEach((k, i) => { DATA[k] = results[i]; });
 }
@@ -245,32 +242,85 @@ function shipModel(s) {
   const eta = dayOf(s['预计到仓日']);
   const late = stage >= 0 && stage < 4 && eta != null && eta < today0 ? today0 - eta : 0;
   // 状态分档：done 已完结 / red 逾期未到仓 / yellow 逾期接收中 / recv 接收中 / way 在途或待发
+  if (s._missing) return { ...s, stage: 0, late: 0, eta: null, level: 'miss', sent: 0, got: 0, dates: [] };
   const level = stage === 4 ? 'done' : stage === -1 ? 'cancel' : late && stage < 3 ? 'red' : late ? 'yellow' : stage === 3 ? 'recv' : 'way';
   const dates = [s['发货单建单日'] || s['FBA建单时间'], s['发货日'] || s['FBA已发货时间'], null, s['FBA接收中时间'], s['FBA关闭时间']];
   return { ...s, stage, late, eta, level, sent, got, dates };
 }
 const LV = { red: ['逾期未到仓', 'p-red', 0], yellow: ['逾期·接收中', 'p-yellow', 1], way: ['在途', 'p-blue', 2], recv: ['接收中', 'p-green', 3],
-  done: ['已完结', 'p-gray', 4], cancel: ['已取消', 'p-gray', 5] };
+  done: ['已完结', 'p-gray', 4], cancel: ['已取消', 'p-gray', 5], miss: ['货件号查不到', 'p-red', 6] };
+
+const shipNos = (v) => [...new Set(String(v || '').toUpperCase().match(/FBA[0-9A-Z]{6,}/g) || [])];
+const poNos = (v) => [...new Set((String(v || '').match(/P[O0]\d{9}/g) || []).map((x) => 'PO' + x.slice(2)))];
+
+// 采购单 = 采购合同表里同一 PO 的各 SKU 行汇总
+function poModel(no, lines) {
+  if (!lines || !lines.length) return { '采购单号': no, '领星匹配': '未找到' };
+  const f = lines[0], sum = (k) => lines.reduce((a, l) => a + n0(l[k]), 0);
+  const fs = lines.map((l) => dayOf(l['首次到货日'])).filter((x) => x != null);
+  const ls = lines.map((l) => dayOf(l['最近到货日'])).filter((x) => x != null);
+  return { '采购单号': no, '供应商': f['供应商'], '下单日': f['下单日期'],
+    '首次到货日': fs.length ? fmtFull(Math.min(...fs)) : null, '最近到货日': ls.length ? fmtFull(Math.max(...ls)) : null,
+    '采购量': sum('数量'), '已到货量': sum('已到货量'), '采购金额': sum('含税总价'), '含税': f['含税'], '单据状态': f['单据状态'],
+    '到货状态': f['到货状态'], '付款状态': f['付款状态'], '采购员': f['采购员'], '采购备注': f['采购备注'], '领星匹配': '找到',
+    '明细': lines.map((l) => `${l['SKU']} × ${fmtN(l['数量'])} @ ${n0(l['含税单价'])}${l['名称'] ? `（${l['名称']}）` : ''}`).join('\n') };
+}
 
 function buildModel() {
-  const ships = Object.fromEntries((DATA.ship || []).map((s) => [s._id, shipModel(s)]));
-  const pos = Object.fromEntries((DATA.po || []).map((p) => [p._id, p]));
+  // 货件：货件明细（全部货件 + 领星状态）为底；货件物流跟踪-灯（只有未完结的）叠时间线/预计到仓/收货
+  const base = {};
+  for (const r of DATA.rship || []) {
+    const no = String(r['货件编号'] || '').trim();
+    if (!no) continue;
+    const b = (base[no] ||= { '货件号': no });
+    for (const [to, from] of [['店铺', '店铺'], ['发货单号', '发货单号'], ['物流渠道', '渠道'], ['FBA状态', '领星状态'], ['FBA建单时间', '时间']]) if (!b[to] && r[from]) b[to] = r[from];
+  }
+  for (const s of DATA.lg || []) {
+    const no = String(s['货件号'] || '').trim();
+    if (!no) continue;
+    const b = (base[no] ||= { '货件号': no });
+    for (const [k, v] of Object.entries(s)) if (k !== '_id' && v != null && v !== '') b[k] = v;
+    if (s['领星状态']) b['FBA状态'] = s['领星状态'];
+    b._lg = true;
+  }
+  const ships = Object.fromEntries(Object.entries(base).map(([no, s]) => [no, shipModel({ ...s, _id: no })]));
+
+  const rpoById = Object.fromEntries((DATA.rpo || []).map((r) => [r._id, r]));
+  const by1688 = {}, poLines = new Map();
+  for (const r of DATA.rpo || []) {
+    if (r['1688单号']) by1688[String(r['1688单号'])] = r['采购合同'];
+    if (!r['采购合同']) continue;
+    if (!poLines.has(r['采购合同'])) poLines.set(r['采购合同'], []);
+    poLines.get(r['采购合同']).push(r);
+  }
+  const pos = {};
   const byC = new Map();
-  for (const d of DATA.det || []) {
+  for (const raw of DATA.dec || []) {
+    // 报关明细 → 页面沿用的字段名
+    const d = { ...raw, '货物或应税劳务名称': raw['品名'], '出口数量': raw['开票数量'], '申报计量单位': raw['单位'],
+      '出口日期': raw['报关时间'], 'FBA货件号': raw['货件编号'] };
     const k = d['合同协议号'] || '(无合同号)';
     if (!byC.has(k)) byC.set(k, { no: k, lines: [], ships: new Set(), pos: new Set() });
     const c = byC.get(k);
     c.lines.push(d);
-    (d['货件'] || []).forEach((id) => ships[id] && c.ships.add(id));
-    (d['采购单'] || []).forEach((id) => pos[id] && c.pos.add(id));
+    d._ships = shipNos(d['货件编号']);
+    for (const no of d._ships) {
+      if (!ships[no]) ships[no] = shipModel({ '货件号': no, _id: no, _missing: true });
+      c.ships.add(no);
+    }
+    // 采购单：匹配程序挂的采购合同 + 采购单号栏里的 PO 号 / 1688 单号
+    d._pos = [...new Set([...(d['采购合同'] || []).map((id) => rpoById[id]?.['采购合同']), ...poNos(d['采购单号']),
+      ...(String(d['采购单号'] || '').match(/\d{15,}/g) || []).map((x) => by1688[x])].filter(Boolean))];
+    for (const no of d._pos) { pos[no] ||= poModel(no, poLines.get(no)); c.pos.add(no); }
   }
   const contracts = [...byC.values()].map((c) => {
     const f = c.lines[0];
     const sl = [...c.ships].map((id) => ships[id]);
-    const worst = sl.length ? sl.reduce((a, s) => (LV[s.level][2] < LV[a][2] ? s.level : a), 'cancel') : 'way';
+    const real = sl.filter((s) => s.level !== 'miss');
+    const worst = real.length ? real.reduce((a, s) => (LV[s.level][2] < LV[a][2] ? s.level : a), 'cancel') : sl.length ? 'miss' : 'way';
     const exp = dayOf(f['出口日期']);
     return {
-      ...c, ships: sl, pos: [...c.pos].map((id) => pos[id]), level: worst,
+      ...c, ships: sl, pos: [...c.pos].map((no) => pos[no]), level: worst,
       decl: f['报关单号'], bl: f['提运单号'], exp, op: [...new Set(c.lines.map((x) => x['运营']).filter(Boolean))].join('、'),
       cur: f['币种'], fob: c.lines.reduce((a, x) => a + n0(x['FOB（外币）']), 0), fobCny: c.lines.reduce((a, x) => a + n0(x['FOB金额（人民币）']), 0),
       inv: c.lines.filter((x) => x['发票号码']).length, refund: c.lines.reduce((a, x) => a + n0(x['退税金额']), 0),
@@ -278,17 +328,11 @@ function buildModel() {
       maxLate: Math.max(0, ...sl.map((s) => s.late)),
     };
   });
-  // 货件 → 所属合同 / 采购单（反查）
+  // 货件 → 所属合同 / 采购单（反查；posExact = 明细行上实际挂的采购单）
   const shipRefs = {};
-  for (const c of contracts) for (const s of c.ships) {
-    const r = (shipRefs[s._id] ||= { contracts: new Set(), pos: new Set() });
-    r.contracts.add(c.no); c.pos.forEach((p) => r.pos.add(p['采购单号']));
-  }
-  // 精确到明细行：货件实际挂的采购单
-  for (const d of DATA.det || []) for (const sid of d['货件'] || []) {
-    if (!shipRefs[sid]) continue;
-    shipRefs[sid].posExact ||= new Set();
-    (d['采购单'] || []).forEach((pid) => pos[pid] && shipRefs[sid].posExact.add(pos[pid]['采购单号']));
+  for (const c of contracts) for (const d of c.lines) for (const sid of d._ships) {
+    const r = (shipRefs[sid] ||= { contracts: new Set(), pos: new Set(), posExact: new Set() });
+    r.contracts.add(c.no); c.pos.forEach((p) => r.pos.add(p['采购单号'])); d._pos.forEach((no) => r.posExact.add(no));
   }
   return { ships, pos, contracts, shipRefs };
 }
@@ -302,7 +346,7 @@ function fillFilters() {
     $('fOp').value = UI.op; $('fMonth').value = UI.month;
     return;
   }
-  const ops = [...new Set((DATA.det || []).map((d) => d['运营']).filter(Boolean))].sort();
+  const ops = [...new Set((DATA.dec || []).map((d) => d['运营']).filter(Boolean))].sort();
   $('fOp').innerHTML = '<option value="">全部运营</option>' + ops.map((o) => `<option>${esc(o)}</option>`).join('');
   const months = [...new Set(M.contracts.map((c) => c.exp != null ? fmtFull(c.exp).slice(0, 7) : '').filter(Boolean))].sort().reverse();
   $('fMonth').innerHTML = '<option value="">全部出口月份</option>' + months.map((m) => `<option>${m}</option>`).join('');
@@ -345,8 +389,8 @@ function shipBox(s) {
   return `<div class="box"><div class="t"><b>${esc(s['货件号'])}</b><span class="pill ${lv[1]}">${lv[0]}${s.late ? ` ${s.late}天` : ''}</span></div>
     <div class="s" title="${esc(s['货件名称'])}">${esc(s['店铺'] || '')} → ${esc(s['目的仓'] || '—')}　${esc(s['物流商'] || '')} ${esc(s['物流渠道'] || '')} ${esc(s['运输方式'] || '')}</div>
     ${stepsHtml(s)}
-    <div class="s">收货 ${fmtN(s.got)} / ${fmtN(s.sent)}（${pct}%）　发货单 ${esc(s['发货单号'] || '—')}　FBA ${esc(s['FBA状态'] || '—')}${s['FBA最近更新'] ? ` · 更新 ${esc(String(s['FBA最近更新']).slice(5))}` : ''}</div>
-    <div class="bar2"><i style="width:${pct}%"></i></div></div>`;
+    <div class="s">${s._lg ? `收货 ${fmtN(s.got)} / ${fmtN(s.sent)}（${pct}%）　` : ''}发货单 ${esc(s['发货单号'] || '—')}　FBA ${esc(s['FBA状态'] || '—')}${s._missing ? '　领星和货件明细里都没有这个货件号（多半是财务表录错）' : ''}</div>
+    ${s._lg ? `<div class="bar2"><i style="width:${pct}%"></i></div>` : ''}</div>`;
 }
 function poBox(p) {
   const real = n0(p['采购量']), got = n0(p['已到货量']);
@@ -374,7 +418,7 @@ function contractCard(c) {
       <div class="col"><h4><span>报关明细</span><span>${n} 行</span></h4>
         <table class="mini"><colgroup><col style="width:38%"><col style="width:20%"><col style="width:22%"><col style="width:20%"></colgroup>
         <tr><th>品名</th><th class="r">数量</th><th class="r">申报金额</th><th>发票</th></tr>
-        ${c.lines.map((x) => `<tr title="货件 ${esc(x['FBA货件号'])}｜采购单 ${esc(x['采购单号'])}"><td>${esc(x['货物或应税劳务名称'])}</td>
+        ${c.lines.map((x) => `<tr title="货件 ${esc(x['FBA货件号'])}｜采购单 ${esc(x['采购单号'])}｜匹配 ${esc(x['匹配状态'] || '—')}｜财务表 ${esc(x['财务表核对'] || '—')}"><td>${esc(x['货物或应税劳务名称'])}</td>
           <td class="r">${fmtN(x['出口数量'])}${esc(x['申报计量单位'] || '')}</td><td class="r">${fmtN(x['申报金额总价c&f'], 2)}</td>
           <td>${x['发票号码'] ? `<span class="pill p-green">${esc(x['发票认证'] || '已开')}</span>` : '<span class="pill p-gray">未开</span>'}</td></tr>`).join('')}</table></div>
       <div class="col c3"><h4><span>货件轨迹（领星状态）</span><span>${c.ships.length}</span></h4>${c.ships.sort((a, b) => LV[a.level][2] - LV[b.level][2]).map(shipBox).join('') || '<div class="meta">无货件</div>'}</div>
@@ -400,7 +444,7 @@ function renderShips(cs) {
       return `<tr><td><b>${esc(s['货件号'])}</b></td><td><span class="pill ${lv[1]}">${lv[0]}${s.late ? ` ${s.late}天` : ''}</span></td>
         <td>${esc(s['店铺'] || '')} → ${esc(s['目的仓'] || '')}</td><td>${esc(s['物流商'] || '')} ${esc(s['运输方式'] || '')}</td>
         <td>${fD(s['发货日']) || '—'}</td><td>${s.eta != null ? fmtD(s.eta) : '—'}</td>
-        <td class="r">${fmtN(s.got)}/${fmtN(s.sent)}</td><td>${chips([...ref.contracts], 'c')}</td><td>${chips([...(ref.posExact || ref.pos)], 'q')}</td>
+        <td class="r">${s._lg ? `${fmtN(s.got)}/${fmtN(s.sent)}` : '—'}</td><td>${chips([...ref.contracts], 'c')}</td><td>${chips([...(ref.posExact.size ? ref.posExact : ref.pos)], 'q')}</td>
         <td>${esc(s['发货单号'] || '')}</td></tr>`;
     }).join('')}</tbody></table></div>` : '<div class="empty">没有符合条件的货件</div>';
   $('main').querySelectorAll('a[data-c]').forEach((a) => a.onclick = () => { UI.view = 'contract'; UI.focus = a.dataset.c; UI.q = ''; UI.st = ''; $('fQ').value = ''; syncSeg(); render(); });
@@ -408,9 +452,7 @@ function renderShips(cs) {
 }
 // ===== 按合同单号（采购单）=====
 async function loadRecon() {
-  if (window.__SNAPSHOT__) { DATA.rpo = window.__SNAPSHOT__.data.rpo; DATA.rship = window.__SNAPSHOT__.data.rship; }
-  else { [DATA.rpo, DATA.rship] = await Promise.all([readTable('rpo'), readTable('rship')]); }
-  if (!DATA.rpo) throw new Error('本地快照里没有 出口对账 两张表');
+  if (!DATA.rpo) throw new Error('没读到 出口对账-采购合同');
   const lines = new Map();
   for (const r of DATA.rpo) {
     const q = n0(r['数量']), dq = n0(r['已报关数量']);
@@ -575,7 +617,7 @@ async function diagnose() {
     `<tr><td style="width:24px">${r[0]}</td><td>${esc(r[1])}</td><td style="white-space:normal;color:var(--sub)">${esc(r[2])}</td></tr>`).join('')}</tbody></table></div>`;
 }
 
-// 按合同单号 逐表诊断：对照组 = 同在「数据授权2」页授权的 货件物流跟踪-灯、出口退税明细
+// 按合同单号 逐表诊断
 async function reconDiagnose() {
   const res = [];
   const t = async (name, fn) => {
@@ -586,8 +628,7 @@ async function reconDiagnose() {
     } catch (e) { res.push(['✘', name, e && e.message ? e.message : String(e)]); return undefined; }
   };
   const { bitable } = SDK;
-  const list = [['出口对账-采购合同', 'tblZGnfj9md5isLj'], ['出口对账-货件明细', 'tblJO6ZnfU62ALPz'],
-    ['（对照）货件物流跟踪-灯', 'tblB78mpJmyfEBHZ'], ['（对照）出口退税明细', 'tbl0F3jfCuyNB1ud']];
+  const list = Object.values(TABLES).map((t) => [t.name, t.id]);
   await t('dashboard.state', async () => SDK.dashboard.state);
   for (const [nm, id] of list) {
     const tb = await t(`${nm} 打开表`, () => bitable.base.getTableById(id));
@@ -624,8 +665,9 @@ try {
   if (!window.__SNAPSHOT__) { SDK = await loadSdk(); setupSave(); }
   await load();
   M = buildModel();
-  const upd = (DATA.ship || []).map((s) => dayOf(s['数据更新日'])).filter((x) => x != null);
-  $('meta').textContent = `${M.contracts.length} 份合同 · ${Object.keys(M.ships).length} 个货件 · ${Object.keys(M.pos).length} 张采购单`
+  const upd = (DATA.lg || []).map((s) => dayOf(s['数据更新日'])).filter((x) => x != null);
+  const nShip = new Set(M.contracts.flatMap((c) => c.ships.map((s) => s._id))).size;
+  $('meta').textContent = `${M.contracts.length} 份合同 · ${nShip} 个货件 · ${Object.keys(M.pos).length} 张采购单`
     + (upd.length ? ` · 领星数据 ${fmtFull(Math.max(...upd))}` : '') + (window.__SNAPSHOT__ ? `（本地快照 ${window.__SNAPSHOT__.at}）` : '')
     + (DIAG.length ? ` · ⚠ ${DIAG.join('；')}` : '');
   fillFilters(); bindUi(); render();
