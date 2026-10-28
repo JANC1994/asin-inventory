@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>采购流程探针</title>
+<!--
+  飞书多维表格「应用」自定义插件页 · 通用模板（2026-10-10，由 ASIN 库存管理页提炼）
+  用法：复制本文件 → 改「① 页面配置」里的表 ID / 字段 → 在 render() 里写页面 → 本地调试 → 推送 GitHub Pages。
+  已内置并验证过的四条硬规矩（详见 wiki/页面设计/概念/飞书应用自定义插件页.md）：
+    1. 宿主不给保存按钮 → setupSave() 在 Create/Config 态显示「保存到页面」并调 dashboard.saveConfig
+    2. saveConfig 的 dataConditions 必须写全 {tableId, baseToken, dataRange:{type:'ALL'}, series:'COUNTA'}，且本页读的每张表都要登记一条
+       （应用只给被组件引用过的表授权；否则报 table permission denied）
+    3. 浏览态禁用 getTableMetaList → 一律按表 ID 打开（TABLES 里写死 ID）；读记录用 getRecordsByPage 翻页
+    4. 日期按北京时间「天序号」计算（dn/fmtFull），不要直接 new Date(ms).getDate()
+    5. 顶部筛选栏滚动时必须留在可见区（2026-10-14 用户定的页面规则）：页面高度固定 = 插件框高度（html,body 100% + overflow:hidden，
+       .wrap 100vh 纵向 flex），顶栏 #sticky 在普通流里不动，#main 自己滚；侧栏/表头在 #main 里 position:sticky; top:0~8px。
+       插件框比屏幕还高时外层页面会滚 → 顶部 #tallTip 提示用户把组件高度拖到一屏内。
+       ✘ 别用 IntersectionObserver 算可见段再 translateY 平移顶栏：飞书里偏移算错压住内容，或总慢一拍一直跳（10-14 两个页面都踩过）。
+    6. SDK 随页面自带（同目录 sdk/，11 个文件），先本地后 jsdelivr/unpkg：jsdelivr 在国内会把 761KB 的 chunk 传一半断，页面就没有保存按钮
+  页面里不许出现任何密钥（领星 key、lingxing.env 等）；只能有 base token 和表 ID。
+  发布：把本页和 sdk/ 目录一起拷到 github-pages/<页面英文名>/。
+-->
+<style>
+  :root {
+    --bg: #f5f6f7; --card: #ffffff; --ink: #1f2329; --sub: #646a73; --line: #e5e6eb;
+    --blue: #3370ff; --blue-soft: #e1eaff; --red: #f54a45; --red-soft: #fde2e2;
+    --yellow: #ff8800; --yellow-soft: #fff1d6; --green: #34c724;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 13px/1.5 -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; }
+  html, body { height: 100%; overflow: hidden; }
+  .wrap { padding: 12px 16px 0; height: 100vh; display: flex; flex-direction: column; }
+  #main { flex: 1; min-height: 0; overflow: auto; position: relative; margin: 0 -16px; padding: 0 16px 24px; }
+  .tip { flex: none; background: #fff7e8; color: #b25e00; border-radius: 8px; padding: 6px 12px; font-size: 12.5px; margin-bottom: 8px; }
+  .card { background: var(--card); border-radius: 8px; padding: 14px 16px; border: 1px solid var(--line); margin-bottom: 12px; }
+  .card h3 { margin: 0 0 10px; font-size: 15px; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .card h3 small { font-weight: normal; color: var(--sub); font-size: 12px; }
+  .meta { color: var(--sub); font-size: 12px; }
+  .err { color: var(--red); white-space: pre-wrap; }
+  .loading { padding: 40px; text-align: center; color: var(--sub); }
+  table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+  .tbl th, .tbl td { padding: 6px 8px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; }
+  .tbl th { color: var(--sub); font-weight: normal; background: var(--bg); }
+  .savebar { flex: none; display: none; align-items: center; gap: 12px; background: #fff7e8; border: 1px solid #ffd591; border-radius: 8px;
+             padding: 10px 14px; margin-bottom: 10px; }
+  .savebar.show { display: flex; }
+  /* 顶栏：标题、视图切换、筛选都放 #sticky 里，不参与滚动；#main 里要吸顶的元素用 position:sticky; top:0 */
+  .sticky { position: relative; flex: none; z-index: 20; background: var(--bg); margin: 0 -16px; padding: 4px 16px 8px; }
+  .sticky.stuck { box-shadow: 0 6px 12px -8px rgba(0,0,0,.25); }
+  .savebar button { height: 32px; padding: 0 16px; border: 0; border-radius: 6px; background: var(--blue); color: #fff; font-size: 14px; cursor: pointer; }
+  .savebar button:disabled { opacity: .6; cursor: default; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="tip" id="tallTip" style="display:none">插件框比屏幕还高，往下滑时顶部筛选栏会被滚走。请在应用编辑模式里把这个插件组件的高度拖到一屏以内，页面会改成内部滚动、顶栏固定。</div>
+  <div class="savebar" id="savebar">
+    <span>这是插件的配置预览。确认没问题后点右边按钮，插件才会保存到应用页面上。</span>
+    <button id="saveBtn">保存到页面</button>
+    <span class="meta" id="saveMsg"></span>
+  </div>
+  <div class="sticky" id="sticky">
+    <!-- 页面标题 / 视图切换 / 筛选控件放这里，滚动时始终可见 -->
+    <div class="meta" id="meta">数据加载中…</div>
+  </div>
+  <div id="main"><div class="loading">正在读取多维表数据…</div></div>
+</div>
+
+<script type="module">
+// ===== ① 页面配置（新页面只改这里和 render） =====
+// SDK 依次尝试：同目录自带副本 → jsdelivr → unpkg（发布时 sdk/ 目录要一起拷）
+const SDK_URLS = [new URL('./sdk/index.mjs', location.href).href,
+  'https://cdn.jsdelivr.net/npm/@lark-base-open/js-sdk@1.0.2/dist/index.mjs',
+  'https://unpkg.com/@lark-base-open/js-sdk@1.0.2/dist/index.mjs'];
+const BASE_TOKEN = 'JGvebyaAYapWtOslxc9cuKYXnwd';   // 灯具组-全流程
+// 每张要读的表：ID（必须写死，浏览态不能按名字找）+ 要读的字段名（字段名改了这里要跟着改）
+const TABLES = {
+  // view（可选）：大表在源表建一个筛选视图（命名带「页面用，勿删」）只读需要的行；视图被删时自动退回读全表
+  main: { id: 'tblvt4KuPv7dnduI', name: '采购计划申请表', view: '', fields: ['父ASIN/SKU', '品名', '采购流程'] },
+  pm: { id: 'tblqksywqgYvywOT', name: '产品主表-灯类+精铺', view: '', fields: ['领星SKU'] },
+  mgmt: { id: 'tblTRcHwrEwr0Jmh', name: '采购计划管理表', view: '', fields: ['计划编号'] },
+};
+const SAVE_TABLE = 'main';   // 诊断时用来测试的那张表；saveConfig 会登记 TABLES 里的全部表
+
+// ===== ② 通用工具 =====
+const $ = (id) => document.getElementById(id);
+const DAY = 86400000, BJ = 8 * 3600000;
+const dn = (ms) => Math.floor((Number(ms) + BJ) / DAY);   // 毫秒 → 北京日期天序号
+const today0 = dn(Date.now());
+const ud = (n) => new Date(n * DAY);                       // 天序号 → 用 getUTC* 取年月日
+const fmtD = (n) => { const d = ud(n); return `${d.getUTCMonth() + 1}-${String(d.getUTCDate()).padStart(2, '0')}`; };
+const fmtFull = (n) => { const d = ud(n); return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`; };
+const fmtMs = (ms) => (ms == null || ms === '') ? '—' : fmtFull(dn(ms));
+const n0 = (v) => (v == null || v === '' || isNaN(v)) ? 0 : Number(v);
+const fmtN = (v, p = 0) => (v == null || v === '' || isNaN(v)) ? '—' : Number(v).toLocaleString('zh-CN', { maximumFractionDigits: p, minimumFractionDigits: p });
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+// 单元格值 → 普通值（文本段落拼接、单选取 text、多选用顿号连接、数字/日期原样）
+function cell(v) {
+  if (v == null) return null;
+  if (typeof v === 'number' || typeof v === 'string' || typeof v === 'boolean') return v;
+  if (Array.isArray(v)) {
+    if (!v.length) return null;
+    if (v.every((x) => x && typeof x === 'object' && 'text' in x && !('id' in x && 'name' in x && !('type' in x)))) return v.map((x) => x.text ?? '').join('');
+    if (v.length === 1) return cell(v[0]);
+    return v.map(cell).join('、');
+  }
+  if (typeof v === 'object') {
+    if ('text' in v) return v.text;
+    if ('name' in v) return v.name;
+    if ('value' in v) return cell(v.value);
+  }
+  return String(v);
+}
+
+// 关联字段的值形态不固定：{recordIds} / [{recordId}] / [{id}] / ['rec..'] 都见过，统一成 ID 数组（读关联字段时用 linkIds(r.fields[字段ID])）
+function linkIds(v) {
+  if (!v) return [];
+  if (typeof v === 'string') return v.startsWith('rec') ? [v] : [];
+  if (Array.isArray(v)) return v.flatMap(linkIds);
+  if (typeof v === 'object') {
+    for (const k of ['recordIds', 'record_ids']) if (Array.isArray(v[k])) return v[k].flatMap(linkIds);
+    for (const k of ['recordId', 'record_id', 'id']) if (typeof v[k] === 'string' && v[k].startsWith('rec')) return [v[k]];
+  }
+  return [];
+}
+// 写回：文本字段 [{type:'text', text}]（清空用 null），数字直接写数字 —— table.setRecord(recordId, {fields:{字段ID: 值}})
+
+let SDK = null;
+async function readTable(key) {
+  const cfg = TABLES[key];
+  const table = await SDK.bitable.base.getTableById(cfg.id);
+  const fields = await table.getFieldMetaList();
+  const idByName = Object.fromEntries(fields.map((f) => [f.name, f.id]));
+  const missing = cfg.fields.filter((w) => !idByName[w]);
+  if (missing.length) console.warn(`表 ${cfg.name} 缺字段：`, missing);   // 字段被改名/删了会在这里暴露
+  const rows = [];
+  let pageToken;
+  for (let guard = 0; guard < 500; guard++) {
+    const q = { pageSize: 200, pageToken };
+    if (cfg.view) q.viewId = cfg.view;
+    let res;
+    try { res = await table.getRecordsByPage(q); } catch (e) {
+      if (!q.viewId) throw e;
+      console.warn('按视图读取失败，改读全表', e); cfg.view = ''; delete q.viewId; rows.length = 0; res = await table.getRecordsByPage(q);
+    }
+    for (const r of res.records) {
+      const o = { _id: r.recordId };
+      for (const w of cfg.fields) if (idByName[w]) o[w] = cell(r.fields[idByName[w]]);
+      rows.push(o);
+    }
+    if (!res.hasMore) break;
+    pageToken = res.pageToken;
+  }
+  return rows;
+}
+
+// ===== ③ 页面逻辑（按需求写） =====
+let DATA = {};
+async function load() {
+  const keys = Object.keys(TABLES);
+  const results = await Promise.all(keys.map(readTable));
+  keys.forEach((k, i) => { DATA[k] = results[i]; });
+}
+function render() {
+  const rows = DATA.main || [];
+  $('main').innerHTML = `<div class="card"><h3>示例 <small>${rows.length} 行</small></h3>
+    <div style="overflow:auto"><table class="tbl"><thead><tr>${TABLES.main.fields.map((f) => `<th>${esc(f)}</th>`).join('')}</tr></thead>
+    <tbody>${rows.slice(0, 50).map((r) => `<tr>${TABLES.main.fields.map((f) => `<td>${esc(r[f])}</td>`).join('')}</tr>`).join('')}</tbody></table></div></div>`;
+}
+
+// ===== ④ 保存（宿主不提供保存按钮，配置态由插件自己调 saveConfig） =====
+function setupSave() {
+  const dash = SDK && SDK.dashboard;
+  let st = '';
+  try { st = dash && dash.state; } catch (e) { st = '读取失败'; }
+  $('saveMsg').textContent = `（插件状态：${st || '未知'}）`;
+  if (dash && typeof dash.saveConfig === 'function' && st !== 'View' && st !== 'FullScreen') {
+    $('savebar').classList.add('show');
+    $('saveBtn').onclick = async () => {
+      $('saveBtn').disabled = true; $('saveMsg').textContent = '保存中…';
+      try {
+        const ok = await dash.saveConfig({
+          // 注意：应用只认第一条 dataCondition 给授权（10-13 实测）。其他要读的表须在应用页「数据授权（勿删）」放一个原生组件引用，否则报 table permission denied
+          dataConditions: [TABLES.pm].map((t) => ({ tableId: t.id, baseToken: BASE_TOKEN, dataRange: { type: 'ALL' }, series: 'COUNTA' })),
+          customConfig: { page: document.title, version: 1 },
+        });
+        $('saveMsg').textContent = ok === false ? '保存失败，请重试' : '已保存 ✔';
+      } catch (e) {
+        $('saveMsg').textContent = '保存失败：' + (e && e.message ? e.message : e);
+      } finally { $('saveBtn').disabled = false; }
+    };
+  } else if (dash && dash.setRendered) {
+    dash.setRendered().catch(() => {});
+  }
+}
+
+// ===== ⑤ 诊断（加载失败时自动跑，截图即可定位是哪个接口不通） =====
+async function diagnose() {
+  const res = [];
+  const t = async (name, fn) => {
+    try {
+      const v = await Promise.race([fn(), new Promise((_, rej) => setTimeout(() => rej(new Error('超时 8s')), 8000))]);
+      let shown; try { shown = typeof v === 'string' ? v : JSON.stringify(v); } catch (x) { shown = String(v); }
+      res.push(['✔', name, String(shown).slice(0, 300)]); return v;
+    } catch (e) { res.push(['✘', name, e && e.message ? e.message : String(e)]); return undefined; }
+  };
+  const { bitable, dashboard } = SDK;
+  const id = TABLES[SAVE_TABLE].id;
+  await t('dashboard.state', async () => dashboard.state);
+  await t('dashboard.getConfig', () => dashboard.getConfig());
+  await t('bitable.base.getTableMetaList（浏览态本应 ✘）', () => bitable.base.getTableMetaList());
+  const tb = await t('bitable.base.getTableById', () => bitable.base.getTableById(id));
+  if (tb) {
+    await t('table.getFieldMetaList', () => tb.getFieldMetaList());
+    await t('table.getRecordsByPage', () => tb.getRecordsByPage({ pageSize: 2 }));
+  }
+  return `<div class="card"><h3>接口诊断 <small>请把这块整体截图发回</small></h3><table class="tbl"><tbody>${res.map((r) =>
+    `<tr><td style="width:24px">${r[0]}</td><td>${esc(r[1])}</td><td style="white-space:normal;color:var(--sub)">${esc(r[2])}</td></tr>`).join('')}</tbody></table></div>`;
+}
+
+// ===== ⑥ 布局检查（硬规矩 5）=====
+function layoutCheck() {
+  const tall = innerHeight > (screen.availHeight || screen.height || 1080) + 40;
+  $('tallTip').style.display = tall ? '' : 'none';
+}
+window.addEventListener('resize', layoutCheck);
+layoutCheck();
+$('main').addEventListener('scroll', () => $('sticky').classList.toggle('stuck', $('main').scrollTop > 0), { passive: true });
+
+async function loadSdk() {
+  const errs = [];
+  for (const u of SDK_URLS) {
+    try { return await Promise.race([import(u), new Promise((_, rej) => setTimeout(() => rej(new Error('超时 12s')), 12000))]); }
+    catch (e) { errs.push(`${u} → ${e && e.message ? e.message : e}`); }
+  }
+  throw new Error('飞书 SDK 三个来源都没加载上（也就没有「保存到页面」按钮），请截图：' + errs.join(' ｜ '));
+}
+
+// ===== 启动 =====
+try {
+  SDK = await loadSdk();
+  setupSave();
+  await load();
+  $('meta').textContent = Object.entries(DATA).map(([k, v]) => `${TABLES[k].name} ${v.length} 行`).join(' · ');
+  render();
+} catch (e) {
+  const msg = esc(e && e.message ? e.message : e);
+  $('meta').textContent = '';
+  $('main').innerHTML = `<div class="card err">加载失败：${msg}</div>` + (SDK ? '<div class="card">正在诊断…</div>' : '');
+  if (SDK) { try { $('main').innerHTML = `<div class="card err">加载失败：${msg}</div>` + await diagnose(); } catch (e2) { /* 保留上面的报错 */ } }
+}
+</script>
+</body>
+</html>

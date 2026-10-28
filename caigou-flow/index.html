@@ -1000,7 +1000,8 @@ function setupSave() {
       try {
         const ok = await dash.saveConfig({
           // 只登记用户指定的两张：申请表（第一条=授权）、管理表；产品主表由「数据授权（勿删）」页授权（10-28：登记 3 张时保存后宿主一直「加载中」）
-          dataConditions: [TABLES.apply, TABLES.mgmt].map((t) => ({ tableId: t.id, baseToken: BASE_TOKEN, dataRange: { type: 'ALL' }, series: 'COUNTA' })),
+          // 10-28 又改：登记 申请表 时保存后宿主一直「加载中」→ 只登记产品主表（和能用的产品主表页一样）；申请表/管理表靠「数据授权3（勿删）」页授权
+          dataConditions: [TABLES.pm].map((t) => ({ tableId: t.id, baseToken: BASE_TOKEN, dataRange: { type: 'ALL' }, series: 'COUNTA' })),
           customConfig: { page: document.title, version: 1 },
         });
         $('saveMsg').textContent = ok === false ? '保存失败，请重试' : '已保存 ✔';
