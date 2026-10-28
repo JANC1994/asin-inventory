@@ -138,6 +138,31 @@
   .pick-panel { display: flex; flex-direction: column; overflow: hidden; }
   .pick-list { overflow: auto; max-height: 300px; }
   .pick-grp { position: sticky; top: 0; z-index: 1; background: #eef3ff; padding: 5px 12px; font-size: 12.5px; font-weight: 600; color: #2b3a5c; border-bottom: 1px solid #dbe5ff; }
+  .shoe-spu { cursor: pointer; position: static; }
+  .shoe-color { display: flex; align-items: center; gap: 10px; padding: 6px 12px 6px 28px; border-bottom: 1px solid #f2f3f5; flex-wrap: wrap; }
+  .shoe-color .cn { min-width: 64px; font-weight: 600; }
+  .szs { display: flex; gap: 4px; flex-wrap: wrap; }
+  .szc { min-width: 34px; text-align: center; padding: 2px 6px; border: 1px solid #d0d3d6; border-radius: 4px; cursor: pointer; font-size: 12.5px; background: #fff; user-select: none; }
+  .szc.on { background: var(--blue); border-color: var(--blue); color: #fff; }
+  .szc.dis { opacity: .35; cursor: not-allowed; }
+  .shoe-tbl { border: 1px solid var(--line); border-radius: 8px; margin-top: 10px; overflow: hidden; }
+  .shoe-head { background: #fff7ed; color: #9a3412; font-size: 12.5px; padding: 6px 12px; border-bottom: 1px solid var(--line); }
+  .shoe-grp { display: grid; grid-template-columns: 220px 1fr 110px 220px; gap: 10px; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+  .shoe-grp:last-child { border-bottom: 0; }
+  .sg-color { font-weight: 600; color: #9a3412; }
+  .sg-sizes { display: flex; flex-wrap: wrap; gap: 6px; }
+  .sz { display: inline-flex; flex-direction: column; align-items: center; position: relative; border: 1px solid #e5e6eb; border-radius: 6px; padding: 2px 4px 4px; background: #fafbfc; }
+  .sz span { font-size: 11.5px; color: var(--sub); }
+  .sz input.num { width: 52px; text-align: center; padding: 3px 4px; }
+  .sz .x { position: absolute; top: -6px; right: -6px; width: 14px; height: 14px; line-height: 13px; text-align: center; font-size: 11px; border-radius: 50%; background: #c9cdd4; color: #fff; cursor: pointer; display: none; }
+  .sz:hover .x { display: block; }
+  .sg-po { display: flex; gap: 6px; align-items: center; } .sg-po input { width: 130px; }
+  @media (max-width: 900px) { .shoe-grp { grid-template-columns: 1fr; } }
+  .shoe-tbl.ro { margin: 10px 14px; }
+  .shoe-grp.ro { grid-template-columns: 220px 1fr 140px; }
+  .szv { display: inline-flex; flex-direction: column; align-items: center; min-width: 44px; border: 1px solid #e5e6eb; border-radius: 6px; padding: 2px 6px; background: #fafbfc; }
+  .szv span { font-size: 11.5px; color: var(--sub); } .szv b { font-size: 13.5px; }
+  .szv.cf { min-width: 96px; gap: 2px; } .szv.cf .chk { font-size: 11.5px; }
   .pick-err { position: sticky; top: 0; z-index: 2; background: var(--red-soft); color: var(--red); font-weight: 600; padding: 8px 12px; border-bottom: 1px solid #f9b9b7; }
   .modal { position: fixed; inset: 0; background: rgba(15,23,42,.45); z-index: 95; display: none; align-items: flex-start; justify-content: center; padding: 24px 12px; overflow: auto; }
   .modal.show { display: flex; }
@@ -221,6 +246,7 @@ const TABLES = {
   ord:  { id: 'tbl83YlBQgKzooyz', name: '发货指令', core: true,
           fields: ['指令号', '序号', '状态', '提交人', '国家', '发货日期', '是否分仓', '合计箱数', '合计件数', '摘要', '明细JSON', '货件JSON', '备注', '驳回原因', '分批计划', '审核人', '审核时间', '最后修改'] },
   pm:   { id: 'tblqksywqgYvywOT', name: '产品主表-灯类+精铺', core: true, fields: ['ASIN', '国家', '店铺', '品名', 'MSKU', 'FNSKU', '领星SKU', '单箱数量', 'SPU'] },
+  shoe: { id: 'tbliQsJsOL5WwxVZ', name: '产品主表-鞋类', fields: ['ASIN', '国家', '店铺', '品名', 'MSKU', 'FNSKU', '领星SKU', 'SPU', '颜色'] },
   po:   { id: 'tblZGnfj9md5isLj', name: '出口对账-采购合同', fields: ['采购合同', 'SKU', '数量', '剩余发货数', '名称', '下单日期', '到货状态', '类型'] },
   ch:   { id: 'tblxl08WV9pLwxdi', name: '头程渠道时效', fields: ['物流渠道', '国家', '运输方式', '标准时效天数', '启用'] },
   plan: { id: 'tblXmPMxqY7o5YT6', name: '出口对账-发货计划', view: 'vewTjyFaLe',   // 视图「发货指令页用，勿删」= 指令号非空
@@ -334,10 +360,18 @@ function buildRef() {
   for (const r of DATA.pm) {
     const c = r['国家'], m = r['MSKU'];
     if (!r['ASIN'] || !m || !c) continue;
-    PM[c + '|' + m] ||= { c, m, a: r['ASIN'], n: r['品名'] || '', s: r['店铺'] || '', fn: r['FNSKU'] || '', sku: r['领星SKU'] || '', box: num(r['单箱数量']), spu: r['SPU'] || '' };
+    PM[c + '|' + m] ||= { c, m, a: r['ASIN'], n: r['品名'] || '', s: r['店铺'] || '', fn: r['FNSKU'] || '', sku: r['领星SKU'] || '', box: num(r['单箱数量']), spu: r['SPU'] || '', line: '灯' };
+  }
+  // 鞋类：没固定箱规；尺码取 MSKU 末段数字（如 JmWZA-Wh-39），取不到再看品名里的「39码」
+  for (const r of DATA.shoe || []) {
+    const c = r['国家'], m = r['MSKU'];
+    if (!m || !c) continue;
+    const size = (m.match(/-(\d{2}(?:\.\d)?)$/) || [])[1] || ((r['品名'] || '').match(/(\d{2})码/) || [])[1] || '';
+    PM[c + '|' + m] ||= { c, m, a: r['ASIN'] || '', n: r['品名'] || '', s: r['店铺'] || '', fn: r['FNSKU'] || '', sku: r['领星SKU'] || '', box: 0, spu: r['SPU'] || '(无SPU)', color: r['颜色'] || '', size, line: '鞋' };
   }
   const cRank = (c) => c === '美国' ? 0 : c === '加拿大' ? 1 : 2;
-  PRODS = Object.values(PM).sort((a, b) => cRank(a.c) - cRank(b.c) || (!a.spu) - (!b.spu) || (a.spu || '').localeCompare(b.spu || '', 'zh') || a.n.localeCompare(b.n, 'zh'));
+  PRODS = Object.values(PM).sort((a, b) => cRank(a.c) - cRank(b.c) || (a.line === '鞋') - (b.line === '鞋') || (!a.spu) - (!b.spu) || (a.spu || '').localeCompare(b.spu || '', 'zh') ||
+    (a.color || '').localeCompare(b.color || '', 'zh') || (+a.size || 0) - (+b.size || 0) || a.n.localeCompare(b.n, 'zh'));
   poBySku = {}; poRec = {};
   for (const r of DATA.po || []) {
     if (!r['SKU'] || !r['采购合同']) continue;
@@ -383,12 +417,13 @@ const isMine = (o) => ME.ids.includes(o.byId);
 let view = 'new', rowSeq = 1;
 const emptyShips = () => Array.from({ length: SHIP_SLOTS }, () => ({ no: '', ch: '', eta: '' }));
 const blankForm = () => ({ rows: [], shipDate: '', split: '是', ships: emptyShips(), note: '' });
-function newRow(p, perBox) { return { id: ++rowSeq, key: p.c + '|' + p.m, c: p.c, m: p.m, a: p.a, n: p.n, fn: p.fn, sku: p.sku, s: p.s, perBox: perBox ?? (p.box || ''), boxes: '', po: '', note: '' }; }
+function newRow(p, perBox) { return { id: ++rowSeq, key: p.c + '|' + p.m, c: p.c, m: p.m, a: p.a, n: p.n, fn: p.fn, sku: p.sku, s: p.s, line: p.line || '灯', spu: p.spu || '', color: p.color || '', size: p.size || '', perBox: perBox ?? (p.box || ''), boxes: '', po: '', note: '' }; }
 let clearArm = null;   // 「清空明细」点了第一下，等第二下确认
 let F = blankForm(), E = null, editNo = null, showErr = null, pick = { scope: null, q: '' };
 let listFilter = { mine: true, st: '全部' }, rejecting = null, sel = new Set(), bulkRej = false, copying = null, shipFilter = '全部';
 
-const P = (r) => PM[r.key] || { c: r.c, m: r.m, a: r.a, n: r.n, fn: r.fn, sku: r.sku, s: r.s, box: 0 };   // 主表里删了也能用明细里的快照
+const P = (r) => PM[r.key] || { c: r.c, m: r.m, a: r.a, n: r.n, fn: r.fn, sku: r.sku, s: r.s, box: 0, line: r.line, spu: r.spu, color: r.color, size: r.size };
+const isShoe = (r) => P(r).line === '鞋';   // 主表里删了也能用明细里的快照
 const byBox = (r) => +r.perBox > 0 && +r.boxes > 0;
 const tot = (r) => byBox(r) ? +r.perBox * +r.boxes : (+r.qty || 0);   // 没箱规的直接填总数
 const countryOf = (rows) => rows.length ? P(rows[0]).c : '';
@@ -624,9 +659,11 @@ function editorHTML(S, scope) {
     ${pick.scope === scope ? '<div class="pick-panel" data-pickpanel></div>' : ''}
   </div>
   <h4>② 发货明细 <span class="hint">有箱规的填箱数，总数 = 每箱 × 箱数（不整箱：改每箱或「另起一行」填尾箱）；没固定箱规的（如鞋子）每箱/箱数留空，直接填总数</span></h4>
-  ${S.rows.length ? `<div class="lines"><table class="tbl"><thead><tr>
+  ${S.rows.some((r) => !isShoe(r)) ? `<div class="lines"><table class="tbl"><thead><tr>
     <th>品名</th><th>国家</th><th>ASIN</th><th>MSKU</th><th>FNSKU</th><th>每箱数量</th><th>箱数</th><th>总数</th><th>采购单号 <span class="hint">(可空)</span></th><th>备注</th><th></th></tr></thead>
-    <tbody>${rowsHTML(S, err)}</tbody></table></div>` : '<div class="empty">先在上面选产品</div>'}
+    <tbody>${rowsHTML(S, err, S.rows.filter((r) => !isShoe(r)))}</tbody></table></div>` : ''}
+  ${S.rows.some(isShoe) ? shoeHTML(S, err) : ''}
+  ${S.rows.length ? '' : '<div class="empty">先在上面选产品</div>'}
   <h4>③ 发货安排 <span class="hint">一票货同一天发；分仓的每个货件单独选渠道和预计到达，渠道可空；货件号留空，审核人建货件后回填</span></h4>
   <div class="grid">
     <label class="f"><span>开船日期 <b>*</b></span><input type="date" data-o="shipDate" value="${S.shipDate}" class="${err && !S.shipDate ? 'miss' : ''}"></label>
@@ -649,8 +686,27 @@ function totInput(r, err) {
   return byBox(r) ? `<input class="num tot-auto" data-k="qty" value="${tot(r)}" readonly title="每箱 × 箱数 自动算">`
                   : `<input class="num ${err && !(tot(r) > 0) ? 'miss' : ''}" data-k="qty" value="${esc(r.qty ?? '')}" placeholder="填总数">`;
 }
-function rowsHTML(S, err) {
-  const rows = grouped(S.rows);
+// 鞋类：按 款·颜色·采购单 一组一行，横排各尺码填件数
+function shoeGroups(rows) {
+  const g = {}, order = [];
+  for (const r of rows) { const p = P(r), k = [p.spu, p.color, r.po || ''].join('|'); if (!g[k]) { g[k] = []; order.push(k); } g[k].push(r); }
+  return order.map((k) => g[k].sort((a, b) => (+P(a).size || 0) - (+P(b).size || 0)));
+}
+function shoeHTML(S, err) {
+  const groups = shoeGroups(S.rows.filter(isShoe));
+  return `<div class="shoe-tbl"><div class="shoe-head">鞋类 · 按款和颜色，每个尺码直接填件数（空着的尺码不发，可删）</div>${groups.map((rows) => {
+    const p = P(rows[0]), tot0 = rows.reduce((s, r) => s + tot(r), 0), noFn = rows.filter((r) => !P(r).fn).length;
+    const pos = [...new Set(rows.flatMap((r) => (poBySku[P(r).sku] || []).map((o) => o.po)))];
+    return `<div class="shoe-grp" data-ids="${rows.map((r) => r.id).join(',')}">
+      <div class="sg-name"><b>${esc(p.spu)}</b> <span class="sg-color">${esc(p.color) || '—'}</span> <span class="badge ${p.c === '美国' ? 'b-blue' : 'b-green'}">${p.c}</span>${noFn ? ` <span class="badge b-red" title="鞋类主表没有 FNSKU">缺FNSKU ${noFn}</span>` : ''}</div>
+      <div class="sg-sizes">${rows.map((r) => `<label class="sz" data-r="${r.id}" title="${esc(P(r).m)}"><span>${esc(P(r).size || P(r).m)}</span><input class="num ${err && !(tot(r) > 0) ? 'miss' : ''}" data-k="qty" value="${esc(r.qty ?? '')}"><b class="x" data-act="delRow">×</b></label>`).join('')}</div>
+      <div class="sg-tot">合计 <b data-gtot>${tot0.toLocaleString()}</b> 件</div>
+      <div class="sg-po"><input class="po" data-k="gpo" list="gpo-${rows[0].id}" value="${esc(rows[0].po || '')}" placeholder="采购单号(可空)"><datalist id="gpo-${rows[0].id}">${pos.map((x) => `<option value="${esc(x)}">`).join('')}</datalist>
+        <button class="link red" data-act="delGroup">删这组</button></div></div>`;
+  }).join('')}</div>`;
+}
+function rowsHTML(S, err, list = S.rows) {
+  const rows = grouped(list);
   return rows.map((r, i) => {
     const p = P(r), first = i === 0 || rows[i - 1].key !== r.key, last = i === rows.length - 1 || rows[i + 1].key !== r.key;
     const info = first ? `<td>${esc(p.n)}</td><td>${p.c}</td><td class="mono">${p.a}</td><td class="mono auto">${esc(p.m)}</td><td class="mono auto">${esc(p.fn)}</td>`
@@ -669,14 +725,38 @@ function rowsHTML(S, err) {
 
 // 下拉里的勾选只改 pick.pending，不动页面；点「完成」才把勾选结果加进明细
 const pendCountry = () => { for (const k of pick.pending || []) return PM[k]?.c || ''; return ''; };
+function newPick(scope, S) {
+  return { scope, q: '', err: '', pending: new Set(S.rows.map((r) => r.key)), open: new Set(), line: S.rows.length && S.rows.every(isShoe) ? '鞋' : '灯' };
+}
+function renderShoeTree(list, c, chosen, q) {
+  const bySpu = {}, order = [];
+  for (const p of list) { const k = p.c + '|' + p.spu; if (!bySpu[k]) { bySpu[k] = []; order.push(k); } bySpu[k].push(p); }
+  return order.map((k) => {
+    const ps = bySpu[k], p0 = ps[0], open = pick.open.has(k) || !!q;
+    const colors = {}, corder = []; ps.forEach((p) => { if (!colors[p.color]) { colors[p.color] = []; corder.push(p.color); } colors[p.color].push(p); });
+    const nOn = ps.filter((p) => chosen.has(p.c + '|' + p.m)).length;
+    let s = `<div class="pick-grp shoe-spu" data-spu="${esc(k)}">${open ? '▾' : '▸'} <span class="badge ${p0.c === '美国' ? 'b-blue' : 'b-green'}">${p0.c}</span> ${esc(p0.spu)} <span class="hint">${corder.length} 色 · ${ps.length} 个尺码${nOn ? ` · 已勾 <b style="color:var(--blue)">${nOn}</b>` : ''}</span></div>`;
+    if (open) s += corder.map((col) => {
+      const cs = colors[col], keys = cs.map((p) => p.c + '|' + p.m), allOn = keys.every((x) => chosen.has(x)), dis = c && p0.c !== c;
+      return `<div class="shoe-color"><span class="cn">${esc(col) || '—'}</span><button class="link" data-colorall="${esc(keys.join(','))}">${allOn ? '取消全选' : '全选'}</button>
+        <span class="szs">${cs.map((p) => { const kk = p.c + '|' + p.m; return `<span class="szc ${chosen.has(kk) ? 'on' : ''} ${dis ? 'dis' : ''}" data-key="${esc(kk)}" title="${esc(p.m)}">${esc(p.size || '?')}</span>`; }).join('')}</span></div>`;
+    }).join('');
+    return s;
+  }).join('');
+}
 function renderPick() {
   if (pick.mode === 'po') return renderPoPick();
   const S = stateOf(pick.scope), panel = document.querySelector(`[data-scope="${pick.scope}"] [data-pickpanel]`);
   if (!S || !panel) return;
   const keep = panel.querySelector('.pick-list')?.scrollTop || 0;
-  const c = pendCountry(), q = pick.q.trim().toLowerCase(), chosen = pick.pending;
-  const list = PRODS.filter((p) => !q || [p.n, p.a, p.m, p.spu, p.sku].some((x) => (x || '').toLowerCase().includes(q)));
+  const c = pendCountry(), q = pick.q.trim().toLowerCase(), chosen = pick.pending, line = pick.line || '灯';
+  const nShoe = PRODS.filter((p) => p.line === '鞋').length;
+  const list = PRODS.filter((p) => (p.line || '灯') === line).filter((p) => !q || [p.n, p.a, p.m, p.spu, p.sku, p.color, p.size].some((x) => (x || '').toLowerCase().includes(q)));
+  const tabs = `<div class="po-top"><span class="seg"><button data-pline="灯" class="${line === '灯' ? 'on' : ''}">灯 / 精铺</button><button data-pline="鞋" class="${line === '鞋' ? 'on' : ''}">鞋 ${nShoe ? '' : '（读不到鞋类主表）'}</button></span>
+    <span class="hint">${line === '鞋' ? '点款展开颜色，点尺码勾选；「全选」勾该颜色所有尺码。鞋子发货也可以直接「按采购单导入」' : '按 国家·SPU 分组，美国在前'}</span></div>`;
   let html = '', grp = null;
+  if (line === '鞋') html = renderShoeTree(list, c, chosen, q);
+  else {
   const cnt = {}; list.forEach((p) => { const g = p.c + '·' + (p.spu || '未填SPU'); cnt[g] = (cnt[g] || 0) + 1; });
   for (const p of list) {
     const g = p.c + '·' + (p.spu || '未填SPU');
@@ -686,8 +766,9 @@ function renderPick() {
       <div><div class="nm">${esc(p.n)}</div><div class="sub">${p.a} · ${esc(p.m)} · ${esc(p.s)}</div></div>
       <span class="badge ${p.c === '美国' ? 'b-blue' : 'b-green'}">${p.c}</span></div>`;
   }
+  }
   const add = [...chosen].filter((k) => !S.rows.some((r) => r.key === k)).length, del = new Set(S.rows.filter((r) => !chosen.has(r.key)).map((r) => r.key)).size;
-  panel.innerHTML = (pick.err ? `<div class="pick-err">✘ ${esc(pick.err)}</div>` : '') +
+  panel.innerHTML = tabs + (pick.err ? `<div class="pick-err">✘ ${esc(pick.err)}</div>` : '') +
     `<div class="pick-list">${html || '<div class="empty" style="margin:10px">没有匹配的产品</div>'}</div>` +
     `<div class="pick-foot"><span class="hint">共 ${list.length} 个 · 已勾 <b>${chosen.size}</b>${add || del ? `（点完成：新增 ${add}${del ? `，移除 ${del}` : ''}）` : ''}${c ? ` · 已锁定 ${c}` : ''}</span>
      <span style="display:flex;gap:6px"><button class="btn sm ghost" data-pickcancel>取消</button><button class="btn sm" data-pickdone>完成</button></span></div>`;
@@ -861,19 +942,36 @@ function orderCard(o, mode) {
         ${showErr === o.no && errs.length ? `<div class="errs">还差：${errs.map(esc).join('；')}</div>` : ''}</div>
       <div class="edit-foot"><button class="btn sm ghost" data-act="cancelEdit">取消</button><button class="btn sm" data-act="saveEdit">保存修改</button></div></div>`;
   }
-  const rows = grouped(o.rows);
+  const rows = grouped(o.rows.filter((r) => !isShoe(r)));
   return `<div class="card order" data-no="${esc(o.no)}">${head}
     ${rejecting === o.no ? `<div class="rejbox"><input id="rejReason" placeholder="驳回原因（会显示给提交人）"><button class="btn sm red" data-act="rejectOk">确认驳回</button><button class="btn sm ghost" data-act="rejectCancel">取消</button></div>` : ''}
     ${o.status === '已驳回' && o.reason ? `<div class="reason" style="margin-top:10px">驳回原因：${esc(o.reason)}</div>` : ''}
-    <div class="lines"><table class="tbl"><thead><tr><th>品名</th><th>ASIN</th><th>MSKU</th><th>FNSKU</th><th>每箱</th><th>箱数</th><th>总数</th><th>采购单号</th>${mode === 'ship' ? '<th>货件号</th>' : ''}<th>备注</th></tr></thead><tbody>
+    ${rows.length ? `<div class="lines"><table class="tbl"><thead><tr><th>品名</th><th>ASIN</th><th>MSKU</th><th>FNSKU</th><th>每箱</th><th>箱数</th><th>总数</th><th>采购单号</th>${mode === 'ship' ? '<th>货件号</th>' : ''}<th>备注</th></tr></thead><tbody>
     ${rows.map((r, i) => { const p = P(r), first = i === 0 || rows[i - 1].key !== r.key, fba = fbaOf(r);
       return `<tr class="${first ? '' : 'cont'}">${first ? `<td>${esc(p.n)}</td><td class="mono">${p.a}</td><td class="mono">${esc(p.m)}</td><td class="mono">${esc(p.fn)}</td>` : '<td colspan="4" class="hint" style="padding-left:24px">↳ 另一种装箱</td>'}
         <td>${byBox(r) ? esc(r.perBox) : '—'}</td><td>${byBox(r) ? esc(r.boxes) : '—'}</td><td><b>${tot(r).toLocaleString()}</b></td><td class="mono">${esc(r.po) || '<span class="hint">—</span>'}</td>
         ${mode === 'ship' ? `<td>${fba ? `<b class="mono">${esc(fba)}</b>` : `<span class="badge b-gray">${LOADERR.plan ? '读不到' : '未建'}</span>`}</td>` : ''}<td>${esc(r.note)}</td></tr>`; }).join('')}
-    </tbody></table></div>
+    </tbody></table></div>` : ''}
+    ${shoeView(o, mode)}
     ${shipCards(o, (x) => [...new Set(o.rows.map((r) => r.planRec && planById[r.planRec]?.['货件' + (x.i + 1)]).filter(Boolean))].join(' / '))}
     <div class="order-foot">${o.editedAt ? `<span>最后修改 ${o.editedAt}</span>` : ''}${o.checkedAt ? `<span>审核通过 ${o.checkedAt}</span>` : ''}${mode === 'ship' ? `<span class="wrote">✓ 已写入发货计划 ${o.rows.filter((r) => r.planRec).length} 行</span>` : ''}${o.note ? `<span>备注：<span style="color:var(--ink)">${esc(o.note)}</span></span>` : ''}</div>
   </div>`;
+}
+
+// 只读鞋类尺码表：mode = 'list' | 'ship' | 'confirm'（confirm 把 FNSKU/SKU/数量 标红）
+function shoeView(o, mode) {
+  const groups = shoeGroups(o.rows.filter(isShoe)); if (!groups.length) return '';
+  return `<div class="shoe-tbl ro">${groups.map((rows) => {
+    const p = P(rows[0]), t0 = rows.reduce((s, r) => s + tot(r), 0);
+    const fbas = mode === 'ship' ? [...new Set(rows.map(fbaOf).filter(Boolean))] : [];
+    return `<div class="shoe-grp ro"><div class="sg-name"><b>${esc(p.spu)}</b> <span class="sg-color">${esc(p.color) || '—'}</span>
+        <div class="hint">${esc(p.a)}${rows[0].po ? ` · 采购单 <span class="mono">${esc(rows[0].po)}</span>` : ''}</div></div>
+      <div class="sg-sizes">${rows.map((r) => { const q = P(r);
+        return mode === 'confirm'
+          ? `<div class="szv cf"><b>${esc(q.size || q.m)}</b><span class="chk">${tot(r)}</span><span class="chk mono">${esc(q.fn) || 'FNSKU空'}</span><span class="chk mono">${esc(q.sku) || 'SKU空'}</span></div>`
+          : `<div class="szv" title="${esc(q.m)} · ${esc(q.fn) || 'FNSKU空'}"><span>${esc(q.size || q.m)}</span><b>${tot(r)}</b></div>`; }).join('')}</div>
+      <div class="sg-tot">合计 <b>${t0.toLocaleString()}</b> 件${mode === 'ship' ? `<div>${fbas.length ? `<b class="mono">${fbas.map(esc).join(' / ')}</b>` : `<span class="badge b-gray">${LOADERR.plan ? '读不到' : '货件未建'}</span>`}</div>` : ''}</div></div>`;
+  }).join('')}</div>`;
 }
 
 // 提交前确认：把 FNSKU / SKU / 数量 标红让运营再核一遍
@@ -881,10 +979,11 @@ function confirmSubmit(os) {
   const body = os.map((o) => {
     const s = sumOf(o.rows);
     return `<div class="cf-order"><div class="cf-head"><b>${esc(o.no)}</b><span>${countryOf(o.rows)}</span><span>开船 <span class="chk" style="background:#fff">${md(o.shipDate)}</span></span><span>${o.split === '是' ? '分仓 ' + usedShips(o).length + ' 个货件' : '不分仓'}</span><span>${s.boxes} 箱 · ${s.qty.toLocaleString()} 件</span></div>
-      <div class="lines"><table class="tbl"><thead><tr><th>品名</th><th>MSKU</th><th>FNSKU</th><th>SKU</th><th>每箱 × 箱数</th><th>数量</th><th>采购单号</th></tr></thead><tbody>
-      ${grouped(o.rows).map((r) => { const p = P(r); return `<tr><td>${esc(p.n)}</td><td class="mono">${esc(p.m)}</td><td class="mono"><span class="chk">${esc(p.fn) || '空'}</span></td>
+      ${o.rows.some((r) => !isShoe(r)) ? `<div class="lines"><table class="tbl"><thead><tr><th>品名</th><th>MSKU</th><th>FNSKU</th><th>SKU</th><th>每箱 × 箱数</th><th>数量</th><th>采购单号</th></tr></thead><tbody>
+      ${grouped(o.rows.filter((r) => !isShoe(r))).map((r) => { const p = P(r); return `<tr><td>${esc(p.n)}</td><td class="mono">${esc(p.m)}</td><td class="mono"><span class="chk">${esc(p.fn) || '空'}</span></td>
         <td class="mono"><span class="chk">${esc(p.sku) || '空'}</span></td><td>${byBox(r) ? `${esc(r.perBox)} × ${esc(r.boxes)}` : '<span class="hint">直接填总数</span>'}</td><td><span class="chk">${tot(r).toLocaleString()}</span></td><td class="mono">${esc(r.po) || '—'}</td></tr>`; }).join('')}
-      </tbody></table></div>
+      </tbody></table></div>` : ''}
+      ${shoeView(o, 'confirm')}
       <div class="cf-ships">${usedShips(o).map((x) => `<span>${shipLabel(o, x.i)}：${esc(x.ch) || '渠道未定'} · <span class="chk">${md(x.eta)}</span> 到</span>`).join('')}</div></div>`;
   }).join('');
   $('mTitle').textContent = os.length > 1 ? `确认提交 ${os.length} 张发货指令` : `确认提交 ${os[0].no}`;
@@ -922,8 +1021,16 @@ main.addEventListener('click', (e) => {
       if (!pick.poSel.size) { toast('先勾采购单'); return; }
       const msg = applyPoImport(S); closePick(); render(); toast(msg, 5000); return;
     }
-    if (t.closest('[data-pickbox]')) { if (pick.scope !== scope || pick.mode === 'po') { pick = { scope, q: '', err: '', pending: new Set(S.rows.map((r) => r.key)) }; render(); main.querySelector(`[data-scope="${scope}"] [data-pickq]`)?.focus(); } return; }
-    const it = t.closest('.pick-item');
+    if (t.closest('[data-pickbox]')) { if (pick.scope !== scope || pick.mode === 'po') { pick = newPick(scope, S); render(); main.querySelector(`[data-scope="${scope}"] [data-pickq]`)?.focus(); } return; }
+    if (t.dataset.pline) { pick.line = t.dataset.pline; pick.err = ''; renderPick(); return; }
+    const spuH = t.closest('.shoe-spu');
+    if (spuH) { const k = spuH.dataset.spu; pick.open.has(k) ? pick.open.delete(k) : pick.open.add(k); renderPick(); return; }
+    if (t.dataset.colorall) {
+      const keys = t.dataset.colorall.split(','), pc = pendCountry(), kc = PM[keys[0]]?.c;
+      if (pc && kc !== pc) { pick.err = `美国和加拿大的产品不能建在同一张指令里：已勾的是${pc}产品`; renderPick(); return; }
+      const allOn = keys.every((x) => pick.pending.has(x)); keys.forEach((x) => allOn ? pick.pending.delete(x) : pick.pending.add(x)); pick.err = ''; renderPick(); return;
+    }
+    const it = t.closest('.pick-item, .szc');
     if (it) {
       if (it.classList.contains('dis')) { pick.err = `美国和加拿大的产品不能建在同一张指令里：已勾的是${pendCountry()}产品，${PM[it.dataset.key]?.c || ''}产品请另建一张`; renderPick(); toast(pick.err, 4000); return; }
       pick.err = '';
@@ -937,7 +1044,8 @@ main.addEventListener('click', (e) => {
     if (t.dataset.sug) { S.ships[+t.closest('.ship').dataset.i].eta = t.dataset.sug; render(); return; }
     const row = S.rows.find((r) => r.id === +t.closest('tr')?.dataset.r);
     if (a === 'splitRow') { const nr = newRow(P(row)); nr.po = row.po; S.rows.splice(S.rows.indexOf(row) + 1, 0, nr); render(); return; }
-    if (a === 'delRow') { S.rows = S.rows.filter((x) => x !== row); render(); return; }
+    if (a === 'delRow') { const rr = row || S.rows.find((r) => r.id === +t.closest('[data-r]')?.dataset.r); S.rows = S.rows.filter((x) => x !== rr); render(); return; }
+    if (a === 'delGroup') { const ids = t.closest('.shoe-grp').dataset.ids.split(',').map(Number); S.rows = S.rows.filter((r) => !ids.includes(r.id)); render(); return; }
   }
   if (a === 'saveNew') {
     if (!F.rows.length) { showErr = 'new'; render(); toast('先选产品'); return; }
@@ -1031,13 +1139,16 @@ function bulk2(a, os) {
 
 main.addEventListener('input', (e) => {
   const t = e.target, scope = scopeOf(t), S = scope && stateOf(scope); if (!S) return;
-  if (t.hasAttribute('data-pickq')) { if (pick.scope !== scope) pick = { scope, q: '', err: '', pending: new Set(S.rows.map((r) => r.key)) }; pick.q = t.value; renderPick(); return; }
+  if (t.hasAttribute('data-pickq')) { if (pick.scope !== scope) pick = newPick(scope, S); pick.q = t.value; renderPick(); return; }
   if (t.dataset.o === 'note') { S.note = t.value; if (scope === 'new') saveDraft(); return; }
-  const tr = t.closest('tr[data-r]');
+  if (t.dataset.k === 'gpo') { const ids = t.closest('.shoe-grp').dataset.ids.split(',').map(Number); S.rows.forEach((r) => { if (ids.includes(r.id)) r.po = t.value; }); if (scope === 'new') saveDraft(); return; }
+  const tr = t.closest('[data-r]');
   if (tr && t.dataset.k) {
     const r = S.rows.find((x) => x.id === +tr.dataset.r); r[t.dataset.k] = t.value;
     if (t.dataset.k === 'perBox' || t.dataset.k === 'boxes' || t.dataset.k === 'qty') {
       if (t.dataset.k !== 'qty') tr.querySelector('td.total').innerHTML = totInput(r);
+      const sg = t.closest('.shoe-grp');
+      if (sg) { const ids = sg.dataset.ids.split(',').map(Number); sg.querySelector('[data-gtot]').textContent = S.rows.filter((x) => ids.includes(x.id)).reduce((s, x) => s + tot(x), 0).toLocaleString(); }
       const s = sumOf(S.rows), box = scope === 'new' ? main : t.closest('.order');
       box.querySelectorAll('[data-sumboxes]').forEach((x) => x.textContent = s.boxes);
       box.querySelectorAll('[data-sumqty]').forEach((x) => x.textContent = s.qty.toLocaleString());
@@ -1056,6 +1167,7 @@ main.addEventListener('change', (e) => {
   if (t.dataset.o === 'shipDate') { S.shipDate = t.value; render(); return; }
   if (t.closest('.ship') && t.dataset.k === 'ch') { render(); return; }
   if (t.closest('tr[data-r]') && t.dataset.k === 'perBox') render();
+  if (t.dataset.k === 'gpo') render();
 });
 document.addEventListener('mousedown', (e) => { if (pick.scope && !e.target.closest('.picker')) { closePick(); render(); } });
 $('tabs').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) { view = b.dataset.v; rejecting = null; copying = null; sel.clear(); bulkRej = false; closePick(); render(); } });
