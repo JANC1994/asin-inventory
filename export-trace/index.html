@@ -488,7 +488,8 @@ async function renderPo() {
     try { await (reconLoading ||= loadRecon()); }
     catch (e) {
       reconLoading = null;
-      $('main').innerHTML = `<div class="card err">按合同单号 加载失败：${esc(e && e.message ? e.message : e)}\n（出口对账两张表只开给曾舒婷角色，其他人看不到属正常）</div>`;
+      $('main').innerHTML = `<div class="card err">按合同单号 加载失败：${esc(e && e.message ? e.message : e)}</div><div class="card">正在逐表诊断…</div>`;
+      if (SDK) $('main').innerHTML = `<div class="card err">按合同单号 加载失败：${esc(e && e.message ? e.message : e)}</div>` + await reconDiagnose();
       return;
     }
     fillFilters();
@@ -571,6 +572,32 @@ async function diagnose() {
     if (tb) await t(`读记录 ${cfg.name}`, () => tb.getRecordsByPage({ pageSize: 2 }));
   }
   return `<div class="card"><b>接口诊断</b> <span class="meta">请把这块整体截图发回</span><table class="tbl"><tbody>${res.map((r) =>
+    `<tr><td style="width:24px">${r[0]}</td><td>${esc(r[1])}</td><td style="white-space:normal;color:var(--sub)">${esc(r[2])}</td></tr>`).join('')}</tbody></table></div>`;
+}
+
+// 按合同单号 逐表诊断：对照组 = 同在「数据授权2」页授权的 货件物流跟踪-灯、出口退税明细
+async function reconDiagnose() {
+  const res = [];
+  const t = async (name, fn) => {
+    try {
+      const v = await Promise.race([fn(), new Promise((_, rej) => setTimeout(() => rej(new Error('超时 8s')), 8000))]);
+      let shown; try { shown = typeof v === 'string' ? v : JSON.stringify(v); } catch (x) { shown = String(v); }
+      res.push(['✔', name, String(shown).slice(0, 200)]); return v;
+    } catch (e) { res.push(['✘', name, e && e.message ? e.message : String(e)]); return undefined; }
+  };
+  const { bitable } = SDK;
+  const list = [['出口对账-采购合同', 'tblZGnfj9md5isLj'], ['出口对账-货件明细', 'tblJO6ZnfU62ALPz'],
+    ['（对照）货件物流跟踪-灯', 'tblB78mpJmyfEBHZ'], ['（对照）出口退税明细', 'tbl0F3jfCuyNB1ud']];
+  await t('dashboard.state', async () => SDK.dashboard.state);
+  for (const [nm, id] of list) {
+    const tb = await t(`${nm} 打开表`, () => bitable.base.getTableById(id));
+    if (!tb) continue;
+    await t(`${nm} 读权限`, () => bitable.base.getPermission({ entity: 'Table', param: { tableId: id }, type: 'readable' }));
+    const fm = await t(`${nm} 字段列表`, () => tb.getFieldMetaList().then((fs) => fs.length + ' 个字段'));
+    await t(`${nm} 读 2 行`, () => tb.getRecordsByPage({ pageSize: 2 }).then((r) => `${r.records.length} 行 total=${r.total}`));
+    if (fm) await t(`${nm} 记录ID`, () => tb.getRecordIdListByPage ? tb.getRecordIdListByPage({ pageSize: 2 }).then((r) => JSON.stringify(r).slice(0, 80)) : '无此接口');
+  }
+  return `<div class="card"><b>按合同单号 诊断</b> <span class="meta">请把这块整体截图发回</span><table class="tbl"><tbody>${res.map((r) =>
     `<tr><td style="width:24px">${r[0]}</td><td>${esc(r[1])}</td><td style="white-space:normal;color:var(--sub)">${esc(r[2])}</td></tr>`).join('')}</tbody></table></div>`;
 }
 
