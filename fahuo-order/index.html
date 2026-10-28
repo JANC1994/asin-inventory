@@ -239,7 +239,7 @@
     <button class="link" id="selfcheck" style="color:var(--sub)">自检</button>
     <div class="who"><span class="me-auto"><span class="avatar" id="meAv">?</span><span id="meName">识别中…</span><span class="hint" id="meRole"></span></span></div>
   </div>
-  <div id="main"><div class="loading">正在读取多维表数据…</div></div>
+  <div id="main"><div class="loading">正在读取多维表数据…<div id="loadProgress" class="hint" style="margin-top:10px;line-height:1.8"></div><div class="hint" style="margin-top:10px">超过半分钟还停在这里，请截图发给管理员</div></div></div>
 </div>
 <div class="toast" id="toast"></div>
 <div class="modal" id="modal"><div class="modal-box"><h3 id="mTitle"></h3><div class="modal-body" id="mBody"></div>
@@ -315,11 +315,18 @@ const META = {};      // key → { table, idByName, byName }
 const DATA = {};      // key → rows（{_id, 字段名: 普通值, _raw: {字段名: 原始值}}）
 const LOADERR = {};   // key → 报错文字（非核心表读不到时页面降级）
 
+// 10-28 运营反馈「一直加载中」：某张表没开应用权限时接口可能一直不返回 → 每次调用限时，超时当读失败
+const withTimeout = (p, ms, what) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error(`${what} 超过 ${ms / 1000} 秒没响应（多半是应用数据权限没开这张表）`)), ms))]);
+const LOADSTATE = {};   // key → '读取中' / '✔ n 行' / '✘ 原因'
+function showProgress() {
+  const el = document.getElementById('loadProgress'); if (!el) return;
+  el.innerHTML = Object.entries(LOADSTATE).map(([k, s]) => `<div>${esc(TABLES[k].name)}：${esc(s)}</div>`).join('');
+}
 async function openTable(key) {
   if (META[key]) return META[key];
   const cfg = TABLES[key];
-  const table = await SDK.bitable.base.getTableById(cfg.id);
-  const fields = await table.getFieldMetaList();
+  const table = await withTimeout(SDK.bitable.base.getTableById(cfg.id), 15000, `打开「${cfg.name}」`);
+  const fields = await withTimeout(table.getFieldMetaList(), 15000, `读「${cfg.name}」字段`);
   const m = { table, idByName: Object.fromEntries(fields.map((f) => [f.name, f.id])), byName: Object.fromEntries(fields.map((f) => [f.name, f])) };
   m.missing = cfg.fields.filter((w) => !m.idByName[w]);
   META[key] = m; return m;
@@ -330,8 +337,9 @@ async function readTable(key) {
   for (let guard = 0; guard < 300; guard++) {
     const q = { pageSize: 200, pageToken }; if (cfg.view) q.viewId = cfg.view;
     let res;
-    try { res = await m.table.getRecordsByPage(q); } catch (e) {
-      if (!q.viewId) throw e; cfg.view = ''; delete q.viewId; rows.length = 0; res = await m.table.getRecordsByPage(q);
+    const page = (qq) => withTimeout(m.table.getRecordsByPage(qq), 20000, `读「${cfg.name}」记录`);
+    try { res = await page(q); } catch (e) {
+      if (!q.viewId) throw e; cfg.view = ''; delete q.viewId; rows.length = 0; res = await page(q);
     }
     for (const r of res.records) {
       const o = { _id: r.recordId, _raw: {} };
@@ -345,8 +353,9 @@ async function readTable(key) {
 const TIMING = {};   // 各表读取耗时（自检里看）
 async function loadKey(key) {
   const t0 = performance.now();
-  try { DATA[key] = await readTable(key); delete LOADERR[key]; TIMING[key] = Math.round(performance.now() - t0); }
-  catch (e) { DATA[key] = []; LOADERR[key] = e && e.message ? e.message : String(e); if (TABLES[key].core) throw new Error(`读「${TABLES[key].name}」失败：${LOADERR[key]}`); }
+  LOADSTATE[key] = '读取中…'; showProgress();
+  try { DATA[key] = await readTable(key); delete LOADERR[key]; TIMING[key] = Math.round(performance.now() - t0); LOADSTATE[key] = `✔ ${DATA[key].length} 行`; showProgress(); }
+  catch (e) { DATA[key] = []; LOADERR[key] = e && e.message ? e.message : String(e); LOADSTATE[key] = '✘ ' + LOADERR[key]; showProgress(); if (TABLES[key].core) throw new Error(`读「${TABLES[key].name}」失败：${LOADERR[key]}`); }
 }
 
 // 加载分三档（10-28 用户反馈加载极慢：之前一口气读 8 张表、全部读完才出页面）：
@@ -1491,7 +1500,7 @@ async function boot() {
   try {
     if (!SDK) { SDK = await loadSdk(); setupSave(); }
     ME = { ids: [], name: '', known: false }; sel.clear(); editNo = null; E = null; rejecting = null; copying = null; closePick();
-    for (const f of ['getUserId', 'getBaseUserId']) { try { const id = await SDK.bitable.bridge[f](); if (id && !ME.ids.includes(id)) ME.ids.push(id); } catch (e) { /* 自检里看 */ } }
+    for (const f of ['getUserId', 'getBaseUserId']) { try { const id = await withTimeout(SDK.bitable.bridge[f](), 8000, f); if (id && !ME.ids.includes(id)) ME.ids.push(id); } catch (e) { /* 自检里看 */ } }
     const t0 = performance.now(), cached = [];
     for (const k of CACHEABLE) { const c = cacheGet(k); if (c) { DATA[k] = c; cached.push(k); } }
     await Promise.all(CORE.filter((k) => !cached.includes(k)).map(loadKey));
