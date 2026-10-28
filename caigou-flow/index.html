@@ -585,7 +585,12 @@ function renderApply() {
   // 鞋类：单个 SPU 内按颜色多选筛（颜色 = SKU 里鞋码前面那段；带 -nail 之类后缀的单列一色）
   let colorBar = '';
   if (F.line === 'shoe' && !F.spu.startsWith('__')) {
-    const colorOf = (r) => { const k = shoeKey(r['父ASIN/SKU']); return (k.color || '（无颜色）') + (k.tail ? '-' + k.tail : ''); };
+    // 颜色用中文：取品名里「-黑色-40码(-铜钉)」鞋码前那段；品名不规范时退回 SKU 里的英文
+    const colorOf = (r) => {
+      const m = /-([^-]+)-\d+(?:\.\d+)?码(?:-(.+))?$/.exec(String(r['品名'] || '').trim());
+      if (m) return m[1] + (m[2] ? '·' + m[2] : '');
+      const k = shoeKey(r['父ASIN/SKU']); return (k.color || '（无颜色）') + (k.tail ? '-' + k.tail : '');
+    };
     const cs = new Map(); for (const r of rows) cs.set(colorOf(r), (cs.get(colorOf(r)) || 0) + 1);
     if (F.colorSpu !== F.spu) { F.colors = new Set(); F.colorSpu = F.spu; }
     for (const c of [...F.colors]) if (!cs.has(c)) F.colors.delete(c);
