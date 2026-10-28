@@ -188,8 +188,8 @@
   <div class="sticky" id="sticky">
     <h1>发货指令</h1>
     <div class="tabs" id="tabs"></div>
-    <button class="link" id="reload" title="重新读取（别人刚改过时点一下）">⟳ 刷新</button>
-    <button class="link" id="selfcheck">自检</button>
+    <button class="btn sm ghost" id="reload" title="重新读取多维表（别人刚改过时点一下）">⟳ 刷新数据</button>
+    <button class="link" id="selfcheck" style="color:var(--sub)">自检</button>
     <div class="who"><span class="me-auto"><span class="avatar" id="meAv">?</span><span id="meName">识别中…</span><span class="hint" id="meRole"></span></span></div>
   </div>
   <div id="main"><div class="loading">正在读取多维表数据…</div></div>
@@ -352,7 +352,7 @@ function buildOrders() {
     const by = users(r._raw['提交人'])[0] || { id: '', name: '?' };
     const ships = json(r['货件JSON'], []); while (ships.length < SHIP_SLOTS) ships.push({ no: '', ch: '', eta: '' });
     ORDERS.push({
-      rid: r._id, no: no || `（未编号 ${r._id.slice(-4)}）`, seq: num(r['序号']), status: r['状态'] || '草稿', byId: by.id, by: by.name,
+      rid: r._id, no: no || `（未编号 ${r._id.slice(-4)}）`, seq: +(String(r['序号'] ?? '').match(/\d+/)?.[0] || 0), status: r['状态'] || '草稿', byId: by.id, by: by.name,
       shipDate: r['发货日期'] ? ds(dnMs(r['发货日期'])) : '', split: r['是否分仓'] || '否', rows: json(r['明细JSON'], []).map((x, i) => ({ ...x, id: ++rowSeq })),
       ships, note: r['备注'] || '', reason: r['驳回原因'] || '', plan: r['分批计划'] || '', checkedAt: fmtTime(r['审核时间']), editedAt: fmtTime(r['最后修改']),
     });
@@ -409,17 +409,56 @@ function orderFields(S) {
 }
 async function createOrder(S, extra = {}) {
   const rid = await T('ord').addRecord({ fields: fieldsOf('ord', { ...orderFields(S), '状态': '草稿', ...extra }) });
-  // 指令号 = FH- + 自动序号（序号由多维表发，多人同时建单也不会重号）
-  const rec = await T('ord').getRecordById(rid);
-  const seqTxt = cell(rec.fields[META.ord.idByName['序号']]) || '';
-  const no = 'FH-' + (String(seqTxt).match(/\d+/)?.[0] || rid.slice(-6)).padStart(4, '0');
+  // 指令号 = FH- + 自动序号（序号由多维表发，多人同时建单也不会重号）；刚建好时序号可能还没出来，等一下再读
+  let rec, digits = '';
+  for (const w of [0, 300, 600, 1000, 1500, 2000]) {
+    if (w) await new Promise((r) => setTimeout(r, w));
+    rec = await T('ord').getRecordById(rid);
+    digits = String(cell(rec.fields[META.ord.idByName['序号']]) || '').match(/\d+/)?.[0] || '';
+    if (digits) break;
+  }
+  const no = digits ? 'FH-' + digits.padStart(4, '0') : 'FH-' + rid.slice(-6);   // 读不到序号的，下次打开页面会自动改正（healNos）
   await T('ord').setRecord(rid, { fields: fieldsOf('ord', { '指令号': no }) });
+  expect('ord', rid, { '指令号': no });
   // 顺手认人：新记录的「提交人」就是我
   const u = users(rec.fields[META.ord.idByName['提交人']])[0];
   if (u) { if (!ME.ids.includes(u.id)) ME.ids.push(u.id); ME.name = u.name; ME.known = true; }
   return { rid, no };
 }
-async function setOrder(o, obj) { await T('ord').setRecord(o.rid, { fields: fieldsOf('ord', obj) }); }
+async function setOrder(o, obj) {
+  await T('ord').setRecord(o.rid, { fields: fieldsOf('ord', obj) });
+  const want = {}; for (const [k, v] of Object.entries(obj)) if (['状态', '指令号', '分批计划', '发货日期'].includes(k)) want[k] = v;
+  if (Object.keys(want).length) expect('ord', o.rid, want);
+}
+async function delOrder(o) { await T('ord').deleteRecord(o.rid); expect('ord', o.rid, 'gone'); }
+// 飞书写入后立刻读，常常还是旧数据（10-28 实测：新建/复制的单要手动刷新才出来，自动序号也读不到）
+// → 每次写入登记「应该看到的结果」，写完反复重读直到都看到（最多约 8 秒）
+let EXPECT = [];
+function expect(key, rid, want) { EXPECT.push({ key, rid, want }); }
+function seen() {
+  return EXPECT.every(({ key, rid, want }) => {
+    const r = (DATA[key] || []).find((x) => x._id === rid);
+    if (want === 'gone') return !r;
+    if (want === 'exists') return !!r;
+    if (!r) return false;
+    return Object.entries(want).every(([k, v]) => {
+      const cur = r[k];
+      if (k === '发货日期') return (cur ? ds(dnMs(cur)) : '') === (v || '');
+      return String(cur ?? '') === String(v ?? '');
+    });
+  });
+}
+async function syncAfterWrite() {
+  const waits = [0, 400, 700, 1000, 1500, 2000, 2500];
+  for (const w of waits) {
+    if (w) await new Promise((r) => setTimeout(r, w));
+    await Promise.all([loadKey('ord'), loadKey('plan')]);
+    if (seen()) break;
+  }
+  const ok = seen(); EXPECT = [];
+  buildRef(); buildOrders(); render();
+  return ok;
+}
 // 刷新前后状态要一致（别人刚改过就不动）
 async function fresh(o, expect) {
   const rec = await T('ord').getRecordById(o.rid);
@@ -490,9 +529,14 @@ async function reject(o, why) {
 
 // 跑一个写操作：加遮罩、出错提示、完了重读
 async function act(label, fn) {
-  busy(label + '…');
-  try { const msg = await fn(); await reload(true); if (msg) toast(msg, 3600); }
-  catch (e) { await reload(true).catch(() => {}); toast('失败：' + (e && e.message ? e.message : e), 6000); console.error(e); }
+  busy(label + '…'); EXPECT = [];
+  try {
+    const msg = await fn();
+    busy('等飞书同步…');
+    const ok = await syncAfterWrite();
+    if (msg) toast(msg + (ok ? '' : '（飞书同步较慢，几秒后点「⟳ 刷新数据」）'), ok ? 3600 : 6000);
+  }
+  catch (e) { EXPECT = []; await reload(true).catch(() => {}); toast('失败：' + (e && e.message ? e.message : e), 6000); console.error(e); }
   finally { busy(''); }
 }
 async function reload(silent) {
@@ -545,6 +589,7 @@ function render() {
   $('meRole').textContent = rev ? `· 审核人` : `· 审核人：${REVIEWER.name}`;
   const warn = Object.entries(LOADERR).map(([k, e]) => `<div class="warn">读不到「${TABLES[k].name}」：${esc(e)} —— ${k === 'po' ? '采购单号改为手填' : k === 'ch' ? '渠道改为手填、不给参考到达日' : k === 'plan' ? '待发货页看不到货件号，审核通过也写不进发货计划' : ''}（多半是应用数据权限没开这张表）</div>`).join('');
   $('main').innerHTML = warn + (view === 'new' ? renderNew() : view === 'list' ? renderList() : renderShip());
+  saveDraft();
   if (pick.scope) renderPick();
 }
 
@@ -655,7 +700,7 @@ function renderNew() {
     <div><div class="hint">总数</div><div class="n" data-sumqty>${s.qty.toLocaleString()}</div></div>
     <div class="hint">提交人：<b>${esc(ME.name || '当前登录人')}</b>（自动）</div>
     <div style="margin-left:auto;display:flex;gap:8px"><button class="btn ghost" data-act="clearNew">清空</button><button class="btn" data-act="saveNew">保存到指令列表</button></div></div>
-    <div class="hint" style="margin-top:6px">保存后在「指令列表」检查，再点「提交审核」。同一批货要分几次发：在指令列表里点那张单的「复制」，填复制几张、每张推后几天。</div>
+    <div class="hint" style="margin-top:6px">没保存前填的内容会自动存在本电脑浏览器里，刷新/退出回来还在；点「保存到指令列表」后才进多维表、别人才看得到。保存后在「指令列表」检查，再点「提交审核」。同一批货要分几次发：在指令列表里点那张单的「复制」，填复制几张、每张推后几天。</div>
     ${showErr === 'new' && errs.length ? `<div class="errs">还差：${errs.map(esc).join('；')}</div>` : ''}</div>`;
 }
 
@@ -840,7 +885,7 @@ main.addEventListener('click', (e) => {
     return confirmSubmit([o]).then((ok) => ok && act('提交中', async () => { await fresh(o, ['草稿', '已驳回']); await setOrder(o, { '状态': '待审核' }); return `${o.no} 已提交，等${REVIEWER.name}审核`; }));
   }
   if (a === 'withdraw') return act('撤回中', async () => { await fresh(o, ['待审核']); await setOrder(o, { '状态': '草稿' }); return '已撤回为草稿'; });
-  if (a === 'del') return act('删除中', async () => { await fresh(o, ['草稿', '已驳回']); await T('ord').deleteRecord(o.rid); return `${o.no} 已删除`; });
+  if (a === 'del') return act('删除中', async () => { await fresh(o, ['草稿', '已驳回']); await delOrder(o); return `${o.no} 已删除`; });
   if (a === 'approve') return act('审核中（写入发货计划）', async () => `${o.no} 审核通过 → 已写入发货计划 ${await approve(o)} 行`);
   if (a === 'reject') { rejecting = o.no; render(); $('rejReason')?.focus(); return; }
   if (a === 'rejectCancel') { rejecting = null; render(); return; }
@@ -882,7 +927,7 @@ function bulkSubmit(good, bad) {
 function bulk2(a, os) {
   if (a === 'bulkDel') return act('批量删除中', async () => {
     const del = os.filter((o) => isMine(o) && (o.status === '草稿' || o.status === '已驳回'));
-    for (const o of del) await T('ord').deleteRecord(o.rid);
+    for (const o of del) await delOrder(o);
     sel.clear(); return `已删除 ${del.length} 张`;
   });
   if (a === 'bulkApprove') return act('批量审核中', async () => {
@@ -904,7 +949,7 @@ function bulk2(a, os) {
 main.addEventListener('input', (e) => {
   const t = e.target, scope = scopeOf(t), S = scope && stateOf(scope); if (!S) return;
   if (t.hasAttribute('data-pickq')) { if (pick.scope !== scope) pick = { scope, q: '', err: '', pending: new Set(S.rows.map((r) => r.key)) }; pick.q = t.value; renderPick(); return; }
-  if (t.dataset.o === 'note') { S.note = t.value; return; }
+  if (t.dataset.o === 'note') { S.note = t.value; if (scope === 'new') saveDraft(); return; }
   const tr = t.closest('tr[data-r]');
   if (tr && t.dataset.k) {
     const r = S.rows.find((x) => x.id === +tr.dataset.r); r[t.dataset.k] = t.value;
@@ -914,9 +959,11 @@ main.addEventListener('input', (e) => {
       box.querySelectorAll('[data-sumboxes]').forEach((x) => x.textContent = s.boxes);
       box.querySelectorAll('[data-sumqty]').forEach((x) => x.textContent = s.qty.toLocaleString());
     }
+    if (scope === 'new') saveDraft();
     return;
   }
   const sh = t.closest('.ship'); if (sh && t.dataset.k) S.ships[+sh.dataset.i][t.dataset.k] = t.value;
+  if (scope === 'new') saveDraft();
 });
 main.addEventListener('change', (e) => {
   const t = e.target;
@@ -1009,6 +1056,30 @@ async function loadSdk() {
   throw new Error('飞书 SDK 三个来源都没加载上（也就没有「保存到页面」按钮），请截图：' + errs.join(' ｜ '));
 }
 
+async function healNos() {
+  const bad = ORDERS.filter((o) => isMine(o) && o.status !== '待发货' && o.seq && o.no !== 'FH-' + String(o.seq).padStart(4, '0'));
+  if (!bad.length) return;
+  try {
+    for (const o of bad) {
+      const no = 'FH-' + String(o.seq).padStart(4, '0');
+      await setOrder(o, { '指令号': no });
+      for (const x of ORDERS.filter((x) => x.plan === o.no && isMine(x))) await setOrder(x, { '分批计划': no });
+    }
+    await syncAfterWrite();
+  } catch (e) { EXPECT = []; console.warn('改正指令号失败', e); }
+}
+
+// 新建页没保存的内容存在本浏览器（刷新/退出后回来还在）；保存到指令列表或清空后就没了。读写都包 try，存不了就算了
+const DRAFT_KEY = 'fahuo_new_draft_v1';
+function saveDraft() { try { localStorage.setItem(DRAFT_KEY, JSON.stringify(F.rows.length || F.note ? F : null)); } catch (e) { /* 浏览器不让存 */ } }
+function loadDraft() {
+  try {
+    const d = JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null');
+    if (d && Array.isArray(d.rows) && d.rows.length) { d.rows.forEach((r) => r.id = ++rowSeq); F = { ...blankForm(), ...d }; return true; }
+  } catch (e) { /* 忽略 */ }
+  return false;
+}
+
 // 启动（预览版换人时会再调一次：重新认人、重读表）
 async function boot() {
   try {
@@ -1017,7 +1088,9 @@ async function boot() {
     for (const f of ['getUserId', 'getBaseUserId']) { try { const id = await SDK.bitable.bridge[f](); if (id && !ME.ids.includes(id)) ME.ids.push(id); } catch (e) { /* 自检里看 */ } }
     await Promise.all(Object.keys(TABLES).map(loadKey));
     buildRef(); buildOrders();
+    await healNos();
     view = isReviewer() ? 'list' : 'new';
+    if (!F.rows.length && loadDraft()) toast('已恢复上次没保存的新建内容', 3000);
     render();
   } catch (e) {
     const msg = esc(e && e.message ? e.message : e);
