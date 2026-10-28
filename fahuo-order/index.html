@@ -342,9 +342,33 @@ async function readTable(key) {
   }
   return rows;
 }
+const TIMING = {};   // 各表读取耗时（自检里看）
 async function loadKey(key) {
-  try { DATA[key] = await readTable(key); delete LOADERR[key]; }
+  const t0 = performance.now();
+  try { DATA[key] = await readTable(key); delete LOADERR[key]; TIMING[key] = Math.round(performance.now() - t0); }
   catch (e) { DATA[key] = []; LOADERR[key] = e && e.message ? e.message : String(e); if (TABLES[key].core) throw new Error(`读「${TABLES[key].name}」失败：${LOADERR[key]}`); }
+}
+
+// 加载分三档（10-28 用户反馈加载极慢：之前一口气读 8 张表、全部读完才出页面）：
+//  CORE  先读，读完就出页面：发货指令 / 发货计划(视图) / 两张产品主表
+//  BG    页面出来后后台读：采购合同（1300+ 行）/ 头程渠道
+//  LAZY  用到才读：领星货件两张表（打开「填货件号」时）
+//  另外 产品主表 / 鞋类 / 采购合同 / 渠道 存本浏览器缓存：下次打开先用缓存秒出，再后台刷新
+const CORE = ['ord', 'plan', 'pm', 'shoe'], BG = ['po', 'ch'], LAZY = ['fba', 'fbaItem'], CACHEABLE = ['pm', 'shoe', 'po', 'ch'];
+const CACHE_V = 'fahuo_cache_v1_';
+function cacheGet(k) { try { const c = JSON.parse(localStorage.getItem(CACHE_V + k) || 'null'); if (c && Date.now() - c.t < 3 * 86400e3) return c.rows; } catch (e) { /* 浏览器不让存 */ } return null; }
+function cachePut(k, rows) { try { localStorage.setItem(CACHE_V + k, JSON.stringify({ t: Date.now(), rows: rows.map(({ _raw, ...r }) => r) })); } catch (e) { /* 超额就不存 */ } }
+let bgDone = false, needRender = false;
+// 后台数据到了再重画：用户正在输入/开着下拉/弹窗时先不打断，等下一次自然重画
+function softRender() {
+  const ae = document.activeElement, busyUI = pick.scope || $('modal').classList.contains('show') || (ae && main.contains(ae) && ae.matches('input, textarea, select'));
+  if (busyUI) { needRender = true; if (pick.mode === 'po') renderPoPick(); return; }
+  render();
+}
+async function ensureLazy() {
+  const todo = LAZY.filter((k) => !DATA[k]);
+  if (!todo.length) return;
+  busy('读取领星货件…'); try { await Promise.all(todo.map(loadKey)); } finally { busy(''); }
 }
 
 // 写值：按字段类型转换（文本/数字/单选/日期/人员/关联）
@@ -680,6 +704,7 @@ function applyDefaults(S) {
 
 // ================= ⑦ 渲染 =================
 function render() {
+  needRender = false;
   const n = (f) => ORDERS.filter(f).length, rev = isReviewer();
   const todo = n((o) => isMine(o) && (o.status === '草稿' || o.status === '已驳回')) + (rev ? n((o) => o.status === '待审核') : 0);
   $('tabs').innerHTML = [['new', '新建指令'], ['list', '指令列表' + (todo ? `<span class="num">${todo}</span>` : '')], ['ship', `待发货 (${n((o) => o.status === '待发货')})`]]
@@ -854,7 +879,7 @@ function renderPoPick() {
   panel.querySelector('.po-ctl').innerHTML = `<span>导入到店铺</span><select data-postore ${locked ? 'disabled' : ''} class="${c ? '' : 'miss'}">${storeOptions(c, '— 先选店铺 —')}</select>
       <span class="hint">${locked ? '明细里已是这个店铺的产品' : '只列有本店铺产品的采购单'}</span>`;
   panel.querySelector('.po-body').innerHTML =
-    `<div class="pick-list">${html || `<div class="empty" style="margin:10px">${POS.length ? '没有匹配的采购单' : (LOADERR.po ? '读不到采购合同表（应用权限没开）' : '没有本组产品的采购单')}</div>`}</div>` +
+    `<div class="pick-list">${html || `<div class="empty" style="margin:10px">${POS.length ? '没有匹配的采购单' : (LOADERR.po ? '读不到采购合同表（应用权限没开）' : !DATA.po ? '采购单还在后台读取，几秒后自动出现…' : '没有本组产品的采购单')}</div>`}</div>` +
     `<div class="pick-foot"><span class="hint">共 ${list.length} 张 · 已勾 <b>${pick.poSel.size}</b> 张${n ? `（点完成：加入 ${n} 个产品，按 剩余发货数 ÷ 每箱 自动填箱数，零头另起一行；没箱规的直接填总数）` : ''}</span>
      <span style="display:flex;gap:6px"><button class="btn sm ghost" data-pickcancel>取消</button><button class="btn sm" data-podone>完成</button></span></div>`;
   const pl = panel.querySelector('.pick-list'); if (pl) pl.scrollTop = keep;
@@ -1087,7 +1112,8 @@ function fbaCandidates(os) {
   return Object.values(hit).map((x) => ({ ...x, region: fcRegion(x.fc) })).sort((a, b) => b.n - a.n || (b.t || 0) - (a.t || 0));
 }
 let FILL = null;   // { os, slots:[i], cands }
-function openFill(os) {
+async function openFill(os) {
+  await ensureLazy();
   if (new Set(os.map(storeOf)).size > 1) { toast('不同店铺的单不能合并（不能进同一个货件）', 4000); return; }
   const c = new Set(os.map((o) => countryOf(o.rows))), sp = new Set(os.map((o) => o.split));
   if (c.size > 1) { toast('美国和加拿大的单不能合并'); return; }
@@ -1373,11 +1399,13 @@ async function selfCheck(auto) {
       await t('dashboard.state', async () => SDK.dashboard.state);
       await t('bridge.getUserId', () => SDK.bitable.bridge.getUserId());
       await t('bridge.getBaseUserId', () => SDK.bitable.bridge.getBaseUserId());
+      res.push(['ℹ', '首屏耗时', TIMING.首屏 != null ? (TIMING.首屏 / 1000).toFixed(1) + ' 秒' + (bgDone ? '（后台已读完）' : '（后台还在读）') : '—']);
       res.push(['ℹ', '本页认出的我', `${ME.name || '（未认出）'} · ids=${ME.ids.join(',')} · 审核人=${REVIEWER.name}(${REVIEWER.ids.join(',') || '无ID'}) · 我是审核人=${isReviewer()}`]);
       for (const k of Object.keys(TABLES)) {
         await t(`读「${TABLES[k].name}」`, async () => {
           if (LOADERR[k]) throw new Error(LOADERR[k]);
-          const m = META[k]; return `${(DATA[k] || []).length} 行${m && m.missing.length ? '；缺字段：' + m.missing.join('、') : ''}`;
+          const m = META[k], tag = CORE.includes(k) ? '首屏' : BG.includes(k) ? '后台' : '用到才读';
+          return `${DATA[k] ? DATA[k].length + ' 行' : '未读'} · ${tag}${TIMING[k] != null ? ' · ' + (TIMING[k] / 1000).toFixed(1) + ' 秒' : (CACHEABLE.includes(k) && DATA[k] ? ' · 缓存' : '')}${m && m.missing.length ? '；缺字段：' + m.missing.join('、') : ''}`;
         });
       }
       if (!auto) {
@@ -1464,9 +1492,23 @@ async function boot() {
     if (!SDK) { SDK = await loadSdk(); setupSave(); }
     ME = { ids: [], name: '', known: false }; sel.clear(); editNo = null; E = null; rejecting = null; copying = null; closePick();
     for (const f of ['getUserId', 'getBaseUserId']) { try { const id = await SDK.bitable.bridge[f](); if (id && !ME.ids.includes(id)) ME.ids.push(id); } catch (e) { /* 自检里看 */ } }
-    await Promise.all(Object.keys(TABLES).map(loadKey));
+    const t0 = performance.now(), cached = [];
+    for (const k of CACHEABLE) { const c = cacheGet(k); if (c) { DATA[k] = c; cached.push(k); } }
+    await Promise.all(CORE.filter((k) => !cached.includes(k)).map(loadKey));
+    TIMING.首屏 = Math.round(performance.now() - t0);
     buildRef(); buildOrders();
     await healNos();
+    // 后台：刷新缓存过的表 + 读 BG 表，读完重建并重画
+    bgDone = false;
+    (async () => {
+      try {
+        await Promise.all([...new Set([...cached, ...BG])].map(loadKey));
+        // 缓存过的表还要拿一次字段信息（写入、店铺清单要用）
+        await Promise.all(CACHEABLE.filter((k) => !META[k]).map((k) => openTable(k).catch(() => {})));
+        CACHEABLE.forEach((k) => { if (DATA[k] && !LOADERR[k]) cachePut(k, DATA[k]); });
+      } catch (e) { console.warn('后台读取失败', e); }
+      bgDone = true; buildRef(); buildOrders(); softRender();
+    })();
     view = isReviewer() ? 'list' : 'new';
     if (!F.rows.length && loadDraft()) toast('已恢复上次没保存的新建内容', 3000);
     render();
