@@ -89,6 +89,10 @@
   .tbl td, .tbl th { padding-left: 6px; padding-right: 6px; }
   .tbl select.t { width: 64px; }
   .tbl select.store { width: 112px; }
+  .tbl select.wh { width: 150px; }
+  .colors { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-left: 10px; padding-left: 10px; border-left: 1px solid #d0d3d6; }
+  .colors button { border: 1px solid #d0d3d6; background: #fff; border-radius: 12px; padding: 1px 10px; cursor: pointer; font: inherit; font-size: 12px; color: var(--ink); }
+  .colors button.on { background: var(--blue); border-color: var(--blue); color: #fff; }
   .qwrap { display: flex; align-items: center; gap: 6px; }
   .boxq { font-size: 12px; color: var(--sub); white-space: nowrap; }
 
@@ -337,11 +341,12 @@ const BUYERS = () => {
 
 // ===== ⑤ 状态 =====
 let VIEW = lsGet('caigou_view', 'apply');
-const F = { line: lsGet('caigou_line', 'four'), store: '', q: '', spu: '__all', approve: 'todo', track: 'open', person: '' };
+const F = { colors: new Set(), colorSpu: '', line: lsGet('caigou_line', 'four'), store: '', q: '', spu: '__all', approve: 'todo', track: 'open', person: '' };
 let DRAFT = lsGet('caigou_draft_v1', {});        // rid → {qty, 收货地, 是否开票, 可开发票类型, 有无运费, SKU备注_采购}（只存本浏览器）
 let BATCH_NOTE = lsGet('caigou_note_v1', '');
 const saveDraft = () => { lsSet('caigou_draft_v1', DRAFT); lsSet('caigou_note_v1', BATCH_NOTE); };
-const EDIT_FIELDS = ['收货地', '是否开票', '可开发票类型', '有无运费', 'SKU备注_采购'];
+const EDIT_FIELDS = ['SKU仓库_采购', '收货地', '是否开票', '可开发票类型', '有无运费', 'SKU备注_采购'];
+const DEFAULT_WH = '晋江FBA中转仓-林键春';   // 采购仓库默认值（用户 10-28 定），行上有值时以行上为准
 const WRITE_FIELDS = ['店铺', ...EDIT_FIELDS];   // 提交时写回申请表的字段（店铺默认=表里现值，可改）
 // 每箱数量（产品主表 单箱数量）：没登记的不显示；数量不是整箱时标黄
 function boxText(qty, box) {
@@ -398,7 +403,7 @@ function skuCmp(a, b) {
   return String(a['父ASIN/SKU']).localeCompare(String(b['父ASIN/SKU']));
 }
 const draftOf = (r) => DRAFT[r._id] || null;
-const draftVal = (r, k) => { const d = draftOf(r); return d && d[k] != null ? d[k] : (r[k] ?? ''); };
+const draftVal = (r, k) => { const d = draftOf(r); const v = d && d[k] != null ? d[k] : (r[k] ?? ''); return k === 'SKU仓库_采购' && !v ? DEFAULT_WH : v; };
 const picked = () => (DATA.apply || []).filter((r) => !locked(r) && n0(draftOf(r)?.qty) > 0);
 
 function batchLabel(key) {
@@ -479,6 +484,7 @@ function renderTop() {
     f = `<div class="chips" id="lineChips">${[['four', '四季品'], ['season', '季节品'], ['shoe', '鞋类'], ['other', '未分类']].filter(([k]) => k !== 'other' || cnt(k)).map(([k, t]) => `<button data-k="${k}" class="${F.line === k ? 'on' : ''}" title="${k === 'other' ? '产品主表没登记的 SKU（多为包材/配件）' : ''}">${t} ${cnt(k)}</button>`).join('')}</div>
       <select id="fStore"><option value="">全部店铺</option>${stores.map((s) => `<option ${F.store === s ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select>
       <input id="fQ" placeholder="搜 SKU / 品名 / 父ASIN" value="${esc(F.q)}" style="width:200px">
+      <button class="btn" id="impBtn" title="本地 Excel(.xlsx) 或 CSV：有 SKU 列和数量列即可，按 SKU 把数量加到本次采购量">📥 导入表格</button><input type="file" id="impFile" accept=".xlsx,.csv,.txt" style="display:none">
       <span class="hint">灰色行 = 审批中，不能重复申请；数量填了就算选中</span>`;
   } else if (VIEW === 'approve') {
     const n = (k) => bs.filter(k).length;
@@ -494,6 +500,7 @@ function renderTop() {
   $('filters').innerHTML = f;
   const lc = $('lineChips'); if (lc) lc.querySelectorAll('button').forEach((b) => { b.onclick = () => { F.line = b.dataset.k; lsSet('caigou_line', F.line); F.spu = '__all'; render(); }; });
   const ap = $('apChips'); if (ap) ap.querySelectorAll('button').forEach((b) => { b.onclick = () => { F.approve = b.dataset.k; render(); }; });
+  if ($('impBtn')) { $('impBtn').onclick = () => $('impFile').click(); $('impFile').onchange = (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) importFile(f); }; }
   if ($('fStore')) $('fStore').onchange = (e) => { F.store = e.target.value; F.spu = '__all'; render(); };
   if ($('fPerson')) $('fPerson').onchange = (e) => { F.person = e.target.value; render(); };
   if ($('fQ')) $('fQ').oninput = (e) => { F.q = e.target.value; clearTimeout(renderTop.h); renderTop.h = setTimeout(() => { renderMain(); const q = $('fQ'); q.focus(); q.setSelectionRange(q.value.length, q.value.length); }, 250); };
@@ -535,12 +542,26 @@ function renderApply() {
 
   let rows = F.spu === '__all' ? pool : F.spu === '__picked' ? picked() : (spus.get(F.spu) || []);
   rows = [...rows].sort(skuCmp);
+  // 鞋类：单个 SPU 内按颜色多选筛（颜色 = SKU 里鞋码前面那段；带 -nail 之类后缀的单列一色）
+  let colorBar = '';
+  if (F.line === 'shoe' && !F.spu.startsWith('__')) {
+    const colorOf = (r) => { const k = shoeKey(r['父ASIN/SKU']); return (k.color || '（无颜色）') + (k.tail ? '-' + k.tail : ''); };
+    const cs = new Map(); for (const r of rows) cs.set(colorOf(r), (cs.get(colorOf(r)) || 0) + 1);
+    if (F.colorSpu !== F.spu) { F.colors = new Set(); F.colorSpu = F.spu; }
+    for (const c of [...F.colors]) if (!cs.has(c)) F.colors.delete(c);
+    if (cs.size > 1) {
+      colorBar = `<span class="colors" id="colorBar"><b style="color:var(--ink)">颜色</b><button data-c="" class="${F.colors.size ? '' : 'on'}">全部 ${rows.length}</button>${[...cs].map(([c, n]) => `<button data-c="${esc(c)}" class="${F.colors.has(c) ? 'on' : ''}">${esc(c)} ${n}</button>`).join('')}</span>`;
+      if (F.colors.size) rows = rows.filter((r) => F.colors.has(colorOf(r)));
+    }
+  }
   const LIMIT = 300, shown = rows.slice(0, LIMIT);
   const dl = (id, vals) => `<datalist id="${id}">${vals.map((v) => `<option value="${esc(v)}">`).join('')}</datalist>`;
   const all = DATA.apply || [];
   const lists = dl('dlAddr', uniq(all.map((r) => r['收货地']))) + dl('dlInv', uniq(['专票', '普票', '不开票', '需确认', ...all.map((r) => r['可开发票类型'])])) + dl('dlFee', uniq(['无', '含运费', '不含运费', ...all.map((r) => r['有无运费'])]));
   const storeNames = ((META.apply['店铺'] || {}).options || []).map((o) => o.name);
   const storeOpts = (cur) => uniq(['', cur, ...storeNames]).map((v) => `<option value="${esc(v)}" ${v === cur ? 'selected' : ''}>${esc(v || '—')}</option>`).join('');
+  const whNames = ((META.apply['SKU仓库_采购'] || {}).options || []).map((o) => o.name);
+  const whOpts = (cur) => uniq([cur, DEFAULT_WH, ...whNames]).map((v) => `<option value="${esc(v)}" ${v === cur ? 'selected' : ''}>${esc(v)}</option>`).join('');
   const tr = (r) => {
     const lk = locked(r), d = draftOf(r), on = !lk && n0(d?.qty) > 0;
     const inp = (k, cls, extra = '') => `<input class="t ${cls || ''}" data-r="${r._id}" data-k="${k}" value="${esc(draftVal(r, k))}" ${lk ? 'disabled' : ''} ${extra}>`;
@@ -553,6 +574,7 @@ function renderApply() {
       <td class="r">${fmtN(r['上次采购量'])}</td>
       <td>${lk ? `${stateBadge(st(r))}<div class="hint">${fmtN(r['实际采购量'])} 件 · ${esc(batchLabel(r['批次标识_采购']).when)}</div>`
         : `<div class="qwrap"><input class="qty" type="number" min="0" step="1" data-r="${r._id}" data-k="qty" value="${esc(d?.qty ?? '')}" placeholder="0">${r._box ? `<span class="boxq" data-box="${r._box}">${boxText(d?.qty, r._box)}</span>` : ''}</div>${last}`}</td>
+      <td><select class="wh" data-r="${r._id}" data-k="SKU仓库_采购" ${lk ? 'disabled' : ''} title="领星采购仓库，默认 ${DEFAULT_WH}">${whOpts(draftVal(r, 'SKU仓库_采购'))}</select></td>
       <td>${inp('收货地', on && !draftVal(r, '收货地') ? 'warn' : '', 'list="dlAddr"')}</td>
       <td><select class="t" data-r="${r._id}" data-k="是否开票" ${lk ? 'disabled' : ''}>${['', '是', '否'].map((v) => `<option ${draftVal(r, '是否开票') === v ? 'selected' : ''}>${v}</option>`).join('')}</select></td>
       <td>${inp('可开发票类型', '', 'list="dlInv"')}</td>
@@ -560,17 +582,21 @@ function renderApply() {
       <td>${inp('SKU备注_采购', '', 'style="width:96px" placeholder="给采购的备注"')}</td></tr>`;
   };
   const fill = `<div class="fillbar">给本页已填数量的行统一填：
+    仓库 <select id="fa0" style="width:150px"><option></option>${whOpts('').replace(/ selected/g, '')}</select>
     收货地 <input id="fa1" list="dlAddr"> 是否开票 <select id="fa2"><option></option><option>是</option><option>否</option></select>
     发票类型 <input id="fa3" list="dlInv"> 运费 <input id="fa4" list="dlFee"> <button class="btn" id="faGo">填入</button>
-    <span style="margin-left:auto">收货地 = 货去哪（晋江/直发/泉州…），不是领星仓库</span></div>`;
+    ${colorBar}<span style="margin-left:auto">收货地 = 货去哪（晋江/直发/泉州…）</span></div>`;
   $('main').innerHTML = `${lists}<div class="split">${side}<div>
     <div class="card" style="padding:12px 14px">
       <h3>${esc(F.spu === '__all' ? '全部 SKU' : F.spu === '__picked' ? '本次已选' : F.spu)} <small>${rows.length} 个 SKU${rows.length > LIMIT ? `，先显示 ${LIMIT} 个，搜索或选 SPU 缩小范围` : ''}</small></h3>
       ${fill}
       ${shown.length ? `<div style="overflow:auto"><table class="tbl"><thead><tr><th style="width:44px"></th><th>SKU / 品名</th><th>店铺</th><th class="r">上次采购量</th><th>本次采购量</th>
-        <th>收货地</th><th>开票</th><th>发票类型</th><th>有无运费</th><th>SKU 备注</th></tr></thead><tbody>${shown.map(tr).join('')}</tbody></table></div>` : '<div class="empty">没有符合条件的 SKU</div>'}
+        <th>仓库</th><th>收货地</th><th>开票</th><th>发票类型</th><th>有无运费</th><th>SKU 备注</th></tr></thead><tbody>${shown.map(tr).join('')}</tbody></table></div>` : '<div class="empty">没有符合条件的 SKU</div>'}
     </div></div></div>`;
   $('side').querySelectorAll('.it').forEach((el) => { el.onclick = () => { F.spu = el.dataset.k; renderApply(); renderCart(); }; });
+  const cb = $('colorBar'); if (cb) cb.querySelectorAll('button').forEach((b) => { b.onclick = () => {
+    const c = b.dataset.c; if (!c) F.colors.clear(); else if (F.colors.has(c)) F.colors.delete(c); else F.colors.add(c);
+    const sc = $('main').scrollTop; renderApply(); $('main').scrollTop = sc; }; });
   $('main').querySelectorAll('[data-r]').forEach((el) => {
     el.onchange = el.oninput = (e) => {
       const rid = el.dataset.r, k = el.dataset.k, r = (DATA.apply || []).find((x) => x._id === rid);
@@ -587,7 +613,7 @@ function renderApply() {
     };
   });
   $('faGo').onclick = () => {
-    const v = { '收货地': $('fa1').value, '是否开票': $('fa2').value, '可开发票类型': $('fa3').value, '有无运费': $('fa4').value };
+    const v = { 'SKU仓库_采购': $('fa0').value, '收货地': $('fa1').value, '是否开票': $('fa2').value, '可开发票类型': $('fa3').value, '有无运费': $('fa4').value };
     const tgt = shown.filter((r) => !locked(r) && n0(draftOf(r)?.qty) > 0);
     if (!tgt.length) { toast('本页还没有填数量的行'); return; }
     for (const r of tgt) for (const [k, x] of Object.entries(v)) if (x) DRAFT[r._id][k] = x;
@@ -604,7 +630,7 @@ function openSubmit() {
   dialog(`核对采购申请 · ${p.length} 个 SKU`, `
     ${noAddr.length || noInv.length ? `<div class="warnbox">${noAddr.length ? `${noAddr.length} 行没填收货地` : ''}${noAddr.length && noInv.length ? '，' : ''}${noInv.length ? `${noInv.length} 行没填是否开票` : ''}——采购下单时会来问，建议先填。可以照样提交。</div>` : ''}
     <div class="hint" style="margin-bottom:6px">店铺：${esc(stores.join('、'))} · 合计 <b>${fmtN(p.reduce((a, r) => a + n0(draftOf(r).qty), 0))}</b> 件 · 提交后进入「待运营主管审批」，运营主管 ${esc(OPS_LEAD.name)} 会收到飞书消息</div>
-    <table class="tbl"><thead><tr><th>SKU</th><th>品名</th><th>店铺</th><th class="r">上次</th><th class="r">本次</th><th>收货地</th><th>开票</th><th>发票类型</th><th>运费</th><th>备注</th></tr></thead>
+    <table class="tbl"><thead><tr><th>SKU</th><th>品名</th><th>店铺</th><th class="r">上次</th><th class="r">本次</th><th>仓库</th><th>收货地</th><th>开票</th><th>发票类型</th><th>运费</th><th>备注</th></tr></thead>
     <tbody>${p.map((r) => `<tr><td class="mono">${esc(r['父ASIN/SKU'])}</td><td class="nm">${esc(r['品名'])}</td><td>${esc(draftVal(r, '店铺'))}${draftVal(r, '店铺') !== (r['店铺'] ?? '') ? ' <span class="badge b-yellow">改</span>' : ''}</td><td class="r">${fmtN(r['上次采购量'])}</td>
       <td class="r"><b>${fmtN(draftOf(r).qty)}</b>${r._box ? `<div class="hint">${boxText(draftOf(r).qty, r._box)}</div>` : ''}</td>${EDIT_FIELDS.map((k) => `<td>${esc(draftVal(r, k)) || '<span class="hint">—</span>'}</td>`).join('')}</tr>`).join('')}</tbody></table>
     <div style="margin-top:12px"><div class="hint">批次备注（写进每行「批次备注_采购」，审批人和采购都能看到）</div>
@@ -623,6 +649,107 @@ function openSubmit() {
       closeDlg(); render();
       if (done) toast('已提交，等运营主管审批');
     } catch (e) { btn.disabled = false; btn.textContent = '确认提交'; alertErr(e); }
+  }]]);
+}
+
+// ===== 导入本地表格：按 SKU 匹配，把数量加到本次采购量 =====
+// 支持 .xlsx（浏览器自带解压，不依赖外部库）和 .csv；表头里找「SKU」列和「数量/采购量」列，没表头就当 第1列=SKU、第2列=数量
+async function unzipEntries(buf) {
+  const dv = new DataView(buf), u8 = new Uint8Array(buf);
+  let eocd = -1;
+  for (let i = buf.byteLength - 22; i >= Math.max(0, buf.byteLength - 66000); i--) if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+  if (eocd < 0) throw new Error('不是有效的 xlsx 文件');
+  const n = dv.getUint16(eocd + 10, true); let off = dv.getUint32(eocd + 16, true);
+  const out = {}, dec = new TextDecoder();
+  for (let i = 0; i < n; i++) {
+    const method = dv.getUint16(off + 10, true), csize = dv.getUint32(off + 20, true), nl = dv.getUint16(off + 28, true), el = dv.getUint16(off + 30, true), cl = dv.getUint16(off + 32, true), lho = dv.getUint32(off + 42, true);
+    const name = dec.decode(u8.subarray(off + 46, off + 46 + nl));
+    out[name] = { method, csize, lho };
+    off += 46 + nl + el + cl;
+  }
+  const read = async (name) => {
+    const e = out[name]; if (!e) return null;
+    const start = e.lho + 30 + dv.getUint16(e.lho + 26, true) + dv.getUint16(e.lho + 28, true);
+    const data = u8.subarray(start, start + e.csize);
+    if (e.method === 0) return dec.decode(data);
+    const ds = new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+    return await new Response(ds).text();
+  };
+  return { names: Object.keys(out), read };
+}
+const colIdx = (ref) => { let n = 0; for (const ch of ref.replace(/\d+/g, '')) n = n * 26 + ch.charCodeAt(0) - 64; return n - 1; };
+const xmlText = (s) => s.replace(/<[^>]+>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&');
+async function readXlsx(buf) {
+  const z = await unzipEntries(buf);
+  const ss = [];
+  const sst = await z.read('xl/sharedStrings.xml');
+  if (sst) for (const m of sst.matchAll(/<si>([\s\S]*?)<\/si>/g)) ss.push(xmlText((m[1].match(/<t[^>]*>[\s\S]*?<\/t>/g) || []).join('')));
+  const sheet = z.names.filter((x) => /^xl\/worksheets\/sheet\d+\.xml$/.test(x)).sort((a, b) => parseInt(a.match(/\d+/)) - parseInt(b.match(/\d+/)))[0];
+  if (!sheet) throw new Error('xlsx 里没找到工作表');
+  const xml = await z.read(sheet), rows = [];
+  for (const rm of xml.matchAll(/<row[^>]*>([\s\S]*?)<\/row>/g)) {
+    const row = [];
+    for (const cm of rm[1].matchAll(/<c ([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
+      const attrs = cm[1], body = cm[2] || '', ref = (attrs.match(/r="([A-Z]+\d+)"/) || [])[1], t = (attrs.match(/t="(\w+)"/) || [])[1];
+      const v = (body.match(/<v>([\s\S]*?)<\/v>/) || [])[1];
+      let val = t === 's' ? ss[+v] : t === 'inlineStr' ? xmlText(body) : v != null ? xmlText(v) : '';
+      row[ref ? colIdx(ref) : row.length] = val;
+    }
+    rows.push(row);
+  }
+  return rows;
+}
+function readCsv(text) {
+  const sep = (text.split('\n')[0].match(/\t/g) || []).length > (text.split('\n')[0].match(/,/g) || []).length ? '\t' : ',';
+  return text.replace(/^\ufeff/, '').split(/\r?\n/).filter((l) => l.trim()).map((l) => {
+    const out = []; let cur = '', q = false;
+    for (let i = 0; i < l.length; i++) { const c = l[i]; if (q) { if (c === '"' && l[i + 1] === '"') { cur += '"'; i++; } else if (c === '"') q = false; else cur += c; } else if (c === '"') q = true; else if (c === sep) { out.push(cur); cur = ''; } else cur += c; }
+    out.push(cur); return out;
+  });
+}
+const normSku = (s) => String(s ?? '').replace(/[\u200b\ufeff]/g, '').trim().toLowerCase();
+async function importFile(file) {
+  let rows;
+  try {
+    rows = /\.xlsx$/i.test(file.name) ? await readXlsx(await file.arrayBuffer()) : readCsv(await file.text());
+  } catch (e) { alertErr(new Error(`读不了「${file.name}」：${e && e.message ? e.message : e}。只支持 .xlsx / .csv（.xls 老格式请先另存为 .xlsx）`)); return; }
+  // 找表头：前 10 行里同时有 SKU 列和数量列的那一行
+  let h = -1, cs = 0, cq = 1;
+  for (let i = 0; i < Math.min(10, rows.length) && h < 0; i++) {
+    const r = (rows[i] || []).map((x) => String(x ?? '').trim());
+    const sk = r.findIndex((x) => /^(领星)?sku$/i.test(x)) >= 0 ? r.findIndex((x) => /^(领星)?sku$/i.test(x)) : r.findIndex((x) => /sku/i.test(x) && !/^(m|fn)sku/i.test(x));
+    const qs = [/^(本次)?采购(数)?量$/, /采购.*量/, /^数量$/, /数量|qty|quantity/i].map((re) => r.findIndex((x) => re.test(x))).find((x) => x >= 0);
+    if (sk >= 0 && qs != null && qs >= 0) { h = i; cs = sk; cq = qs; }
+  }
+  const body = rows.slice(h + 1);
+  const want = new Map(), bad = [];
+  for (const r of body) {
+    const sku = normSku(r && r[cs]), q = n0(r && r[cq]);
+    if (!sku) continue;
+    if (!(q > 0)) { bad.push(r[cs]); continue; }
+    want.set(sku, { raw: String(r[cs]).trim(), q: (want.get(sku)?.q || 0) + Math.round(q) });
+  }
+  if (!want.size) { alertErr(new Error(`「${file.name}」里没读到 SKU + 数量。需要一列 SKU、一列数量（表头写「SKU」「采购量/数量」，或第1列 SKU、第2列数量）。`)); return; }
+  const bySku = new Map();
+  for (const r of DATA.apply || []) { const k = normSku(r['父ASIN/SKU']); if (!bySku.has(k)) bySku.set(k, []); bySku.get(k).push(r); }
+  const ok = [], lockedRows = [], miss = [];
+  for (const [k, w] of want) {
+    const cand = bySku.get(k) || [];
+    if (!cand.length) { miss.push(w); continue; }
+    const r = cand.find((x) => !locked(x));
+    if (!r) { lockedRows.push({ ...w, r: cand[0] }); continue; }
+    const before = n0(draftOf(r)?.qty);
+    ok.push({ ...w, r, before, after: before + w.q, dup: cand.length > 1 });
+  }
+  dialog(`导入「${file.name}」`, `
+    <div class="okbox">读到 ${want.size} 个 SKU（${h >= 0 ? `表头第 ${h + 1} 行，SKU 列「${esc(rows[h][cs])}」、数量列「${esc(rows[h][cq])}」` : '没找到表头，按 第1列=SKU、第2列=数量'}）：
+      能加 <b>${ok.length}</b> 个${lockedRows.length ? ` · 审批中跳过 <b>${lockedRows.length}</b> 个` : ''}${miss.length ? ` · 表里找不到 <b>${miss.length}</b> 个` : ''}${bad.length ? ` · 数量为空/0 忽略 ${bad.length} 行` : ''}</div>
+    ${ok.length ? `<table class="tbl"><thead><tr><th>SKU</th><th>品名</th><th>店铺</th><th class="r">已填</th><th class="r">+ 导入</th><th class="r">= 本次采购量</th></tr></thead><tbody>${ok.map((x) => `<tr><td class="mono">${esc(x.r['父ASIN/SKU'])}${x.dup ? ' <span class="badge b-yellow" title="申请表里这个 SKU 有多行，加到第一条未在审批中的">重复行</span>' : ''}</td><td class="nm">${esc(x.r['品名'])}</td><td>${esc(draftVal(x.r, '店铺'))}</td><td class="r">${x.before ? fmtN(x.before) : '—'}</td><td class="r">${fmtN(x.q)}</td><td class="r"><b>${fmtN(x.after)}</b></td></tr>`).join('')}</tbody></table>` : ''}
+    ${lockedRows.length ? `<div class="warnbox" style="margin-top:10px">审批中，没加：${lockedRows.map((x) => esc(x.raw)).join('、')}</div>` : ''}
+    ${miss.length ? `<div class="warnbox" style="margin-top:10px;background:var(--red-soft);color:var(--red)">申请表里找不到这些 SKU（检查拼写，或先在申请表加行）：${miss.map((x) => `${esc(x.raw)}×${fmtN(x.q)}`).join('、')}</div>` : ''}`,
+  [['取消', 'btn', closeDlg], [`确认导入 ${ok.length} 个`, 'btn pri', () => {
+    for (const x of ok) { const d = DRAFT[x.r._id] || (DRAFT[x.r._id] = {}); d.qty = x.after; }
+    saveDraft(); closeDlg(); if (ok.length) F.spu = '__picked'; render(); toast(`已加入 ${ok.length} 个 SKU，核对后点「核对并提交申请」`, 3500);
   }]]);
 }
 
@@ -669,7 +796,7 @@ function bcard(b) {
     <h3>${esc(b.applicant.name || b.lab.who)} 的采购申请 ${stateBadge(b.status)} <small>${esc(b.lab.when)} 提交 · ${b.rows.length} 个 SKU · 合计 ${fmtN(b.qty)} 件 · 批次 ${esc(b.key)}</small></h3>
     ${steps(b)}
     ${note.length ? `<div class="warnbox" style="background:#f2f3f5;color:var(--ink)">批次备注：${esc(note.join(' ｜ '))}</div>` : ''}
-    <div style="overflow:auto"><table class="tbl"><thead><tr><th style="width:44px"></th><th>SKU / 品名</th><th>店铺</th><th class="r">上次</th><th class="r">本次</th><th>收货地</th><th>开票</th><th>发票类型</th><th>运费</th><th>SKU 备注</th><th>采购员</th></tr></thead>
+    <div style="overflow:auto"><table class="tbl"><thead><tr><th style="width:44px"></th><th>SKU / 品名</th><th>店铺</th><th class="r">上次</th><th class="r">本次</th><th>仓库</th><th>收货地</th><th>开票</th><th>发票类型</th><th>运费</th><th>SKU 备注</th><th>采购员</th></tr></thead>
     <tbody>${b.rows.map((r) => `<tr><td><span class="thumb" data-img="${r._id}">${(r['图片'] || []).length ? '' : '无图'}</span></td>
       <td><div class="mono">${esc(r['父ASIN/SKU'])}</div><div class="nm">${esc(r['品名'])}</div></td><td>${esc(r['店铺'])}</td>
       <td class="r">${fmtN(r['上次采购量'])}</td><td class="r"><b>${fmtN(r['实际采购量'])}</b>${r._box ? `<div class="hint">${boxText(r['实际采购量'], r._box)}</div>` : ''}${n0(r['上次采购量']) && n0(r['实际采购量']) > 2 * n0(r['上次采购量']) ? ' <span class="badge b-yellow" title="本次超过上次的 2 倍">×' + (n0(r['实际采购量']) / n0(r['上次采购量'])).toFixed(1) + '</span>' : ''}</td>
@@ -756,13 +883,12 @@ function renderTrack() {
   const tr = (r, child) => {
     const p = progressOf(r), late = lateDays(r);
     return `<tr class="${child ? 'child' : ''}"><td class="sku"><div class="mono">${child ? '└ ' : ''}${esc(r['关联产品sku'])}</div><div class="nm" title="${esc(r['品名'])}">${esc(r['品名'])}</div></td>
-      <td class="mono">${esc(r['计划编号'] || '—')}</td><td class="r"><b>${fmtN(r['采购量'])}</b></td>
+      <td class="r"><b>${fmtN(r['采购量'])}</b></td><td class="r">${r['入库量'] == null ? '—' : fmtN(r['入库量'])}</td><td class="r">${r['待到货量'] == null ? '—' : fmtN(r['待到货量'])}</td>
       <td><span class="badge ${prog(p)}">${esc(p)}</span></td>
       <td class="mono">${esc(r['领星采购单号'] || '—')}</td><td class="nm" style="max-width:160px" title="${esc(r['供应商'])}">${esc(r['供应商'] || '—')}</td>
       <td>${esc(r['分配采购员'] || (r['采购员'] || []).map((u) => u.name).join('、') || '—')}</td>
       <td>${fmtD(r['预计到货时间'])}${late ? ` <span class="late">逾期 ${late} 天</span>` : ''}</td>
-      <td class="r">${r['入库量'] == null ? '—' : fmtN(r['入库量'])}</td><td class="r">${r['待到货量'] == null ? '—' : fmtN(r['待到货量'])}</td>
-      <td>${esc(r['收货地'] || '—')}</td><td class="nm" style="max-width:180px" title="${esc([r['物流公司'], r['物流单号']].filter(Boolean).join(' '))}">${esc([r['物流公司'], r['物流单号']].filter(Boolean).join(' ') || '—')}</td></tr>`;
+      <td>${esc(r['收货地'] || '—')}</td></tr>`;
   };
   const card = (b) => {
     const total = b.rows.length;
@@ -772,7 +898,7 @@ function renderTrack() {
     return `<div class="card"><h3>${esc(b.who || '—')} · ${esc(b.lab.when)} <small>${total} 个计划 · 合计 ${fmtN(b.qty)} 件 · ${esc(b.key)}</small>
       <span class="bar">${seg}</span><small>${Object.entries(b.cnt).map(([p, n]) => `${esc(p)} ${n}`).join(' · ')}</small>${b.late ? `<span class="badge b-red">最长逾期 ${b.late} 天</span>` : ''}</h3>
       ${note.length ? `<div class="hint" style="margin:-4px 0 8px">备注：${esc(note.join(' ｜ ')).slice(0, 300)}</div>` : ''}
-      <div style="overflow:auto"><table class="tbl"><thead><tr><th>SKU / 品名</th><th>计划编号</th><th class="r">采购量</th><th>进度</th><th>领星采购单</th><th>供应商</th><th>采购员</th><th>预计到货</th><th class="r">入库</th><th class="r">待到货</th><th>收货地</th><th>物流</th></tr></thead>
+      <div style="overflow:auto"><table class="tbl"><thead><tr><th>SKU / 品名</th><th class="r">采购量</th><th class="r">入库</th><th class="r">待到货</th><th>进度</th><th>领星采购单</th><th>供应商</th><th>采购员</th><th>预计到货</th><th>收货地</th></tr></thead>
       <tbody>${rows.map((r) => tr(r, false) + (b.kids.get(r._id) || []).map((c) => tr(c, true)).join('')).join('')}</tbody></table></div></div>`;
   };
   const LIM = 40;
