@@ -1,0 +1,910 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>采购流程</title>
+<!--
+  飞书应用「灯具组-全流程」插件页：采购流程（2026-10-27）
+  ① 发起申请：按 SPU 选 SKU → 填本次采购量/收货地/开票/运费 → 提交（写 实际采购量 + 合并采购复选框，再触发「采购计划申请_运营申请」）
+  ② 审批：按「批次标识_采购」一张卡；运营主管（运营主管_采购）通过/驳回；采购主管（采购主管）分配采购员 → 通过/驳回
+  ③ 采购进度：读「灯具组-采购计划管理表」（外部服务在领星建单后回流），按 来源申请批次 = 申请表 批次标识_采购 接上
+  按钮字段的自动化插件点不了：表里有「页面操作」单选字段（+ 配套自动化）时页面写它来触发；没有时页面先把数据写好，再给出去表里点按钮的链接。
+  驳回、分配采购员是页面直接写字段，不依赖自动化。
+  页面里只有 base token 和表 ID，没有任何密钥。发布：连同 sdk/ 拷到 github-pages/caigou-flow/。
+  本地预览：build_preview.py 注入 window.__SNAPSHOT__ → preview.html（含业务数据，不推送）；预览里的写入只改内存，并模拟自动化的效果。
+-->
+<style>
+  :root {
+    --bg: #f5f6f7; --card: #ffffff; --ink: #1f2329; --sub: #646a73; --line: #e5e6eb;
+    --blue: #3370ff; --blue-soft: #e1eaff; --red: #f54a45; --red-soft: #fde2e2;
+    --yellow: #ff8800; --yellow-soft: #fff1d6; --green: #2ea121; --green-soft: #d9f5d6; --purple: #7f3bf5; --purple-soft: #ece2fe;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; overflow: hidden; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 13px/1.5 -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; }
+  .wrap { padding: 12px 16px 0; height: 100vh; display: flex; flex-direction: column; }
+  .tip { flex: none; background: #fff7e8; color: #b25e00; border-radius: 8px; padding: 6px 12px; font-size: 12.5px; margin-bottom: 8px; }
+  .savebar { flex: none; display: none; align-items: center; gap: 12px; background: #fff7e8; border: 1px solid #ffd591; border-radius: 8px; padding: 10px 14px; margin-bottom: 10px; }
+  .savebar.show { display: flex; }
+  .savebar button { height: 32px; padding: 0 16px; border: 0; border-radius: 6px; background: var(--blue); color: #fff; font-size: 14px; cursor: pointer; }
+
+  /* 顶栏不参与滚动；#main 自己滚（页面硬规矩：筛选栏始终可见） */
+  .sticky { flex: none; position: relative; z-index: 20; background: var(--bg); margin: 0 -16px; padding: 2px 16px 8px; }
+  .sticky.stuck { box-shadow: 0 6px 12px -8px rgba(0,0,0,.25); }
+  .row1 { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .row1 h1 { margin: 0; font-size: 17px; }
+  .row2 { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 8px; }
+  #main { flex: 1; min-height: 0; overflow: auto; margin: 0 -16px; padding: 0 16px 32px; }
+  .tabs { display: flex; gap: 4px; background: #eceef1; border-radius: 8px; padding: 3px; }
+  .tabs button { border: 0; background: none; padding: 5px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; color: var(--sub); }
+  .tabs button.on { background: #fff; color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+  .tabs .num { display: inline-block; min-width: 18px; padding: 0 5px; border-radius: 9px; background: var(--red); color: #fff; font-size: 11px; line-height: 18px; margin-left: 4px; text-align: center; }
+  .tabs .num.gray { background: #bbbfc4; }
+  .chips { display: inline-flex; border: 1px solid #d0d3d6; border-radius: 6px; overflow: hidden; }
+  .chips button { border: 0; background: #fff; padding: 4px 12px; cursor: pointer; font: inherit; color: var(--ink); }
+  .chips button + button { border-left: 1px solid #d0d3d6; }
+  .chips button.on { background: var(--blue); color: #fff; }
+  .who { margin-left: auto; display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--sub); }
+  .avatar { width: 22px; height: 22px; border-radius: 50%; background: var(--blue); color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; }
+  .meta { color: var(--sub); font-size: 12px; }
+  .hint { color: var(--sub); font-size: 12px; }
+  .err { color: var(--red); white-space: pre-wrap; }
+  .loading { padding: 40px; text-align: center; color: var(--sub); }
+  input, select, textarea { font: inherit; color: var(--ink); border: 1px solid #d0d3d6; border-radius: 6px; padding: 4px 8px; background: #fff; min-width: 0; }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--blue); box-shadow: 0 0 0 2px var(--blue-soft); }
+  input:disabled, select:disabled { background: var(--bg); color: var(--sub); }
+  input.warn { border-color: #ffb54d; background: #fffaf0; }
+  .btn { height: 30px; padding: 0 14px; border-radius: 6px; border: 1px solid #d0d3d6; background: #fff; cursor: pointer; font: inherit; white-space: nowrap; }
+  .btn.pri { background: var(--blue); border-color: var(--blue); color: #fff; }
+  .btn.ok { background: var(--green); border-color: var(--green); color: #fff; }
+  .btn.danger { color: var(--red); border-color: #f8b7b5; }
+  .btn:disabled { opacity: .5; cursor: default; }
+  .link { border: 0; background: none; color: var(--blue); cursor: pointer; font: inherit; font-size: 12px; padding: 0; }
+  .badge { display: inline-block; border-radius: 4px; padding: 0 7px; font-size: 12px; line-height: 20px; white-space: nowrap; }
+  .b-green { background: var(--green-soft); color: var(--green); }
+  .b-yellow { background: var(--yellow-soft); color: #b25e00; }
+  .b-red { background: var(--red-soft); color: var(--red); }
+  .b-blue { background: var(--blue-soft); color: var(--blue); }
+  .b-purple { background: var(--purple-soft); color: var(--purple); }
+  .b-gray { background: #eff0f1; color: var(--sub); }
+  .card { background: var(--card); border-radius: 8px; padding: 14px 16px; border: 1px solid var(--line); margin-bottom: 12px; }
+  .card h3 { margin: 0 0 10px; font-size: 15px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .card h3 small { font-weight: normal; color: var(--sub); font-size: 12px; }
+  table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+  .tbl th, .tbl td { padding: 6px 8px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; vertical-align: middle; }
+  .tbl th { color: var(--sub); font-weight: normal; background: #fafbfc; font-size: 12px; position: sticky; top: 0; z-index: 2; }
+  .tbl td.r, .tbl th.r { text-align: right; }
+  .tbl tr.locked td { background: #fafafa; color: var(--sub); }
+  .tbl tr.picked td { background: #f3f7ff; }
+  .tbl tr.child td { background: #fcfcfd; }
+  .tbl tr.child td.sku { padding-left: 26px; }
+  .mono { font-family: Consolas, monospace; font-size: 12.5px; }
+  .nm { max-width: 190px; overflow: hidden; text-overflow: ellipsis; }
+  .thumb { width: 36px; height: 36px; border-radius: 4px; background: #f0f1f3; overflow: hidden; display: inline-flex; align-items: center; justify-content: center; color: #c0c4c9; font-size: 10px; vertical-align: middle; }
+  .thumb img { width: 100%; height: 100%; object-fit: cover; }
+  .tbl input.qty { width: 70px; text-align: right; font-weight: 600; }
+  .tbl input.t { width: 66px; }
+  .tbl td, .tbl th { padding-left: 6px; padding-right: 6px; }
+  .tbl select.t { width: 64px; }
+  .tbl select.store { width: 112px; }
+  .qwrap { display: flex; align-items: center; gap: 6px; }
+  .boxq { font-size: 12px; color: var(--sub); white-space: nowrap; }
+
+  /* ① 发起申请：左 SPU 栏 + 右表 */
+  .split { display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: 12px; align-items: start; }
+  .side { position: sticky; top: 0; background: #fff; border: 1px solid var(--line); border-radius: 8px; max-height: calc(100vh - 150px); overflow: auto; }
+  .side .it { display: flex; align-items: center; gap: 6px; padding: 6px 12px; cursor: pointer; border-bottom: 1px solid #f2f3f5; }
+  .side .it:hover { background: #f5f8ff; }
+  .side .it.on { background: var(--blue-soft); color: var(--blue); font-weight: 500; }
+  .side .it .n { margin-left: auto; color: var(--sub); font-size: 12px; }
+  .side .it .d { min-width: 16px; padding: 0 4px; border-radius: 8px; font-size: 11px; line-height: 16px; text-align: center; }
+  .side .grp { padding: 6px 12px 4px; font-size: 12px; color: var(--sub); background: #fafbfc; border-bottom: 1px solid var(--line); position: sticky; top: 0; }
+  .fillbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 10px; background: #fafbfc; border: 1px dashed #d0d3d6; border-radius: 6px; margin-bottom: 8px; font-size: 12px; color: var(--sub); }
+  .fillbar input { width: 100px; }
+  .cart { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; background: #eef3ff; border: 1px solid #c3d4ff; border-radius: 8px; padding: 7px 12px; margin-top: 8px; }
+  .cart b { color: var(--blue); }
+
+  /* ② 审批：批次卡 */
+  .bcard { border-left: 4px solid var(--blue); }
+  .bcard.s-ops { border-left-color: var(--blue); }
+  .bcard.s-buy { border-left-color: var(--purple); }
+  .bcard.s-gen { border-left-color: var(--yellow); }
+  .bcard.s-rej { border-left-color: var(--red); }
+  .bcard.mine { box-shadow: 0 0 0 2px #ffd591; }
+  .steps { display: flex; align-items: center; gap: 0; margin: 4px 0 10px; flex-wrap: wrap; }
+  .step { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--sub); }
+  .step i { width: 18px; height: 18px; border-radius: 50%; border: 2px solid #d0d3d6; display: inline-flex; align-items: center; justify-content: center; font-style: normal; font-size: 11px; background: #fff; }
+  .step.done { color: var(--green); } .step.done i { border-color: var(--green); background: var(--green); color: #fff; }
+  .step.cur { color: var(--blue); font-weight: 600; } .step.cur i { border-color: var(--blue); color: var(--blue); }
+  .step.bad { color: var(--red); font-weight: 600; } .step.bad i { border-color: var(--red); background: var(--red); color: #fff; }
+  .step + .step::before { content: ''; width: 34px; height: 2px; background: #e0e2e6; margin: 0 8px; }
+  .step.done + .step::before { background: var(--green); }
+  .acts { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--line); }
+  .acts .who-note { color: var(--sub); font-size: 12px; margin-right: auto; }
+
+  /* ③ 进度 */
+  .bar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; background: #eff0f1; width: 220px; }
+  .bar span { display: block; height: 100%; }
+  .kpis { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; margin-bottom: 12px; }
+  .kpi { background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; cursor: pointer; }
+  .kpi.on { border-color: var(--blue); box-shadow: 0 0 0 2px var(--blue-soft); }
+  .kpi .v { font-size: 22px; font-weight: 600; line-height: 1.2; }
+  .kpi .l { color: var(--sub); font-size: 12px; }
+  .late { color: var(--red); font-weight: 600; }
+  details.fold > summary { cursor: pointer; color: var(--sub); font-size: 12px; margin: 6px 0; }
+
+  /* 弹窗 */
+  .mask { position: fixed; inset: 0; background: rgba(0,0,0,.35); display: none; align-items: flex-start; justify-content: center; z-index: 50; padding-top: 40px; }
+  .mask.show { display: flex; }
+  .dlg { background: #fff; border-radius: 10px; width: min(860px, calc(100vw - 32px)); max-height: calc(100vh - 80px); display: flex; flex-direction: column; box-shadow: 0 12px 40px rgba(0,0,0,.2); }
+  .dlg header { padding: 14px 18px; font-size: 16px; font-weight: 600; border-bottom: 1px solid var(--line); }
+  .dlg .body { padding: 14px 18px; overflow: auto; }
+  .dlg footer { padding: 12px 18px; border-top: 1px solid var(--line); display: flex; gap: 10px; justify-content: flex-end; align-items: center; }
+  .warnbox { background: var(--yellow-soft); color: #8a4b00; border-radius: 6px; padding: 8px 12px; margin-bottom: 10px; font-size: 12.5px; }
+  .okbox { background: var(--green-soft); color: #1d6d16; border-radius: 6px; padding: 8px 12px; margin-bottom: 10px; font-size: 12.5px; }
+  .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: #1f2329; color: #fff; padding: 8px 16px; border-radius: 6px; z-index: 60; display: none; }
+  .empty { padding: 30px; text-align: center; color: var(--sub); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="tip" id="tallTip" style="display:none">插件框比屏幕还高，往下滑时顶部筛选栏会被滚走。请在应用编辑模式里把这个插件组件的高度拖到一屏以内，页面会改成内部滚动、顶栏固定。</div>
+  <div class="tip" id="simTip" style="display:none"></div>
+  <div class="savebar" id="savebar">
+    <span>这是插件的配置预览。确认没问题后点右边按钮，插件才会保存到应用页面上。</span>
+    <button id="saveBtn">保存到页面</button>
+    <span class="meta" id="saveMsg"></span>
+  </div>
+  <div class="sticky" id="sticky">
+    <div class="row1">
+      <h1>采购流程</h1>
+      <div class="tabs" id="tabs"></div>
+      <span class="meta" id="meta">数据加载中…</span>
+      <div class="who" id="who"></div>
+    </div>
+    <div class="row2" id="filters"></div>
+    <div id="cart"></div>
+  </div>
+  <div id="main"><div class="loading">正在读取多维表数据…</div></div>
+</div>
+<div class="mask" id="mask"><div class="dlg" id="dlg"></div></div>
+<div class="toast" id="toast"></div>
+
+<script type="module">
+// ===== ① 页面配置 =====
+const SDK_URLS = (() => { const a = []; try { a.push(new URL('./sdk/index.mjs', location.href).href); } catch (e) { /* data: 网址预览 */ }
+  return a.concat(['https://cdn.jsdelivr.net/npm/@lark-base-open/js-sdk@1.0.2/dist/index.mjs', 'https://unpkg.com/@lark-base-open/js-sdk@1.0.2/dist/index.mjs']); })();
+const BASE_TOKEN = 'JGvebyaAYapWtOslxc9cuKYXnwd';   // 灯具组-全流程
+const TABLES = {
+  // 第一张 = saveConfig 第一条 dataCondition（应用只按这一条给授权）；管理表要在「数据授权（勿删）」页另加组件
+  apply: { id: 'tblvt4KuPv7dnduI', name: '采购计划申请表', fields: ['父ASIN/SKU', '品名', 'SPU', '父ASIN', '店铺', '图片', '上次采购量', '实际采购量', '合并采购复选框',
+    '采购流程', '采购申请人', '申请时间_采购', '批次标识_采购', '运营主管_采购', '采购主管', '采购员', '收货地', '是否开票', '可开发票类型', '有无运费',
+    'SKU仓库_采购', 'SKU备注_采购', '批次备注_采购', '修改人', '更新时间', '页面操作'] },
+  // 每箱数量、销售季分类按 领星SKU = 申请表 父ASIN/SKU 取；主表没登记的 SKU 按 SPU 借同 SPU 的分类
+  pm: { id: 'tblqksywqgYvywOT', name: '产品主表-灯类+精铺', fields: ['领星SKU', '单箱数量', '销售季分类', 'SPU', '产品线'] },
+  mgmt: { id: 'tblTRcHwrEwr0Jmh', name: '采购计划管理表', fields: ['来源申请批次', '创建批次号', '计划编号', '关联产品sku', '品名', 'SPU', '采购量', '父记录', '领星采购单号',
+    '供应商', '分配采购员', '采购员', '申请人', '日期', '采购单创建时间', '预计到货时间', '采购单状态', '采购计划状态', '到货状态', '入库量', '待到货量', '采购进度',
+    '物流公司', '物流单号', '收货地', '单据备注', '批次备注', '价税合计'] },
+};
+// 自动化里写死的人（采购计划申请_运营申请 wkf8N64nwIXesGgk 会把这两人写进每行）；行上有值时以行上为准
+const OPS_LEAD = { id: 'ou_24e3d484ccc9e17e463774309651251a', name: '林键春' };
+const BUY_LEAD = { id: 'ou_9b1d429b0ce616bd7b39542a2fee6299', name: '颜蕾' };
+// 「页面操作」单选字段的选项 → 配套自动化（待建）；字段不存在时退回「去表里点按钮」
+const ACT = { submit: '提交申请', ops: '运营主管通过', buy: '采购主管通过' };
+const TABLE_URL = (view) => `https://zcnt6ibhe9z3.feishu.cn/base/${BASE_TOKEN}?table=${TABLES.apply.id}${view ? '&view=' + view : ''}`;
+const VIEW_OF = { submit: 'vewAGjQK13', ops: 'vewhhRJzfT', buy: 'vewRC9XrRU' };   // 表格 / 待运营主管审批 / 待采购主管审批
+const BTN_OF = { submit: '申请采购计划', ops: '运营主管审批', buy: '采购主管审批' };
+const PENDING = ['待运营主管审批', '待采购主管审批', '生成中'];
+
+// ===== ② 通用工具 =====
+const $ = (id) => document.getElementById(id);
+const DAY = 86400000, BJ = 8 * 3600000;
+const dn = (ms) => Math.floor((Number(ms) + BJ) / DAY);
+const today0 = dn(Date.now());
+const pad = (n) => String(n).padStart(2, '0');
+const bj = (ms) => new Date(Number(ms) + BJ);
+const fmtD = (ms) => ms ? `${bj(ms).getUTCMonth() + 1}-${pad(bj(ms).getUTCDate())}` : '—';
+const fmtDT = (ms) => ms ? `${fmtD(ms)} ${pad(bj(ms).getUTCHours())}:${pad(bj(ms).getUTCMinutes())}` : '—';
+const n0 = (v) => { if (v == null || v === '') return 0; const x = Number(String(v).replace(/[,$¥%\s]/g, '')); return isNaN(x) ? 0 : x; };
+const fmtN = (v) => (v == null || v === '' || isNaN(v)) ? '—' : Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 0 });
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const uniq = (a) => [...new Set(a.filter((x) => x != null && x !== ''))];
+const LS = (() => { try { const s = window.localStorage; s.getItem('x'); return s; } catch (e) { return null; } })();
+const lsGet = (k, d) => { try { return JSON.parse(LS.getItem(k)) ?? d; } catch (e) { return d; } };
+const lsSet = (k, v) => { try { LS && LS.setItem(k, JSON.stringify(v)); } catch (e) { /* 存不了就算了 */ } };
+const toast = (s, ms = 2600) => { const t = $('toast'); t.textContent = s; t.style.display = 'block'; clearTimeout(toast.h); toast.h = setTimeout(() => { t.style.display = 'none'; }, ms); };
+
+function cell(v) {
+  if (v == null) return null;
+  if (typeof v === 'number' || typeof v === 'string' || typeof v === 'boolean') return v;
+  if (Array.isArray(v)) {
+    if (!v.length) return null;
+    if (v.every((x) => x && typeof x === 'object' && 'text' in x && !('id' in x && 'name' in x && !('type' in x)))) return v.map((x) => x.text ?? '').join('');
+    if (v.length === 1) return cell(v[0]);
+    return v.map(cell).join('、');
+  }
+  if (typeof v === 'object') { if ('text' in v) return v.text; if ('name' in v) return v.name; if ('value' in v) return cell(v.value); }
+  return String(v);
+}
+function linkIds(v) {
+  if (!v) return [];
+  if (typeof v === 'string') return v.startsWith('rec') ? [v] : [];
+  if (Array.isArray(v)) return v.flatMap(linkIds);
+  if (typeof v === 'object') {
+    for (const k of ['recordIds', 'record_ids']) if (Array.isArray(v[k])) return v[k].flatMap(linkIds);
+    for (const k of ['recordId', 'record_id', 'id']) if (typeof v[k] === 'string' && v[k].startsWith('rec')) return [v[k]];
+  }
+  return [];
+}
+// SDK 单元格 → 统一形态（和 build_preview.py 导出的快照同一形态）
+const users = (v) => (Array.isArray(v) ? v : v ? [v] : []).filter((u) => u && u.id).map((u) => ({ id: u.id, name: u.name || u.enName || u.id }));
+function norm(v, t) {
+  switch (t) {
+    case 11: case 1003: case 1004: return users(v);
+    case 17: return (v || []).map((x) => ({ token: x.token, name: x.name }));
+    case 3: return v == null ? null : (typeof v === 'object' ? (v.text ?? null) : v);
+    case 7: return !!v;
+    case 2: case 5: case 1001: case 1002: return v == null || v === '' ? null : Number(v);
+    case 18: case 21: return linkIds(v);
+    default: return cell(v);
+  }
+}
+
+// ===== ③ 数据层：飞书 SDK，或预览快照（window.__SNAPSHOT__，写入只改内存 + 模拟自动化）=====
+const SNAP = window.__SNAPSHOT__ || null;
+let SDK = null;
+const META = {};   // key → { 字段名: {id, type, options:[{id,name}]} }
+const TBL = {};
+const DATA = {};
+async function readTable(key) {
+  const cfg = TABLES[key];
+  if (SNAP) { META[key] = SNAP.tables[key].meta; DATA[key] = SNAP.tables[key].rows.map((r) => ({ ...r })); return; }
+  const table = await SDK.bitable.base.getTableById(cfg.id);
+  TBL[key] = table;
+  const fm = await table.getFieldMetaList();
+  META[key] = Object.fromEntries(fm.map((f) => [f.name, { id: f.id, type: f.type, options: (f.property && f.property.options) || [] }]));
+  const missing = cfg.fields.filter((w) => !META[key][w] && w !== '页面操作');
+  if (missing.length) console.warn(`表 ${cfg.name} 缺字段：`, missing);
+  const rows = [];
+  let pageToken;
+  for (let guard = 0; guard < 200; guard++) {
+    const res = await table.getRecordsByPage({ pageSize: 200, pageToken });
+    for (const r of res.records) {
+      const o = { _id: r.recordId };
+      for (const w of cfg.fields) { const m = META[key][w]; if (m) o[w] = norm(r.fields[m.id], m.type); }
+      rows.push(o);
+    }
+    if (!res.hasMore) break;
+    pageToken = res.pageToken;
+  }
+  DATA[key] = rows;
+}
+// 页面值 → 写入值（按字段类型）
+function enc(key, name, v) {
+  const m = META[key][name];
+  if (!m) throw new Error(`表里没有字段「${name}」`);
+  const t = m.type;
+  if (v == null || v === '') return null;
+  if (t === 1 || t === 'text') return [{ type: 'text', text: String(v) }];
+  if (t === 2 || t === 'number') return Number(v);
+  if (t === 7 || t === 'checkbox') return !!v;
+  if (t === 3 || t === 'select') { const o = m.options.find((x) => x.name === v); if (!o) throw new Error(`「${name}」没有选项「${v}」`); return { id: o.id, text: o.name }; }
+  if (t === 11 || t === 'user') return (Array.isArray(v) ? v : [v]).map((u) => ({ id: u.id }));
+  if (t === 5 || t === 'datetime') return Number(v);
+  throw new Error(`字段「${name}」类型 ${t} 页面不写`);
+}
+// updates: [{id, f:{字段名: 页面值}}]
+async function write(key, updates) {
+  if (!updates.length) return;
+  if (!SNAP) {
+    const recs = updates.map((u) => ({ recordId: u.id, fields: Object.fromEntries(Object.entries(u.f).map(([k, v]) => [META[key][k].id, enc(key, k, v)])) }));
+    const tb = TBL[key];
+    for (let i = 0; i < recs.length; i += 100) {
+      const part = recs.slice(i, i + 100);
+      if (typeof tb.setRecords === 'function') await tb.setRecords(part);
+      else for (const r of part) await tb.setRecord(r.recordId, { fields: r.fields });
+    }
+  } else {
+    for (const u of updates) for (const k of Object.keys(u.f)) enc(key, k, u.f[k]);   // 预览也校验字段/选项
+  }
+  const byId = new Map(DATA[key].map((r) => [r._id, r]));
+  for (const u of updates) { const r = byId.get(u.id); if (r) Object.assign(r, u.f); }
+}
+const hasTrigger = () => !!(META.apply && META.apply['页面操作']) || !!SNAP;
+
+// ===== ④ 我是谁 =====
+let ME = { ids: [], name: '', known: false };
+function seenUsers() {
+  const out = new Map();
+  for (const r of DATA.apply || []) for (const k of ['修改人', '采购申请人', '运营主管_采购', '采购主管', '采购员']) for (const u of r[k] || []) out.set(u.id, u.name);
+  for (const r of DATA.mgmt || []) for (const k of ['采购员', '申请人']) for (const u of r[k] || []) out.set(u.id, u.name);
+  out.set(OPS_LEAD.id, OPS_LEAD.name); out.set(BUY_LEAD.id, BUY_LEAD.name);
+  return out;
+}
+function whoAmI() {
+  const seen = seenUsers();
+  const hit = ME.ids.find((id) => seen.has(id));
+  if (hit) { ME.name = seen.get(hit); ME.known = true; }
+}
+const isMe = (u) => !!u && (ME.ids.includes(u.id) || (ME.known && u.name === ME.name));
+const BUYERS = () => {
+  const m = new Map();
+  for (const r of [...(DATA.apply || []), ...(DATA.mgmt || [])]) for (const u of r['采购员'] || []) m.set(u.id, u.name);
+  return [...m].map(([id, name]) => ({ id, name }));
+};
+
+// ===== ⑤ 状态 =====
+let VIEW = lsGet('caigou_view', 'apply');
+const F = { line: 'all', store: '', q: '', spu: '__all', approve: 'todo', track: 'open', person: '' };
+let DRAFT = lsGet('caigou_draft_v1', {});        // rid → {qty, 收货地, 是否开票, 可开发票类型, 有无运费, SKU备注_采购}（只存本浏览器）
+let BATCH_NOTE = lsGet('caigou_note_v1', '');
+const saveDraft = () => { lsSet('caigou_draft_v1', DRAFT); lsSet('caigou_note_v1', BATCH_NOTE); };
+const EDIT_FIELDS = ['收货地', '是否开票', '可开发票类型', '有无运费', 'SKU备注_采购'];
+const WRITE_FIELDS = ['店铺', ...EDIT_FIELDS];   // 提交时写回申请表的字段（店铺默认=表里现值，可改）
+// 每箱数量（产品主表 单箱数量）：没登记的不显示；数量不是整箱时标黄
+function boxText(qty, box) {
+  const q = n0(qty);
+  if (!q) return `每箱 ${fmtN(box)}`;
+  const b = q / box, whole = Math.abs(b - Math.round(b)) < 1e-9;
+  return `每箱 ${fmtN(box)} · <b style="color:${whole ? 'var(--green)' : '#b25e00'}">${whole ? fmtN(b) : b.toFixed(1)} 箱</b>`;
+}
+const st = (r) => r['采购流程'] || '';
+const locked = (r) => PENDING.includes(st(r));
+const isShoe = (r) => /JMZB/.test(r['店铺'] || '') || /鞋/.test(r['SPU'] || '');
+// 产品主表索引：SKU → {box, season}；SPU → 分类（主表没登记的 SKU 用）
+let PMX = new Map(), SPU_SEASON = new Map();
+function buildPm() {
+  PMX = new Map(); SPU_SEASON = new Map();
+  const clean = (s) => String(s || '').replace(/[​\s]+$/g, '').replace(/^\s+/, '');
+  for (const r of DATA.pm || []) {
+    const k = clean(r['领星SKU']); if (!k) continue;
+    const o = PMX.get(k) || { box: 0, season: '' };
+    if (!o.box && n0(r['单箱数量']) > 0) o.box = n0(r['单箱数量']);
+    if (!o.season && r['销售季分类']) o.season = r['销售季分类'];
+    PMX.set(k, o);
+  }
+  const vote = new Map();
+  for (const r of DATA.apply || []) {
+    const s = (PMX.get(clean(r['父ASIN/SKU'])) || {}).season, spu = r['SPU'];
+    if (s && spu) { const m = vote.get(spu) || {}; m[s] = (m[s] || 0) + 1; vote.set(spu, m); }
+  }
+  for (const r of DATA.pm || []) if (r['SPU'] && r['销售季分类']) { const m = vote.get(r['SPU']) || {}; m[r['销售季分类']] = (m[r['销售季分类']] || 0) + 1; vote.set(r['SPU'], m); }
+  for (const [spu, m] of vote) SPU_SEASON.set(spu, Object.entries(m).sort((a, b) => b[1] - a[1])[0][0]);
+  for (const r of DATA.apply || []) { const p = PMX.get(clean(r['父ASIN/SKU'])) || {}; r._box = p.box || 0; r._season = p.season || SPU_SEASON.get(r['SPU']) || ''; }
+}
+// 分组：灯具四季品 → 灯具季节品（季节品/节日品）→ 其他（主表没登记，多为包材）→ 鞋类
+const GROUPS = [['four', '灯具 · 四季品'], ['season', '灯具 · 季节品'], ['other', '其他（产品主表没登记，多为包材/配件）'], ['shoe', '鞋类']];
+const kindOf = (r) => isShoe(r) ? 'shoe' : r._season === '四季品' ? 'four' : r._season ? 'season' : 'other';
+const GORD = Object.fromEntries(GROUPS.map(([k], i) => [k, i]));
+// 鞋码：SKU 里最后一个纯数字段（A2402103-Black-9.5 / -10.5-nail）；颜色 = 鞋码前面那段
+function shoeKey(sku) {
+  const p = String(sku || '').split('-'); let i = p.length - 1;
+  while (i > 0 && !/^\d+(\.\d+)?$/.test(p[i].trim())) i--;
+  return i > 0 ? { color: p.slice(1, i).join('-'), size: Number(p[i]), tail: p.slice(i + 1).join('-') } : { color: p.slice(1).join('-'), size: 999, tail: '' };
+}
+function skuCmp(a, b) {
+  const ka = kindOf(a), kb = kindOf(b);
+  if (ka !== kb) return GORD[ka] - GORD[kb];
+  if (ka === 'season' && a._season !== b._season) return a._season.localeCompare(b._season, 'zh');
+  const s = (a['SPU'] || '').localeCompare(b['SPU'] || '', 'zh'); if (s) return s;
+  if (ka === 'shoe') {
+    const x = shoeKey(a['父ASIN/SKU']), y = shoeKey(b['父ASIN/SKU']);
+    return x.color.localeCompare(y.color) || x.tail.localeCompare(y.tail) || x.size - y.size;
+  }
+  return String(a['父ASIN/SKU']).localeCompare(String(b['父ASIN/SKU']));
+}
+const draftOf = (r) => DRAFT[r._id] || null;
+const draftVal = (r, k) => { const d = draftOf(r); return d && d[k] != null ? d[k] : (r[k] ?? ''); };
+const picked = () => (DATA.apply || []).filter((r) => !locked(r) && n0(draftOf(r)?.qty) > 0);
+
+function batchLabel(key) {
+  const m = /^(.+?)_(\d{4})(\d{2})(\d{2})-(\d{2}):(\d{2})/.exec(key || '');
+  return m ? { who: m[1], when: `${+m[3]}-${m[4]} ${m[5]}:${m[6]}`, day: `${m[2]}-${m[3]}-${m[4]}` } : { who: '', when: key || '（无批次号）', day: '' };
+}
+function stateBadge(s) {
+  const c = { '待运营主管审批': 'b-blue', '待采购主管审批': 'b-purple', '生成中': 'b-yellow', '已生成采购计划': 'b-green', '已驳回': 'b-red' }[s] || 'b-gray';
+  return s ? `<span class="badge ${c}">${esc(s)}</span>` : '';
+}
+function batches() {
+  const g = new Map();
+  for (const r of DATA.apply || []) {
+    const k = r['批次标识_采购']; if (!k) continue;
+    if (!g.has(k)) g.set(k, []);
+    g.get(k).push(r);
+  }
+  return [...g].map(([key, rows]) => {
+    const s = rows.map(st);
+    const status = PENDING.find((x) => s.includes(x)) || (s.includes('已驳回') ? '已驳回' : s[0] || '');
+    const one = (f) => rows.map((r) => (r[f] || [])[0]).find(Boolean);
+    return { key, rows, status, lab: batchLabel(key), at: Math.max(...rows.map((r) => r['申请时间_采购'] || 0)),
+      applicant: one('采购申请人') || { name: batchLabel(key).who }, ops: one('运营主管_采购') || OPS_LEAD, buy: one('采购主管') || BUY_LEAD,
+      qty: rows.reduce((a, r) => a + n0(r['实际采购量']), 0), buyer: one('采购员') };
+  }).sort((a, b) => b.at - a.at);
+}
+const myTurn = (b) => (b.status === '待运营主管审批' && isMe(b.ops)) || (b.status === '待采购主管审批' && isMe(b.buy));
+
+// 管理表 → 批次
+function progressOf(r) { return String(r['采购进度'] || '').replace(/^\S+\s*/, '') || (r['领星采购单号'] ? '待到货' : '待下单'); }
+function lateDays(r) {
+  const p = progressOf(r);
+  if (!r['预计到货时间'] || !['待到货', '部分到货'].includes(p)) return 0;
+  const d = today0 - dn(r['预计到货时间']);
+  return d > 0 ? d : 0;
+}
+function trackBatches() {
+  const M = DATA.mgmt || [];
+  const kids = new Map();
+  for (const r of M) for (const p of r['父记录'] || []) { if (!kids.has(p)) kids.set(p, []); kids.get(p).push(r); }
+  const isKid = new Set([...kids.values()].flat().map((r) => r._id));
+  const g = new Map();
+  for (const r of M) {
+    if (isKid.has(r._id)) continue;
+    const k = r['来源申请批次'] || r['创建批次号'] || '（无批次）';
+    if (!g.has(k)) g.set(k, []);
+    g.get(k).push(r);
+  }
+  return [...g].map(([key, rows]) => {
+    const all = rows.flatMap((r) => [r, ...(kids.get(r._id) || [])]);
+    const cnt = {}; for (const r of rows) { const p = progressOf(r); cnt[p] = (cnt[p] || 0) + 1; }
+    const lab = batchLabel(key);
+    const who = lab.who || ((rows.find((r) => (r['申请人'] || []).length) || {})['申请人'] || [{}])[0].name || '';
+    const at = Math.max(...rows.map((r) => r['日期'] || r['采购单创建时间'] || 0));
+    return { key, rows, kids, all, cnt, lab, who, at, late: Math.max(0, ...all.map(lateDays)), qty: rows.reduce((a, r) => a + n0(r['采购量']), 0),
+      done: rows.every((r) => ['全部到货', '差异结束', '已作废'].includes(progressOf(r))) };
+  }).sort((a, b) => b.at - a.at);
+}
+
+// ===== ⑥ 渲染：顶栏 =====
+function renderTop() {
+  const bs = batches(), pend = bs.filter((b) => PENDING.includes(b.status));
+  const mine = pend.filter(myTurn).length;
+  const tb = trackBatches(), open = tb.filter((b) => !b.done).length;
+  const tabs = [['apply', '① 发起申请', picked().length, 'gray'], ['approve', '② 审批', mine || pend.length, mine ? '' : 'gray'], ['track', '③ 采购进度', open, 'gray']];
+  $('tabs').innerHTML = tabs.map(([k, t, n, c]) => `<button data-v="${k}" class="${VIEW === k ? 'on' : ''}">${t}${n ? `<span class="num ${c}">${n}</span>` : ''}</button>`).join('');
+  $('tabs').querySelectorAll('button').forEach((b) => { b.onclick = () => { VIEW = b.dataset.v; lsSet('caigou_view', VIEW); render(); $('main').scrollTop = 0; }; });
+  $('meta').textContent = `申请表 ${(DATA.apply || []).length} 行 · 管理表 ${(DATA.mgmt || []).length} 行${SNAP ? ` · 快照 ${SNAP.at}` : ''}`;
+  const role = [isMe(OPS_LEAD) || bs.some((b) => isMe(b.ops)) ? '运营主管' : '', isMe(BUY_LEAD) || bs.some((b) => isMe(b.buy)) ? '采购主管' : ''].filter(Boolean).join(' / ');
+  $('who').innerHTML = `${SNAP ? simSwitch() : ''}<span class="avatar">${esc((ME.name || '?').slice(-2))}</span><span>${esc(ME.name || '未识别（提交一次后自动识别）')}</span>${role ? `<span class="badge b-blue">${role}</span>` : ''}<button class="link" id="reload">刷新数据</button>`;
+  $('reload').onclick = () => boot(true);
+  const sw = $('simAs'); if (sw) sw.onchange = () => { ME = { ids: [sw.value], name: '', known: false }; whoAmI(); render(); };
+
+  let f = '';
+  if (VIEW === 'apply') {
+    const stores = uniq((DATA.apply || []).map((r) => r['店铺'])).sort();
+    f = `<div class="chips" id="lineChips">${[['all', '全部'], ['lamp', '灯具'], ['shoe', '鞋类']].map(([k, t]) => `<button data-k="${k}" class="${F.line === k ? 'on' : ''}">${t}</button>`).join('')}</div>
+      <select id="fStore"><option value="">全部店铺</option>${stores.map((s) => `<option ${F.store === s ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select>
+      <input id="fQ" placeholder="搜 SKU / 品名 / 父ASIN" value="${esc(F.q)}" style="width:200px">
+      <span class="hint">灰色行 = 审批中，不能重复申请；数量填了就算选中</span>`;
+  } else if (VIEW === 'approve') {
+    const n = (k) => bs.filter(k).length;
+    f = `<div class="chips" id="apChips">${[['todo', `待我审批 ${mine}`], ['pending', `全部审批中 ${pend.length}`], ['rej', `已驳回 ${n((b) => b.status === '已驳回')}`], ['done', '已生成（近 30 天）']]
+      .map(([k, t]) => `<button data-k="${k}" class="${F.approve === k ? 'on' : ''}">${t}</button>`).join('')}</div>
+      <span class="hint">一个批次 = 一次提交（批次标识_采购 = 申请人_申请时间）</span>`;
+  } else {
+    const people = uniq(tb.map((b) => b.who)).sort();
+    f = `<select id="fPerson"><option value="">全部申请人</option>${people.map((p) => `<option ${F.person === p ? 'selected' : ''}>${esc(p)}</option>`).join('')}</select>
+      <input id="fQ" placeholder="搜 SKU / 品名 / 计划编号 / PO / 供应商" value="${esc(F.q)}" style="width:260px">
+      <span class="hint">数据来自「采购计划管理表」（领星建单后回流）；逾期 = 预计到货日已过、还没全部到货</span>`;
+  }
+  $('filters').innerHTML = f;
+  const lc = $('lineChips'); if (lc) lc.querySelectorAll('button').forEach((b) => { b.onclick = () => { F.line = b.dataset.k; F.spu = '__all'; render(); }; });
+  const ap = $('apChips'); if (ap) ap.querySelectorAll('button').forEach((b) => { b.onclick = () => { F.approve = b.dataset.k; render(); }; });
+  if ($('fStore')) $('fStore').onchange = (e) => { F.store = e.target.value; F.spu = '__all'; render(); };
+  if ($('fPerson')) $('fPerson').onchange = (e) => { F.person = e.target.value; render(); };
+  if ($('fQ')) $('fQ').oninput = (e) => { F.q = e.target.value; clearTimeout(renderTop.h); renderTop.h = setTimeout(() => { renderMain(); const q = $('fQ'); q.focus(); q.setSelectionRange(q.value.length, q.value.length); }, 250); };
+  renderCart();
+}
+function renderCart() {
+  const p = picked();
+  if (VIEW !== 'apply' || !p.length) { $('cart').innerHTML = ''; return; }
+  const total = p.reduce((a, r) => a + n0(draftOf(r).qty), 0);
+  $('cart').innerHTML = `<div class="cart">本次申请 <b>${p.length}</b> 个 SKU · 合计 <b>${fmtN(total)}</b> 件
+    <span class="hint">（${esc(uniq(p.map((r) => r['SPU'] || '未填SPU')).slice(0, 4).join('、'))}${uniq(p.map((r) => r['SPU'])).length > 4 ? ' 等' : ''}）</span>
+    <button class="link" id="cartOnly">只看已选</button><button class="link" id="cartClear" style="color:var(--red)">清空</button>
+    <button class="btn pri" id="cartGo" style="margin-left:auto">核对并提交申请 →</button></div>`;
+  $('cartOnly').onclick = () => { F.spu = '__picked'; render(); };
+  $('cartClear').onclick = () => { if (confirm('清空本次已填的数量和备注？（只清页面草稿，不动表）')) { DRAFT = {}; saveDraft(); render(); } };
+  $('cartGo').onclick = openSubmit;
+}
+
+// ===== ⑦ ① 发起申请 =====
+const qMatch = (r) => { const q = F.q.trim().toLowerCase(); if (!q) return true; return [r['父ASIN/SKU'], r['品名'], r['父ASIN'], r['SPU']].some((x) => String(x || '').toLowerCase().includes(q)); };
+function applyPool() {
+  return (DATA.apply || []).filter((r) => (F.line === 'all' || (F.line === 'shoe') === isShoe(r)) && (!F.store || r['店铺'] === F.store) && qMatch(r));
+}
+function renderApply() {
+  const pool = applyPool();
+  const spus = new Map();
+  // SPU 按 分组 + SPU 名 归类（同名 SPU 分属两组时各算各的）
+  for (const r of pool) { const k = kindOf(r) + '|' + (r['SPU'] || '（未填 SPU）'); if (!spus.has(k)) spus.set(k, []); spus.get(k).push(r); }
+  const list = [...spus].sort((a, b) => skuCmp(a[1][0], b[1][0]) || a[0].localeCompare(b[0], 'zh'));
+  const nPick = picked().length;
+  const shortSeason = (s) => String(s || '').replace(/^(季节品|节日品)-/, '');
+  const it = (k, label, rows, tag) => {
+    const dr = rows.filter((r) => !locked(r) && n0(draftOf(r)?.qty) > 0).length, lk = rows.filter(locked).length;
+    return `<div class="it ${F.spu === k ? 'on' : ''}" data-k="${esc(k)}"><span class="nm">${esc(label)}</span>${tag ? `<span class="badge b-gray" style="padding:0 4px;line-height:16px;font-size:11px">${esc(tag)}</span>` : ''}
+      ${dr ? `<span class="d" style="background:var(--blue);color:#fff">${dr}</span>` : ''}${lk ? `<span class="d" style="background:var(--yellow-soft);color:#b25e00" title="审批中">${lk}</span>` : ''}<span class="n">${rows.length}</span></div>`;
+  };
+  const sideGroups = GROUPS.map(([g, title]) => {
+    const items = list.filter(([k]) => k.startsWith(g + '|'));
+    if (!items.length) return '';
+    const n = items.reduce((a, [, rs]) => a + rs.length, 0);
+    return `<div class="grp">${esc(title)} · ${items.length} 个 SPU / ${n}</div>` + items.map(([k, rs]) => it(k, k.slice(g.length + 1), rs, g === 'season' ? shortSeason(rs[0]._season) : '')).join('');
+  }).join('');
+  const side = `<div class="side" id="side"><div class="grp">蓝=本次已填 · 橙=审批中</div>
+    ${it('__all', '全部', pool)}${nPick ? it('__picked', '★ 只看已选', picked()) : ''}${sideGroups}</div>`;
+
+  let rows = F.spu === '__all' ? pool : F.spu === '__picked' ? picked() : (spus.get(F.spu) || []);
+  rows = [...rows].sort(skuCmp);
+  const LIMIT = 300, shown = rows.slice(0, LIMIT);
+  const dl = (id, vals) => `<datalist id="${id}">${vals.map((v) => `<option value="${esc(v)}">`).join('')}</datalist>`;
+  const all = DATA.apply || [];
+  const lists = dl('dlAddr', uniq(all.map((r) => r['收货地']))) + dl('dlInv', uniq(['专票', '普票', '不开票', '需确认', ...all.map((r) => r['可开发票类型'])])) + dl('dlFee', uniq(['无', '含运费', '不含运费', ...all.map((r) => r['有无运费'])]));
+  const storeNames = ((META.apply['店铺'] || {}).options || []).map((o) => o.name);
+  const storeOpts = (cur) => uniq(['', cur, ...storeNames]).map((v) => `<option value="${esc(v)}" ${v === cur ? 'selected' : ''}>${esc(v || '—')}</option>`).join('');
+  const tr = (r) => {
+    const lk = locked(r), d = draftOf(r), on = !lk && n0(d?.qty) > 0;
+    const inp = (k, cls, extra = '') => `<input class="t ${cls || ''}" data-r="${r._id}" data-k="${k}" value="${esc(draftVal(r, k))}" ${lk ? 'disabled' : ''} ${extra}>`;
+    const last = r['申请时间_采购'] ? `<div class="hint">${stateBadge(st(r))} ${fmtD(r['申请时间_采购'])}</div>` : '';
+    return `<tr class="${lk ? 'locked' : ''} ${on ? 'picked' : ''}">
+      <td><span class="thumb" data-img="${r._id}">${(r['图片'] || []).length ? '' : '无图'}</span></td>
+      <td><div class="mono">${esc(r['父ASIN/SKU'])}</div><div class="nm" title="${esc(r['品名'])}">${esc(r['品名'])}</div></td>
+      <td><select class="store" data-r="${r._id}" data-k="店铺" ${lk ? 'disabled' : ''} title="默认 = 表里现在的店铺，可改">${storeOpts(draftVal(r, '店铺'))}</select>
+        ${draftOf(r)?.['店铺'] != null && draftOf(r)['店铺'] !== (r['店铺'] ?? '') ? `<div class="hint" style="color:var(--yellow)">原：${esc(r['店铺'] || '空')}</div>` : `<div class="hint mono">${esc(r['父ASIN'] || '')}</div>`}</td>
+      <td class="r">${fmtN(r['上次采购量'])}</td>
+      <td>${lk ? `${stateBadge(st(r))}<div class="hint">${fmtN(r['实际采购量'])} 件 · ${esc(batchLabel(r['批次标识_采购']).when)}</div>`
+        : `<div class="qwrap"><input class="qty" type="number" min="0" step="1" data-r="${r._id}" data-k="qty" value="${esc(d?.qty ?? '')}" placeholder="0">${r._box ? `<span class="boxq" data-box="${r._box}">${boxText(d?.qty, r._box)}</span>` : ''}</div>${last}`}</td>
+      <td>${inp('收货地', on && !draftVal(r, '收货地') ? 'warn' : '', 'list="dlAddr"')}</td>
+      <td><select class="t" data-r="${r._id}" data-k="是否开票" ${lk ? 'disabled' : ''}>${['', '是', '否'].map((v) => `<option ${draftVal(r, '是否开票') === v ? 'selected' : ''}>${v}</option>`).join('')}</select></td>
+      <td>${inp('可开发票类型', '', 'list="dlInv"')}</td>
+      <td>${inp('有无运费', '', 'list="dlFee"')}</td>
+      <td>${inp('SKU备注_采购', '', 'style="width:96px" placeholder="给采购的备注"')}</td></tr>`;
+  };
+  const fill = `<div class="fillbar">给本页已填数量的行统一填：
+    收货地 <input id="fa1" list="dlAddr"> 是否开票 <select id="fa2"><option></option><option>是</option><option>否</option></select>
+    发票类型 <input id="fa3" list="dlInv"> 运费 <input id="fa4" list="dlFee"> <button class="btn" id="faGo">填入</button>
+    <span style="margin-left:auto">收货地 = 货去哪（晋江/直发/泉州…），不是领星仓库</span></div>`;
+  $('main').innerHTML = `${lists}<div class="split">${side}<div>
+    <div class="card" style="padding:12px 14px">
+      <h3>${esc(F.spu === '__all' ? '全部 SKU' : F.spu === '__picked' ? '本次已选' : F.spu.split('|').slice(1).join('|'))} <small>${rows.length} 个 SKU${rows.length > LIMIT ? `，先显示 ${LIMIT} 个，搜索或选 SPU 缩小范围` : ''}</small></h3>
+      ${fill}
+      ${shown.length ? `<div style="overflow:auto"><table class="tbl"><thead><tr><th style="width:44px"></th><th>SKU / 品名</th><th>店铺</th><th class="r">上次采购量</th><th>本次采购量</th>
+        <th>收货地</th><th>开票</th><th>发票类型</th><th>有无运费</th><th>SKU 备注</th></tr></thead><tbody>${shown.map(tr).join('')}</tbody></table></div>` : '<div class="empty">没有符合条件的 SKU</div>'}
+    </div></div></div>`;
+  $('side').querySelectorAll('.it').forEach((el) => { el.onclick = () => { F.spu = el.dataset.k; renderApply(); renderCart(); }; });
+  $('main').querySelectorAll('[data-r]').forEach((el) => {
+    el.onchange = el.oninput = (e) => {
+      const rid = el.dataset.r, k = el.dataset.k, r = (DATA.apply || []).find((x) => x._id === rid);
+      const d = DRAFT[rid] || (DRAFT[rid] = {});
+      d[k] = k === 'qty' ? (el.value === '' ? '' : Math.max(0, Math.round(n0(el.value)))) : el.value;
+      if (!n0(d.qty) && WRITE_FIELDS.every((f) => d[f] == null || d[f] === (r[f] ?? ''))) delete DRAFT[rid];
+      saveDraft();
+      if (e.type === 'change') { const sc = $('main').scrollTop; renderApply(); $('main').scrollTop = sc; renderTop(); }
+      else {
+        el.closest('tr').classList.toggle('picked', k === 'qty' ? n0(el.value) > 0 : el.closest('tr').classList.contains('picked'));
+        const bq = k === 'qty' && el.parentNode.querySelector('.boxq'); if (bq) bq.innerHTML = boxText(el.value, +bq.dataset.box);
+        renderCart();
+      }
+    };
+  });
+  $('faGo').onclick = () => {
+    const v = { '收货地': $('fa1').value, '是否开票': $('fa2').value, '可开发票类型': $('fa3').value, '有无运费': $('fa4').value };
+    const tgt = shown.filter((r) => !locked(r) && n0(draftOf(r)?.qty) > 0);
+    if (!tgt.length) { toast('本页还没有填数量的行'); return; }
+    for (const r of tgt) for (const [k, x] of Object.entries(v)) if (x) DRAFT[r._id][k] = x;
+    saveDraft(); renderApply(); toast(`已填入 ${tgt.length} 行`);
+  };
+  loadImages();
+}
+
+// 提交：写 实际采购量 + 合并采购复选框 + 各项 → 触发「运营申请」自动化
+function openSubmit() {
+  const p = picked();
+  const noAddr = p.filter((r) => !draftVal(r, '收货地')), noInv = p.filter((r) => !draftVal(r, '是否开票'));
+  const stores = uniq(p.map((r) => draftVal(r, '店铺')));
+  dialog(`核对采购申请 · ${p.length} 个 SKU`, `
+    ${noAddr.length || noInv.length ? `<div class="warnbox">${noAddr.length ? `${noAddr.length} 行没填收货地` : ''}${noAddr.length && noInv.length ? '，' : ''}${noInv.length ? `${noInv.length} 行没填是否开票` : ''}——采购下单时会来问，建议先填。可以照样提交。</div>` : ''}
+    <div class="hint" style="margin-bottom:6px">店铺：${esc(stores.join('、'))} · 合计 <b>${fmtN(p.reduce((a, r) => a + n0(draftOf(r).qty), 0))}</b> 件 · 提交后进入「待运营主管审批」，运营主管 ${esc(OPS_LEAD.name)} 会收到飞书消息</div>
+    <table class="tbl"><thead><tr><th>SKU</th><th>品名</th><th>店铺</th><th class="r">上次</th><th class="r">本次</th><th>收货地</th><th>开票</th><th>发票类型</th><th>运费</th><th>备注</th></tr></thead>
+    <tbody>${p.map((r) => `<tr><td class="mono">${esc(r['父ASIN/SKU'])}</td><td class="nm">${esc(r['品名'])}</td><td>${esc(draftVal(r, '店铺'))}${draftVal(r, '店铺') !== (r['店铺'] ?? '') ? ' <span class="badge b-yellow">改</span>' : ''}</td><td class="r">${fmtN(r['上次采购量'])}</td>
+      <td class="r"><b>${fmtN(draftOf(r).qty)}</b>${r._box ? `<div class="hint">${boxText(draftOf(r).qty, r._box)}</div>` : ''}</td>${EDIT_FIELDS.map((k) => `<td>${esc(draftVal(r, k)) || '<span class="hint">—</span>'}</td>`).join('')}</tr>`).join('')}</tbody></table>
+    <div style="margin-top:12px"><div class="hint">批次备注（写进每行「批次备注_采购」，审批人和采购都能看到）</div>
+    <textarea id="bNote" rows="2" style="width:100%" placeholder="例：圣诞备货，11/10 前要到晋江">${esc(BATCH_NOTE)}</textarea></div>`,
+  [['取消', 'btn', closeDlg], ['确认提交', 'btn pri', async (btn) => {
+    BATCH_NOTE = $('bNote').value; saveDraft();
+    btn.disabled = true; btn.textContent = '写入中…';
+    try {
+      // 先清掉自己名下残留的勾选（自动化按 合并采购复选框 + 修改人 = 点按钮的人 批量取行，残留会被一起带进批次）
+      const stale = (DATA.apply || []).filter((r) => r['合并采购复选框'] && !locked(r) && !p.includes(r));
+      await write('apply', stale.map((r) => ({ id: r._id, f: { '合并采购复选框': false } })));
+      await write('apply', p.map((r) => ({ id: r._id, f: { '实际采购量': n0(draftOf(r).qty), '合并采购复选框': true, '批次备注_采购': BATCH_NOTE.trim() || null,
+        ...Object.fromEntries(WRITE_FIELDS.map((k) => [k, draftVal(r, k) || null])) } })));
+      const done = await trigger('submit', p);
+      if (done) { for (const r of p) delete DRAFT[r._id]; BATCH_NOTE = ''; saveDraft(); }
+      closeDlg(); render();
+      if (done) toast('已提交，等运营主管审批');
+    } catch (e) { btn.disabled = false; btn.textContent = '确认提交'; alertErr(e); }
+  }]]);
+}
+
+// ===== ⑧ ② 审批 =====
+function renderApprove() {
+  let bs = batches();
+  if (F.approve === 'todo') bs = bs.filter((b) => PENDING.includes(b.status) && myTurn(b));
+  else if (F.approve === 'pending') bs = bs.filter((b) => PENDING.includes(b.status));
+  else if (F.approve === 'rej') bs = bs.filter((b) => b.status === '已驳回');
+  else bs = bs.filter((b) => b.status === '已生成采购计划' && dn(b.at) >= today0 - 30);
+  if (!bs.length) {
+    const tip = { todo: ME.known ? '没有等你审批的批次 👍' : '没认出你是谁，看「全部审批中」', pending: '没有审批中的批次', rej: '没有被驳回的批次', done: '近 30 天没有已生成的批次' }[F.approve];
+    $('main').innerHTML = `<div class="card empty">${tip}</div>`; return;
+  }
+  $('main').innerHTML = bs.map(bcard).join('');
+  $('main').querySelectorAll('[data-act]').forEach((el) => { el.onclick = () => doAct(el.dataset.act, bs.find((b) => b.key === el.dataset.b), el); });
+  loadImages();
+}
+function steps(b) {
+  const names = ['提交申请', '运营主管审批', '采购主管审批', '生成采购计划'];
+  const cur = { '待运营主管审批': 1, '待采购主管审批': 2, '生成中': 3, '已生成采购计划': 4 }[b.status];
+  if (b.status === '已驳回') return `<div class="steps">${names.map((n, i) => `<span class="step ${i === 0 ? 'done' : i === 1 ? 'bad' : ''}"><i>${i === 0 ? '✓' : i === 1 ? '✕' : i + 1}</i>${i === 1 ? '已驳回' : n}</span>`).join('')}</div>`;
+  return `<div class="steps">${names.map((n, i) => `<span class="step ${i < cur ? 'done' : i === cur ? 'cur' : ''}"><i>${i < cur ? '✓' : i + 1}</i>${n}</span>`).join('')}</div>`;
+}
+function bcard(b) {
+  const cls = { '待运营主管审批': 's-ops', '待采购主管审批': 's-buy', '生成中': 's-gen', '已驳回': 's-rej' }[b.status] || '';
+  const note = uniq(b.rows.map((r) => r['批次备注_采购']));
+  const buyers = BUYERS();
+  let acts = '';
+  if (b.status === '待运营主管审批') {
+    acts = `<span class="who-note">等 <b>${esc(b.ops.name)}</b>（运营主管）审批${isMe(b.ops) ? ' —— 就是你' : ''}</span>
+      ${isMe(b.ops) || !ME.known ? `<button class="btn danger" data-act="reject" data-b="${esc(b.key)}">驳回</button><button class="btn ok" data-act="ops" data-b="${esc(b.key)}">通过，交采购主管</button>` : ''}`;
+  } else if (b.status === '待采购主管审批') {
+    const can = isMe(b.buy) || !ME.known;
+    acts = `<span class="who-note">等 <b>${esc(b.buy.name)}</b>（采购主管）分配采购员并审批${isMe(b.buy) ? ' —— 就是你' : ''}</span>
+      ${can ? `采购员 <select id="buyer_${esc(b.key)}"><option value="">选采购员</option>${buyers.map((u) => `<option value="${esc(u.id)}" ${b.buyer && b.buyer.id === u.id ? 'selected' : ''}>${esc(u.name)}</option>`).join('')}</select>
+        <button class="btn danger" data-act="reject" data-b="${esc(b.key)}">驳回</button><button class="btn ok" data-act="buy" data-b="${esc(b.key)}">通过，生成采购计划</button>` : ''}`;
+  } else if (b.status === '生成中') {
+    acts = `<span class="who-note">外部服务正在领星建采购计划，一般几分钟；完成后状态变「已生成采购计划」，行会出现在「③ 采购进度」。长时间不动找 ${esc(b.buy.name)}。</span>`;
+  } else if (b.status === '已驳回') {
+    acts = `<span class="who-note">申请人改完数量后，在「① 发起申请」里重新提交即可（驳回的行已解锁）。</span>`;
+  }
+  return `<div class="card bcard ${cls} ${PENDING.includes(b.status) && myTurn(b) ? 'mine' : ''}">
+    <h3>${esc(b.applicant.name || b.lab.who)} 的采购申请 ${stateBadge(b.status)} <small>${esc(b.lab.when)} 提交 · ${b.rows.length} 个 SKU · 合计 ${fmtN(b.qty)} 件 · 批次 ${esc(b.key)}</small></h3>
+    ${steps(b)}
+    ${note.length ? `<div class="warnbox" style="background:#f2f3f5;color:var(--ink)">批次备注：${esc(note.join(' ｜ '))}</div>` : ''}
+    <div style="overflow:auto"><table class="tbl"><thead><tr><th style="width:44px"></th><th>SKU / 品名</th><th>店铺</th><th class="r">上次</th><th class="r">本次</th><th>收货地</th><th>开票</th><th>发票类型</th><th>运费</th><th>SKU 备注</th><th>采购员</th></tr></thead>
+    <tbody>${b.rows.map((r) => `<tr><td><span class="thumb" data-img="${r._id}">${(r['图片'] || []).length ? '' : '无图'}</span></td>
+      <td><div class="mono">${esc(r['父ASIN/SKU'])}</div><div class="nm">${esc(r['品名'])}</div></td><td>${esc(r['店铺'])}</td>
+      <td class="r">${fmtN(r['上次采购量'])}</td><td class="r"><b>${fmtN(r['实际采购量'])}</b>${r._box ? `<div class="hint">${boxText(r['实际采购量'], r._box)}</div>` : ''}${n0(r['上次采购量']) && n0(r['实际采购量']) > 2 * n0(r['上次采购量']) ? ' <span class="badge b-yellow" title="本次超过上次的 2 倍">×' + (n0(r['实际采购量']) / n0(r['上次采购量'])).toFixed(1) + '</span>' : ''}</td>
+      ${EDIT_FIELDS.map((k) => `<td>${esc(r[k]) || '<span class="hint">—</span>'}</td>`).join('')}<td>${esc((r['采购员'] || []).map((u) => u.name).join('、')) || '<span class="hint">—</span>'}</td></tr>`).join('')}</tbody></table></div>
+    <div class="acts">${acts}</div></div>`;
+}
+async function doAct(act, b, btn) {
+  if (!b) return;
+  try {
+    if (act === 'reject') {
+      const why = prompt(`驳回 ${b.applicant.name || ''} 的 ${b.rows.length} 个 SKU，原因（会写进批次备注）：`);
+      if (why == null) return;
+      btn.disabled = true;
+      const tag = `【驳回 ${ME.name || ''} ${fmtDT(Date.now())}】${why}`;
+      await write('apply', b.rows.map((r) => ({ id: r._id, f: { '采购流程': '已驳回', '合并采购复选框': false, '批次备注_采购': [r['批次备注_采购'], tag].filter(Boolean).join(' ') } })));
+      toast('已驳回'); render(); return;
+    }
+    if (act === 'ops') { btn.disabled = true; if (await trigger('ops', b.rows)) toast('已通过，交给采购主管'); render(); return; }
+    if (act === 'buy') {
+      const sel = document.getElementById('buyer_' + b.key), uid = sel && sel.value;
+      if (!uid) { toast('先选采购员（没有采购员，自动化会报「创建采购计划失败」）', 3500); sel && sel.focus(); return; }
+      btn.disabled = true;
+      const u = BUYERS().find((x) => x.id === uid);
+      await write('apply', b.rows.map((r) => ({ id: r._id, f: { '采购员': [u] } })));
+      if (await trigger('buy', b.rows)) toast('已通过，正在生成采购计划');
+      render();
+    }
+  } catch (e) { btn.disabled = false; alertErr(e); }
+}
+
+// 触发按钮自动化：有「页面操作」字段 → 写它（配套自动化监听该字段）；没有 → 弹窗给去表里点按钮的链接
+async function trigger(kind, rows) {
+  if (SNAP) { simulate(kind, rows); return true; }
+  if (hasTrigger()) {
+    // 自动化「页面操作 = X」只在值变化时触发：先清空再写，同一行连续两次同样操作也能触发（自动化里清不空单选字段）
+    await write('apply', [{ id: rows[0]._id, f: { '页面操作': null } }]);
+    await write('apply', [{ id: rows[0]._id, f: { '页面操作': ACT[kind] } }]);
+    setTimeout(() => boot(true), 5000); return true;
+  }
+  const what = { submit: '数量、勾选和备注已经写进表里', ops: '', buy: '采购员已经写进表里' }[kind];
+  dialog('还差最后一步：去表里点按钮', `<div class="okbox">${what || '这一批的数据都在表里了'}。</div>
+    <p>飞书插件点不了表里的「按钮」字段，所以最后一步要去表里点一下 <b>「${BTN_OF[kind]}」</b>（这一批任意一行的按钮都可以）：</p>
+    <p><a href="${TABLE_URL(VIEW_OF[kind])}" target="_blank" rel="noopener">打开 申请表 → ${kind === 'submit' ? '表格' : kind === 'ops' ? '待运营主管审批' : '待采购主管审批'} 视图 ↗</a></p>
+    <p class="hint">点完回来点右上角「刷新数据」。等表里加了「页面操作」字段和配套自动化后，这一步会自动完成，不再弹这个窗。</p>`,
+  [['知道了', 'btn pri', closeDlg]]);
+  return kind === 'submit';
+}
+// 预览：模拟四条自动化的效果
+function simulate(kind, rows) {
+  const now = Date.now(), me = { id: ME.ids[0] || 'ou_preview', name: ME.name || '预览用户' };
+  if (kind === 'submit') {
+    const d = bj(now), key = `${me.name}_${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}-${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`;
+    for (const r of rows) Object.assign(r, { '采购流程': '待运营主管审批', '采购申请人': [me], '申请时间_采购': now, '批次标识_采购': key, '运营主管_采购': [OPS_LEAD], '采购主管': [BUY_LEAD], '合并采购复选框': false });
+  } else if (kind === 'ops') {
+    for (const r of rows) r['采购流程'] = '待采购主管审批';
+  } else if (kind === 'buy') {
+    for (const r of rows) r['采购流程'] = '生成中';
+    setTimeout(() => {
+      const key = rows[0]['批次标识_采购'];
+      rows.forEach((r, i) => {
+        DATA.mgmt.unshift({ _id: 'recSim' + now + i, '来源申请批次': key, '计划编号': 'PP(预览)', '关联产品sku': r['父ASIN/SKU'], '品名': r['品名'], 'SPU': r['SPU'], '采购量': n0(r['实际采购量']),
+          '分配采购员': (r['采购员'] || [])[0]?.name, '采购员': r['采购员'], '申请人': r['采购申请人'], '日期': Date.now(), '采购进度': '🟡 待下单', '收货地': r['收货地'], '父记录': [] });
+        Object.assign(r, { '采购流程': '已生成采购计划', '上次采购量': n0(r['实际采购量']), '实际采购量': null });
+      });
+      render(); toast('（预览模拟）外部服务已生成采购计划，见「③ 采购进度」', 3500);
+    }, 2500);
+  }
+}
+
+// ===== ⑨ ③ 采购进度 =====
+function renderTrack() {
+  const tb = trackBatches();
+  const rowsAll = tb.flatMap((b) => b.rows);
+  const k = { open: tb.filter((b) => !b.done).length, late: tb.filter((b) => b.late > 0).length, wait: rowsAll.filter((r) => progressOf(r) === '待下单').length,
+    part: rowsAll.filter((r) => progressOf(r) === '部分到货').length, done: tb.filter((b) => b.done).length };
+  const kpi = (key, v, l, color) => `<div class="kpi ${F.track === key ? 'on' : ''}" data-k="${key}"><div class="v" style="color:${color}">${v}</div><div class="l">${l}</div></div>`;
+  const q = F.q.trim().toLowerCase();
+  const hit = (r) => !q || [r['关联产品sku'], r['品名'], r['计划编号'], r['领星采购单号'], r['供应商'], r['SPU']].some((x) => String(x || '').toLowerCase().includes(q));
+  let list = tb.filter((b) => (!F.person || b.who === F.person) && (!q || b.all.some(hit)));
+  list = list.filter({ open: (b) => !b.done, late: (b) => b.late > 0, wait: (b) => b.rows.some((r) => progressOf(r) === '待下单'), part: (b) => b.rows.some((r) => progressOf(r) === '部分到货'), done: (b) => b.done, all: () => true }[F.track] || (() => true));
+  if (F.track === 'late') list.sort((a, b) => b.late - a.late);
+  const COLORS = { '全部到货': 'var(--green)', '差异结束': '#9bd18f', '部分到货': 'var(--yellow)', '待到货': 'var(--blue)', '待下单': '#f7ba1e', '已作废': '#bbbfc4' };
+  const prog = (p) => ({ '全部到货': 'b-green', '差异结束': 'b-green', '部分到货': 'b-yellow', '待到货': 'b-blue', '待下单': 'b-yellow', '已作废': 'b-gray' }[p] || 'b-gray');
+  const tr = (r, child) => {
+    const p = progressOf(r), late = lateDays(r);
+    return `<tr class="${child ? 'child' : ''}"><td class="sku"><div class="mono">${child ? '└ ' : ''}${esc(r['关联产品sku'])}</div><div class="nm" title="${esc(r['品名'])}">${esc(r['品名'])}</div></td>
+      <td class="mono">${esc(r['计划编号'] || '—')}</td><td class="r"><b>${fmtN(r['采购量'])}</b></td>
+      <td><span class="badge ${prog(p)}">${esc(p)}</span></td>
+      <td class="mono">${esc(r['领星采购单号'] || '—')}</td><td class="nm" style="max-width:160px" title="${esc(r['供应商'])}">${esc(r['供应商'] || '—')}</td>
+      <td>${esc(r['分配采购员'] || (r['采购员'] || []).map((u) => u.name).join('、') || '—')}</td>
+      <td>${fmtD(r['预计到货时间'])}${late ? ` <span class="late">逾期 ${late} 天</span>` : ''}</td>
+      <td class="r">${r['入库量'] == null ? '—' : fmtN(r['入库量'])}</td><td class="r">${r['待到货量'] == null ? '—' : fmtN(r['待到货量'])}</td>
+      <td>${esc(r['收货地'] || '—')}</td><td class="nm" style="max-width:180px" title="${esc([r['物流公司'], r['物流单号']].filter(Boolean).join(' '))}">${esc([r['物流公司'], r['物流单号']].filter(Boolean).join(' ') || '—')}</td></tr>`;
+  };
+  const card = (b) => {
+    const total = b.rows.length;
+    const seg = Object.entries(b.cnt).map(([p, n]) => `<span style="width:${(n / total) * 100}%;background:${COLORS[p] || '#ccc'}" title="${esc(p)} ${n}"></span>`).join('');
+    const rows = (q ? b.rows.filter((r) => hit(r) || (b.kids.get(r._id) || []).some(hit)) : b.rows);
+    const note = uniq(b.rows.map((r) => r['批次备注'] || r['单据备注'])).slice(0, 3);
+    return `<div class="card"><h3>${esc(b.who || '—')} · ${esc(b.lab.when)} <small>${total} 个计划 · 合计 ${fmtN(b.qty)} 件 · ${esc(b.key)}</small>
+      <span class="bar">${seg}</span><small>${Object.entries(b.cnt).map(([p, n]) => `${esc(p)} ${n}`).join(' · ')}</small>${b.late ? `<span class="badge b-red">最长逾期 ${b.late} 天</span>` : ''}</h3>
+      ${note.length ? `<div class="hint" style="margin:-4px 0 8px">备注：${esc(note.join(' ｜ ')).slice(0, 300)}</div>` : ''}
+      <div style="overflow:auto"><table class="tbl"><thead><tr><th>SKU / 品名</th><th>计划编号</th><th class="r">采购量</th><th>进度</th><th>领星采购单</th><th>供应商</th><th>采购员</th><th>预计到货</th><th class="r">入库</th><th class="r">待到货</th><th>收货地</th><th>物流</th></tr></thead>
+      <tbody>${rows.map((r) => tr(r, false) + (b.kids.get(r._id) || []).map((c) => tr(c, true)).join('')).join('')}</tbody></table></div></div>`;
+  };
+  const LIM = 40;
+  $('main').innerHTML = `<div class="kpis">${kpi('open', k.open, '未完成批次', 'var(--blue)')}${kpi('late', k.late, '有逾期的批次', 'var(--red)')}${kpi('wait', k.wait, '待下单（计划行）', '#b25e00')}
+    ${kpi('part', k.part, '部分到货（计划行）', 'var(--yellow)')}${kpi('done', k.done, '已全部到货批次', 'var(--green)')}${kpi('all', tb.length, '全部批次', 'var(--ink)')}</div>
+    ${list.length ? list.slice(0, LIM).map(card).join('') + (list.length > LIM ? `<div class="hint" style="text-align:center">还有 ${list.length - LIM} 个批次，用申请人/搜索缩小范围</div>` : '') : '<div class="card empty">没有符合条件的批次</div>'}`;
+  $('main').querySelectorAll('.kpi').forEach((el) => { el.onclick = () => { F.track = el.dataset.k; renderTrack(); }; });
+}
+
+// ===== ⑩ 图片（申请表「图片」第一张，懒加载）=====
+const IMG = {};
+let io = null;
+function loadImages() {
+  if (io) io.disconnect();
+  io = new IntersectionObserver((ents) => ents.forEach(async (en) => {
+    if (!en.isIntersecting) return;
+    io.unobserve(en.target);
+    const rid = en.target.dataset.img, r = (DATA.apply || []).find((x) => x._id === rid);
+    if (!r || !(r['图片'] || []).length) return;
+    let u = IMG[rid] || r._imgData;
+    if (!u && TBL.apply && META.apply['图片']) { try { const a = await TBL.apply.getCellAttachmentUrls([r['图片'][0].token], META.apply['图片'].id, rid); u = a && a[0]; } catch (e) { /* 没图就算了 */ } }
+    if (u) { IMG[rid] = u; en.target.innerHTML = `<img src="${esc(u)}" alt="" loading="lazy">`; }
+  }), { root: $('main'), rootMargin: '200px' });
+  $('main').querySelectorAll('[data-img]').forEach((el) => { if (IMG[el.dataset.img]) el.innerHTML = `<img src="${esc(IMG[el.dataset.img])}" alt="">`; else io.observe(el); });
+}
+
+// ===== ⑪ 弹窗 =====
+function dialog(title, body, buttons) {
+  $('dlg').innerHTML = `<header>${esc(title)}</header><div class="body">${body}</div><footer>${buttons.map(([t, c], i) => `<button class="${c}" data-i="${i}">${t}</button>`).join('')}</footer>`;
+  $('dlg').querySelectorAll('footer button').forEach((b) => { b.onclick = () => buttons[+b.dataset.i][2](b); });
+  $('mask').classList.add('show');
+}
+function closeDlg() { $('mask').classList.remove('show'); }
+function alertErr(e) {
+  const m = e && e.message ? e.message : String(e);
+  const hint = /permission|权限|12/.test(m) ? '\n\n多半是应用的数据权限：高级权限 → 应用权限配置 → 你的角色 → 数据权限，把「灯具组-采购计划申请表」开成「可编辑」。' : '';
+  dialog('写入失败', `<div class="err">${esc(m + hint)}</div>`, [['关闭', 'btn', closeDlg]]);
+}
+
+// ===== ⑫ 渲染入口 =====
+function renderMain() { if (VIEW === 'approve') renderApprove(); else if (VIEW === 'track') renderTrack(); else renderApply(); }
+function render() { renderTop(); renderMain(); }
+
+// ===== ⑬ 保存 / 诊断 / 布局 =====
+function setupSave() {
+  const dash = SDK && SDK.dashboard;
+  let s = ''; try { s = dash && dash.state; } catch (e) { s = '读取失败'; }
+  $('saveMsg').textContent = `（插件状态：${s || '未知'}）`;
+  if (dash && typeof dash.saveConfig === 'function' && s !== 'View' && s !== 'FullScreen') {
+    $('savebar').classList.add('show');
+    $('saveBtn').onclick = async () => {
+      $('saveBtn').disabled = true; $('saveMsg').textContent = '保存中…';
+      try {
+        const ok = await dash.saveConfig({
+          dataConditions: Object.values(TABLES).map((t) => ({ tableId: t.id, baseToken: BASE_TOKEN, dataRange: { type: 'ALL' }, series: 'COUNTA' })),
+          customConfig: { page: document.title, version: 1 },
+        });
+        $('saveMsg').textContent = ok === false ? '保存失败，请重试' : '已保存 ✔';
+      } catch (e) { $('saveMsg').textContent = '保存失败：' + (e && e.message ? e.message : e); }
+      finally { $('saveBtn').disabled = false; }
+    };
+  } else if (dash && dash.setRendered) dash.setRendered().catch(() => {});
+}
+async function diagnose() {
+  const res = [];
+  const t = async (name, fn) => {
+    try {
+      const v = await Promise.race([fn(), new Promise((_, rej) => setTimeout(() => rej(new Error('超时 8s')), 8000))]);
+      let shown; try { shown = typeof v === 'string' ? v : JSON.stringify(v); } catch (x) { shown = String(v); }
+      res.push(['✔', name, String(shown).slice(0, 300)]); return v;
+    } catch (e) { res.push(['✘', name, e && e.message ? e.message : String(e)]); return undefined; }
+  };
+  const { bitable, dashboard } = SDK;
+  await t('dashboard.state', async () => dashboard.state);
+  await t('bridge.getUserId', () => bitable.bridge.getUserId());
+  for (const [k, cfg] of Object.entries(TABLES)) {
+    const tb = await t(`打开表 ${cfg.name}`, () => bitable.base.getTableById(cfg.id));
+    if (tb) { await t(`${cfg.name} 字段`, async () => (await tb.getFieldMetaList()).length + ' 个'); await t(`${cfg.name} 读记录`, async () => (await tb.getRecordsByPage({ pageSize: 2 })).records.length + ' 行'); }
+  }
+  res.push(['ℹ', '本页认出的我', `${ME.name || '（未认出）'} · ids=${ME.ids.join(',')}`]);
+  return `<div class="card"><h3>接口诊断 <small>请把这块整体截图发回</small></h3><table class="tbl"><tbody>${res.map((r) =>
+    `<tr><td style="width:24px">${r[0]}</td><td>${esc(r[1])}</td><td style="white-space:normal;color:var(--sub)">${esc(r[2])}</td></tr>`).join('')}</tbody></table></div>`;
+}
+function layoutCheck() { $('tallTip').style.display = innerHeight > (screen.availHeight || screen.height || 1080) + 40 ? '' : 'none'; }
+window.addEventListener('resize', layoutCheck); layoutCheck();
+$('main').addEventListener('scroll', () => $('sticky').classList.toggle('stuck', $('main').scrollTop > 0), { passive: true });
+$('mask').addEventListener('click', (e) => { if (e.target === $('mask')) closeDlg(); });
+
+function simSwitch() {
+  const opts = [['ou_0eeed8196cfa61af28778d44cb29d9cd', '林谆强（运营）'], ['ou_4cd43bdac45b77e143d81c4ba166f08f', '曾舒婷（运营）'], [OPS_LEAD.id, '林键春（运营主管）'], [BUY_LEAD.id, '颜蕾（采购主管）']];
+  return `<label class="badge b-yellow">效果预览 · 模拟换人 <select id="simAs">${opts.map(([id, n]) => `<option value="${id}" ${ME.ids[0] === id ? 'selected' : ''}>${n}</option>`).join('')}</select></label>`;
+}
+
+async function loadSdk() {
+  const errs = [];
+  for (const u of SDK_URLS) {
+    try { return await Promise.race([import(u), new Promise((_, rej) => setTimeout(() => rej(new Error('超时 12s')), 12000))]); }
+    catch (e) { errs.push(`${u} → ${e && e.message ? e.message : e}`); }
+  }
+  throw new Error('飞书 SDK 三个来源都没加载上（也就没有「保存到页面」按钮），请截图：' + errs.join(' ｜ '));
+}
+
+// ===== 启动 =====
+async function boot(again) {
+  try {
+    if (SNAP) {
+      $('simTip').style.display = ''; $('simTip').textContent = `效果预览（${SNAP.at} 快照）：所有按钮都能点，写入只改这个网页的内存，并模拟自动化的效果；刷新网页恢复原样。`;
+      if (!again) ME = { ids: ['ou_0eeed8196cfa61af28778d44cb29d9cd'], name: '', known: false };
+    } else {
+      if (!SDK) { SDK = await loadSdk(); setupSave(); }
+      if (!again) { ME = { ids: [], name: '', known: false }; for (const f of ['getUserId', 'getBaseUserId']) { try { const id = await SDK.bitable.bridge[f](); if (id && !ME.ids.includes(id)) ME.ids.push(id); } catch (e) { /* 诊断里看 */ } } }
+    }
+    if (!(again && SNAP)) await Promise.all(Object.keys(TABLES).map(readTable));
+    buildPm(); whoAmI();
+    if (!again && VIEW !== 'apply' && VIEW !== 'track' && VIEW !== 'approve') VIEW = 'apply';
+    if (!again && batches().some((b) => PENDING.includes(b.status) && myTurn(b))) { VIEW = 'approve'; F.approve = 'todo'; }
+    // 草稿里已不存在/已锁定的行清掉
+    const ok = new Set((DATA.apply || []).filter((r) => !locked(r)).map((r) => r._id));
+    for (const k of Object.keys(DRAFT)) if (!ok.has(k)) delete DRAFT[k];
+    saveDraft();
+    render();
+    if (/[?&]debug\b/.test(location.search) && SDK) $('main').insertAdjacentHTML('afterbegin', await diagnose());
+  } catch (e) {
+    const msg = esc(e && e.message ? e.message : e);
+    $('main').innerHTML = `<div class="card err">加载失败：${msg}</div>`;
+    if (SDK) { try { $('main').innerHTML = `<div class="card err">加载失败：${msg}</div>` + await diagnose(); } catch (e2) { /* 保留报错 */ } }
+  }
+}
+await boot(false);
+</script>
+</body>
+</html>
