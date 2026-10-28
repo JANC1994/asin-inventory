@@ -999,15 +999,19 @@ function setupSave() {
       $('saveBtn').disabled = true; $('saveMsg').textContent = '保存中…';
       try {
         const ok = await dash.saveConfig({
-          dataConditions: Object.values(TABLES).map((t) => ({ tableId: t.id, baseToken: BASE_TOKEN, dataRange: { type: 'ALL' }, series: 'COUNTA' })),
+          // 只登记用户指定的两张：申请表（第一条=授权）、管理表；产品主表由「数据授权（勿删）」页授权（10-28：登记 3 张时保存后宿主一直「加载中」）
+          dataConditions: [TABLES.apply, TABLES.mgmt].map((t) => ({ tableId: t.id, baseToken: BASE_TOKEN, dataRange: { type: 'ALL' }, series: 'COUNTA' })),
           customConfig: { page: document.title, version: 1 },
         });
         $('saveMsg').textContent = ok === false ? '保存失败，请重试' : '已保存 ✔';
       } catch (e) { $('saveMsg').textContent = '保存失败：' + (e && e.message ? e.message : e); }
       finally { $('saveBtn').disabled = false; }
     };
-  } else if (dash && dash.setRendered) dash.setRendered().catch(() => {});
+  }
+  rendered();
 }
+// 告诉宿主「插件已渲染」：任何状态都发（编辑态不发时宿主可能一直显示自己的「加载中」）；首屏出来后再发一次
+function rendered() { try { const d = SDK && SDK.dashboard; if (d && d.setRendered) d.setRendered().catch(() => {}); } catch (e) { /* 宿主不支持就算了 */ } }
 async function diagnose() {
   const res = [];
   const t = async (name, fn) => {
@@ -1019,6 +1023,7 @@ async function diagnose() {
   };
   const { bitable, dashboard } = SDK;
   await t('dashboard.state', async () => dashboard.state);
+  await t('dashboard.getConfig（保存下来的配置）', () => dashboard.getConfig());
   await t('bridge.getUserId', () => bitable.bridge.getUserId());
   for (const [k, cfg] of Object.entries(TABLES)) {
     const tb = await t(`打开表 ${cfg.name}`, () => bitable.base.getTableById(cfg.id));
@@ -1102,6 +1107,7 @@ function afterLoad(again) {
   const sc = $('main').scrollTop;
   render();
   $('main').scrollTop = sc;
+  rendered();
   $('simTip').style.display = FROM_CACHE || SNAP ? '' : 'none';
   if (FROM_CACHE) $('simTip').textContent = `先显示的是 ${fmtDT(FROM_CACHE)} 的缓存，正在读最新数据…（读完自动刷新；这期间不能提交和审批）`;
 }
