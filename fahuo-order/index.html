@@ -68,6 +68,8 @@
   .btn.red-solid { background: var(--red); color: #fff; }
   .po-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 12px; border-bottom: 1px solid var(--line); background: #fafbfc; }
   .po-q { flex: 1; min-width: 220px; }
+  .store-cell { font-size: 12px; color: #3b4a6b; background: #eef3ff; border-radius: 4px; padding: 1px 6px; white-space: nowrap; }
+  .store-filter { height: 28px; font-size: 12.5px; } .store-filter.on { border-color: var(--blue); color: var(--blue); background: var(--blue-soft); }
   .po-ctl { display: contents; }
   .store-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
   .store-row select { min-width: 220px; height: 32px; }
@@ -434,7 +436,7 @@ const blankForm = () => ({ rows: [], store: '', shipDate: '', split: '是', ship
 function newRow(p, perBox) { return { id: ++rowSeq, key: p.c + '|' + p.m, c: p.c, m: p.m, a: p.a, n: p.n, fn: p.fn, sku: p.sku, s: p.s, line: p.line || '灯', spu: p.spu || '', color: p.color || '', size: p.size || '', perBox: perBox ?? (p.box || ''), boxes: '', po: '', note: '' }; }
 let clearArm = null;   // 「清空明细」点了第一下，等第二下确认
 let F = blankForm(), E = null, editNo = null, showErr = null, pick = { scope: null, q: '' };
-let listFilter = { mine: true, st: '全部' }, rejecting = null, sel = new Set(), bulkRej = false, copying = null, shipFilter = '全部';
+let listFilter = { mine: true, st: '全部', store: '' }, shipStore = '', rejecting = null, sel = new Set(), bulkRej = false, copying = null, shipFilter = '全部';
 
 const P = (r) => PM[r.key] || { c: r.c, m: r.m, a: r.a, n: r.n, fn: r.fn, sku: r.sku, s: r.s, box: 0, line: r.line, spu: r.spu, color: r.color, size: r.size };
 const isShoe = (r) => P(r).line === '鞋';   // 主表里删了也能用明细里的快照
@@ -442,7 +444,7 @@ const byBox = (r) => +r.perBox > 0 && +r.boxes > 0;
 const tot = (r) => byBox(r) ? +r.perBox * +r.boxes : (+r.qty || 0);   // 没箱规的直接填总数
 const countryOf = (rows) => rows.length ? P(rows[0]).c : '';
 // 一张指令只能一个店铺：有明细取明细的店铺，没明细取手选的
-const storeOf = (S) => (S.rows.length ? P(S.rows[0]).s : '') || S.store || '';
+const storeOf = (S) => (S.rows.length ? P(S.rows[0]).s : '') || (S.rows.length ? S.store : '') || S.store || '';
 const storeCountry = (s) => /-CA\b|-CA-|CA$/.test(s || '') ? '加拿大' : s ? '美国' : '';
 // 店铺清单 = 产品主表-灯类+精铺 / 产品主表-鞋类 两张表「店铺」字段的全部选项（7 个店 × 美国/加拿大站），读不到字段时退回产品里出现过的店铺
 function storeList() {
@@ -695,9 +697,7 @@ function editorHTML(S, scope) {
   const chs = CHS.filter((x) => !c || !x.c || x.c === c);
   const n = S.split === '是' ? SHIP_SLOTS : 1;
   return `
-  <h4>① 店铺 · 选产品 <span class="hint">一张指令只能一个店铺（不同店铺不能进同一个货件）；直接选产品或按采购单导入，店铺自动带出，带出后可改</span></h4>
-  <div class="store-row"><label>店铺 <b style="color:var(--red);font-weight:normal">*</b></label><select data-o="store" class="${err && !storeOf(S) ? 'miss' : ''}">${storeOptions(storeOf(S), '— 不用先选：选产品/导入后自动带出 —', S.rows.length ? countryOf(S.rows) : '')}</select>
-    ${storeOf(S) ? `<span class="badge ${storeCountry(storeOf(S)) === '美国' ? 'b-blue' : 'b-green'}">${storeCountry(storeOf(S))}</span>` : ''}${S.rows.length ? '<span class="hint">可改店铺：明细里的产品会换成新店铺同 SKU 的 MSKU / FNSKU</span>' : ''}</div>
+  <h4>① 选产品 <span class="hint">店铺跟着产品走，显示在下面明细里；一张指令只能一个店铺（不同店铺不能进同一个货件），选了第一个产品后下拉只显示同店铺的产品</span></h4>
   <div class="picker"><div class="picker-row">
     <div class="picker-box ${pick.scope === scope && pick.mode !== 'po' ? 'open' : ''}" data-pickbox>🔍<input data-pickq value="${pick.scope === scope ? esc(pick.q) : ''}" placeholder="搜品名 / ASIN / MSKU / SPU，点开勾选" autocomplete="off">
       ${c ? `<span class="badge b-blue">${c}</span>` : ''}<span class="hint">已选 ${new Set(S.rows.map((r) => r.key)).size}</span></div>
@@ -707,7 +707,7 @@ function editorHTML(S, scope) {
   </div>
   <h4>② 发货明细 <span class="hint">有箱规的填箱数，总数 = 每箱 × 箱数（不整箱：改每箱或「另起一行」填尾箱）；没固定箱规的（如鞋子）每箱/箱数留空，直接填总数</span></h4>
   ${S.rows.some((r) => !isShoe(r)) ? `<div class="lines"><table class="tbl"><thead><tr>
-    <th>品名</th><th>国家</th><th>ASIN</th><th>MSKU</th><th>FNSKU</th><th>每箱数量</th><th>箱数</th><th>总数</th><th>采购单号 <span class="hint">(可空)</span></th><th>备注</th><th></th></tr></thead>
+    <th>品名</th><th>国家</th><th>店铺</th><th>ASIN</th><th>MSKU</th><th>FNSKU</th><th>每箱数量</th><th>箱数</th><th>总数</th><th>采购单号 <span class="hint">(可空)</span></th><th>备注</th><th></th></tr></thead>
     <tbody>${rowsHTML(S, err, S.rows.filter((r) => !isShoe(r)))}</tbody></table></div>` : ''}
   ${S.rows.some(isShoe) ? shoeHTML(S, err) : ''}
   ${S.rows.length ? '' : '<div class="empty">先在上面选产品</div>'}
@@ -745,7 +745,7 @@ function shoeHTML(S, err) {
     const p = P(rows[0]), tot0 = rows.reduce((s, r) => s + tot(r), 0), noFn = rows.filter((r) => !P(r).fn).length;
     const pos = [...new Set(rows.flatMap((r) => (poBySku[P(r).sku] || []).map((o) => o.po)))];
     return `<div class="shoe-grp" data-ids="${rows.map((r) => r.id).join(',')}">
-      <div class="sg-name"><b>${esc(p.spu)}</b> <span class="sg-color">${esc(p.color) || '—'}</span> <span class="badge ${p.c === '美国' ? 'b-blue' : 'b-green'}">${p.c}</span>${noFn ? ` <span class="badge b-red" title="鞋类主表没有 FNSKU">缺FNSKU ${noFn}</span>` : ''}</div>
+      <div class="sg-name"><b>${esc(p.spu)}</b> <span class="sg-color">${esc(p.color) || '—'}</span> <span class="badge ${p.c === '美国' ? 'b-blue' : 'b-green'}">${p.c}</span> <span class="store-cell">${esc(p.s)}</span>${noFn ? ` <span class="badge b-red" title="鞋类主表没有 FNSKU">缺FNSKU ${noFn}</span>` : ''}</div>
       <div class="sg-sizes">${rows.map((r) => `<label class="sz" data-r="${r.id}" title="${esc(P(r).m)}"><span>${esc(P(r).size || P(r).m)}</span><input class="num ${err && !(tot(r) > 0) ? 'miss' : ''}" data-k="qty" value="${esc(r.qty ?? '')}"><b class="x" data-act="delRow">×</b></label>`).join('')}</div>
       <div class="sg-tot">合计 <b data-gtot>${tot0.toLocaleString()}</b> 件</div>
       <div class="sg-po"><input class="po" data-k="gpo" list="gpo-${rows[0].id}" value="${esc(rows[0].po || '')}" placeholder="采购单号(可空)"><datalist id="gpo-${rows[0].id}">${pos.map((x) => `<option value="${esc(x)}">`).join('')}</datalist>
@@ -756,8 +756,8 @@ function rowsHTML(S, err, list = S.rows) {
   const rows = grouped(list);
   return rows.map((r, i) => {
     const p = P(r), first = i === 0 || rows[i - 1].key !== r.key, last = i === rows.length - 1 || rows[i + 1].key !== r.key;
-    const info = first ? `<td>${esc(p.n)}</td><td>${p.c}</td><td class="mono">${p.a}</td><td class="mono auto">${esc(p.m)}</td><td class="mono auto">${esc(p.fn)}</td>`
-                       : `<td colspan="5" class="hint" style="padding-left:24px">↳ 同一 MSKU 另一种装箱</td>`;
+    const info = first ? `<td>${esc(p.n)}</td><td>${p.c}</td><td class="store-cell">${esc(p.s)}</td><td class="mono">${p.a}</td><td class="mono auto">${esc(p.m)}</td><td class="mono auto">${esc(p.fn)}</td>`
+                       : `<td colspan="6" class="hint" style="padding-left:24px">↳ 同一 MSKU 另一种装箱</td>`;
     const pos = poBySku[p.sku] || [];
     return `<tr data-r="${r.id}" class="${first ? '' : 'cont'} ${last ? 'grp-end' : ''}">${info}
       <td><input class="num" data-k="perBox" value="${esc(r.perBox)}" placeholder="可空">${PM[r.key] && +r.perBox !== +PM[r.key].box && PM[r.key].box ? `<div class="hint">主表 ${PM[r.key].box}</div>` : ''}</td>
@@ -772,7 +772,7 @@ function rowsHTML(S, err, list = S.rows) {
 
 // 下拉里的勾选只改 pick.pending，不动页面；点「完成」才把勾选结果加进明细
 const pendCountry = () => { for (const k of pick.pending || []) return PM[k]?.c || ''; return ''; };
-const pendStore = () => { for (const k of pick.pending || []) return PM[k]?.s || ''; return stateOf(pick.scope)?.store || ''; };
+const pendStore = () => { for (const k of pick.pending || []) return PM[k]?.s || ''; return ''; };   // 只看已勾的产品
 function newPick(scope, S) {
   return { scope, q: '', err: '', pending: new Set(S.rows.map((r) => r.key)), open: new Set(), line: S.rows.length && S.rows.every(isShoe) ? '鞋' : '灯' };
 }
@@ -818,7 +818,7 @@ function renderPick() {
   const add = [...chosen].filter((k) => !S.rows.some((r) => r.key === k)).length, del = new Set(S.rows.filter((r) => !chosen.has(r.key)).map((r) => r.key)).size;
   panel.innerHTML = tabs + (pick.err ? `<div class="pick-err">✘ ${esc(pick.err)}</div>` : '') +
     `<div class="pick-list">${html || '<div class="empty" style="margin:10px">没有匹配的产品</div>'}</div>` +
-    `<div class="pick-foot"><span class="hint">共 ${list.length} 个 · 已勾 <b>${chosen.size}</b>${add || del ? `（点完成：新增 ${add}${del ? `，移除 ${del}` : ''}）` : ''}${c ? ` · 已锁定 ${c}` : ''}</span>
+    `<div class="pick-foot"><span class="hint">共 ${list.length} 个 · 已勾 <b>${chosen.size}</b>${add || del ? `（点完成：新增 ${add}${del ? `，移除 ${del}` : ''}）` : ''}${lk ? ` · 已锁定店铺 ${esc(lk)}` : ''}</span>
      <span style="display:flex;gap:6px"><button class="btn sm ghost" data-pickcancel>取消</button><button class="btn sm" data-pickdone>完成</button></span></div>`;
   const pl = panel.querySelector('.pick-list'); if (pl) pl.scrollTop = keep;
 }
@@ -936,15 +936,25 @@ function bulkBar(list, mode) {
     ${bulkRej && n ? `<div class="card rejbox"><input id="bulkReason" placeholder="驳回原因（这 ${n} 张单共用，会显示给提交人）"><button class="btn sm red" data-act="bulkReject">确认驳回 ${n} 张</button><button class="btn sm ghost" data-act="bulkRejCancel">取消</button></div>` : ''}`;
 }
 
+// 店铺筛选：只列当前列表里出现过的店铺（按国家分组）
+function storeFilter(stores, cur, which) {
+  if (cur && !stores.includes(cur)) stores = [...stores, cur];
+  const g = { '美国': [], '加拿大': [] }; stores.sort((a, b) => a.localeCompare(b, 'zh')).forEach((s) => (g[storeCountry(s)] ||= []).push(s));
+  return `<span class="hint" style="margin-left:6px">店铺</span><select class="store-filter ${cur ? 'on' : ''}" data-fstore="${which}"><option value="">全部店铺（${stores.length}）</option>${Object.entries(g).filter(([, ss]) => ss.length)
+    .map(([c, ss]) => `<optgroup label="${c}">${ss.map((s) => `<option value="${esc(s)}" ${s === cur ? 'selected' : ''}>${esc(s)}</option>`).join('')}</optgroup>`).join('')}</select>`;
+}
 function renderList() {
   const rev = isReviewer();
   let list = ORDERS.filter((o) => o.status !== '待发货');
   if (listFilter.mine && !rev) list = list.filter(isMine);
   if (listFilter.st !== '全部') list = list.filter((o) => o.status === listFilter.st);
+  const stores0 = [...new Set(list.map(storeOf).filter(Boolean))];
+  if (listFilter.store) list = list.filter((o) => storeOf(o) === listFilter.store);
   list = sortPlans(list);
   return `${bulkBar(list, 'list')}<div class="filters">
       ${!rev ? `<button class="chip ${listFilter.mine ? 'on' : ''}" data-f="mine">只看我提交的</button>` : '<span class="hint">审核人视角：看全部人的指令</span>'}
       <span class="hint" style="margin-left:6px">状态</span>${['全部', '草稿', '待审核', '已驳回'].map((s) => `<button class="chip ${listFilter.st === s ? 'on' : ''}" data-st="${s}">${s}</button>`).join('')}
+      ${storeFilter(stores0, listFilter.store, 'list')}
       <span class="hint" style="margin-left:auto">只有提交人能改自己的草稿/被驳回的单；审核人：${esc(REVIEWER.name)}</span></div>
     ${list.length ? list.map((o) => orderCard(o, 'list')).join('') : '<div class="card empty">没有符合条件的指令</div>'}`;
 }
@@ -953,7 +963,10 @@ function renderShip() {
   let list = ORDERS.filter((o) => o.status === '待发货').sort((a, b) => (a.shipDate || '').localeCompare(b.shipDate || ''));
   const due = (o) => dn(o.shipDate) - dn(TODAY);
   if (shipFilter === '7天内') list = list.filter((o) => due(o) <= 7); else if (shipFilter === '7天后') list = list.filter((o) => due(o) > 7);
+  const stores0 = [...new Set(list.map(storeOf).filter(Boolean))];
+  if (shipStore) list = list.filter((o) => storeOf(o) === shipStore);
   return `${bulkBar(list, 'ship')}<div class="filters">${['全部', '7天内', '7天后'].map((s) => `<button class="chip ${shipFilter === s ? 'on' : ''}" data-sf="${s}">${s}</button>`).join('')}
+    ${storeFilter(stores0, shipStore, 'ship')}
     <span class="hint">审核通过的指令已逐行写进「出口对账-发货计划」，这里只读${isReviewer() ? '；有问题点「驳回到指令列表」' : '；有问题找审核人驳回'}。勾选多张可「合并填货件号」（共用同一批货件号）；「从领星匹配」按本单 MSKU 找领星里新建的货件。</span></div>
     ${list.length ? shipGroups(list) : '<div class="card empty">暂无待发货</div>'}`;
 }
@@ -1156,7 +1169,7 @@ main.addEventListener('click', (e) => {
     }
     if (t.closest('[data-poimport]')) {
       if (pick.scope === scope && pick.mode === 'po') { closePick(); render(); return; }
-      pick = { scope, mode: 'po', q: '', err: '', poSel: new Set(), store: storeOf(S) }; render(); main.querySelector('[data-poq]')?.focus(); return;
+      pick = { scope, mode: 'po', q: '', err: '', poSel: new Set(), store: S.rows.length ? P(S.rows[0]).s : '' }; render(); main.querySelector('[data-poq]')?.focus(); return;
     }
 
     const poIt = t.closest('.po-item');
@@ -1317,6 +1330,7 @@ main.addEventListener('input', (e) => {
 });
 main.addEventListener('change', (e) => {
   const t = e.target;
+  if (t.dataset.fstore) { if (t.dataset.fstore === 'list') listFilter.store = t.value; else shipStore = t.value; sel.clear(); render(); return; }
   if (t.hasAttribute('data-sel')) { const no = t.closest('[data-no]').dataset.no; t.checked ? sel.add(no) : sel.delete(no); render(); return; }
   if (t.hasAttribute('data-selall')) { main.querySelectorAll('[data-sel]').forEach((x) => { const no = x.closest('[data-no]').dataset.no; t.checked ? sel.add(no) : sel.delete(no); }); render(); return; }
   const scope = scopeOf(t), S = scope && stateOf(scope); if (!S) return;
