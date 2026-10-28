@@ -65,6 +65,7 @@
   .picker { position: relative; max-width: 900px; }
   .picker-row { display: flex; gap: 8px; align-items: stretch; } .picker-row .picker-box { flex: 1; min-width: 0; }
   .po-btn { height: auto; min-height: 34px; white-space: nowrap; }
+  .btn.red-solid { background: var(--red); color: #fff; }
   .po-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 12px; border-bottom: 1px solid var(--line); background: #fafbfc; }
   .po-top .seg button:disabled { opacity: .35; cursor: not-allowed; }
   .po-item .sub div { line-height: 1.7; }
@@ -383,6 +384,7 @@ let view = 'new', rowSeq = 1;
 const emptyShips = () => Array.from({ length: SHIP_SLOTS }, () => ({ no: '', ch: '', eta: '' }));
 const blankForm = () => ({ rows: [], shipDate: '', split: '是', ships: emptyShips(), note: '' });
 function newRow(p, perBox) { return { id: ++rowSeq, key: p.c + '|' + p.m, c: p.c, m: p.m, a: p.a, n: p.n, fn: p.fn, sku: p.sku, s: p.s, perBox: perBox ?? (p.box || ''), boxes: '', po: '', note: '' }; }
+let clearArm = null;   // 「清空明细」点了第一下，等第二下确认
 let F = blankForm(), E = null, editNo = null, showErr = null, pick = { scope: null, q: '' };
 let listFilter = { mine: true, st: '全部' }, rejecting = null, sel = new Set(), bulkRej = false, copying = null, shipFilter = '全部';
 
@@ -617,7 +619,8 @@ function editorHTML(S, scope) {
   <div class="picker"><div class="picker-row">
     <div class="picker-box ${pick.scope === scope && pick.mode !== 'po' ? 'open' : ''}" data-pickbox>🔍<input data-pickq value="${pick.scope === scope ? esc(pick.q) : ''}" placeholder="搜品名 / ASIN / MSKU / SPU，点开勾选" autocomplete="off">
       ${c ? `<span class="badge b-blue">${c}</span>` : ''}<span class="hint">已选 ${new Set(S.rows.map((r) => r.key)).size}</span></div>
-    <button class="btn ${pick.scope === scope && pick.mode === 'po' ? '' : 'ghost'} po-btn" data-poimport>📦 按采购单导入</button></div>
+    <button class="btn ${pick.scope === scope && pick.mode === 'po' ? '' : 'ghost'} po-btn" data-poimport>📦 按采购单导入</button>
+    ${S.rows.length ? `<button class="btn ${clearArm === scope ? 'red-solid' : 'red'} po-btn" data-clearrows title="只清空下面的发货明细，开船日期/货件/备注不动">${clearArm === scope ? '再点一次确认清空' : '🗑 清空明细'}</button>` : ''}</div>
     ${pick.scope === scope ? '<div class="pick-panel" data-pickpanel></div>' : ''}
   </div>
   <h4>② 发货明细 <span class="hint">有箱规的填箱数，总数 = 每箱 × 箱数（不整箱：改每箱或「另起一行」填尾箱）；没固定箱规的（如鞋子）每箱/箱数留空，直接填总数</span></h4>
@@ -904,6 +907,10 @@ main.addEventListener('click', (e) => {
   const t = e.target, a = t.dataset.act, scope = scopeOf(t), S = scope && stateOf(scope);
   if (t.dataset.sf) { shipFilter = t.dataset.sf; render(); return; }
   if (S) {
+    if (t.closest('[data-clearrows]')) {
+      if (clearArm !== scope) { clearArm = scope; render(); setTimeout(() => { if (clearArm === scope) { clearArm = null; render(); } }, 4000); return; }
+      const n = S.rows.length; S.rows = []; clearArm = null; closePick(); render(); toast(`已清空发货明细（${n} 行）`); return;
+    }
     if (t.closest('[data-poimport]')) {
       if (pick.scope === scope && pick.mode === 'po') { closePick(); render(); return; }
       pick = { scope, mode: 'po', q: '', err: '', poSel: new Set(), country: countryOf(S.rows) || '美国' }; render(); return;
