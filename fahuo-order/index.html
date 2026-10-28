@@ -138,6 +138,16 @@
   .busy { position: fixed; inset: 0; background: rgba(255,255,255,.55); z-index: 90; display: none; place-items: center; font-size: 14px; color: var(--ink); }
   .busy.show { display: grid; }
   .warn { background: var(--yellow-soft); color: #8a4b00; border-radius: 6px; padding: 6px 10px; font-size: 12px; margin-bottom: 8px; }
+
+  /* 货件卡片（指令卡里每个货件一张） */
+  .shipcards { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px; padding: 12px 14px; border-top: 1px solid var(--line); }
+  .shipcard { border: 1px solid var(--line); border-left: 4px solid var(--blue); border-radius: 8px; padding: 10px 12px; background: #fafbfc; display: flex; flex-direction: column; gap: 4px; }
+  .shipcard .h { font-size: 13px; font-weight: 600; color: var(--blue); }
+  .shipcard .ch { font-size: 15px; font-weight: 600; color: var(--ink); }
+  .shipcard .ch.none { color: var(--sub); font-weight: normal; }
+  .shipcard .eta { font-size: 14px; color: var(--ink); }
+  .shipcard .no { font-size: 13px; font-family: Consolas, monospace; }
+  .shipcard.built { border-left-color: var(--green); }
 </style>
 </head>
 <body>
@@ -327,7 +337,7 @@ const isMine = (o) => ME.ids.includes(o.byId);
 // ================= ⑤ 页面状态 =================
 let view = 'new', rowSeq = 1;
 const emptyShips = () => Array.from({ length: SHIP_SLOTS }, () => ({ no: '', ch: '', eta: '' }));
-const blankForm = () => ({ rows: [], shipDate: '', split: '否', ships: emptyShips(), note: '' });
+const blankForm = () => ({ rows: [], shipDate: '', split: '是', ships: emptyShips(), note: '' });
 function newRow(p, perBox) { return { id: ++rowSeq, key: p.c + '|' + p.m, c: p.c, m: p.m, a: p.a, n: p.n, fn: p.fn, sku: p.sku, s: p.s, perBox: perBox ?? (p.box || ''), boxes: '', po: '', note: '' }; }
 let F = blankForm(), E = null, editNo = null, showErr = null, pick = { scope: null, q: '' };
 let listFilter = { mine: true, st: '全部' }, rejecting = null, sel = new Set(), bulkRej = false, copying = null, batch = { n: 1, gap: 7 }, shipFilter = '全部';
@@ -619,6 +629,14 @@ function renderShip() {
     ${list.length ? list.map((o) => orderCard(o, 'ship')).join('') : '<div class="card empty">暂无待发货</div>'}`;
 }
 
+function shipCards(o, noOf) {
+  return `<div class="shipcards">${usedShips(o).map((x) => {
+    const no = noOf(x), d = x.eta ? dn(x.eta) - dn(TODAY) : null;
+    return `<div class="shipcard ${no ? 'built' : ''}"><div class="h">${o.split === '是' ? '货件' + (x.i + 1) : '货件'}</div>
+      <div class="ch ${x.ch ? '' : 'none'}">${esc(x.ch) || '渠道未定'}</div>
+      <div class="eta">预计到达 <b>${md(x.eta)}</b>${d != null ? ` <span class="hint">（${d >= 0 ? d + ' 天后' : '已过 ' + -d + ' 天'}）</span>` : ''}</div>
+      <div class="no">${no ? `<b>${esc(no)}</b>` : '<span class="hint">货件号：未建</span>'}</div></div>`; }).join('')}</div>`;
+}
 function orderCard(o, mode) {
   const editing = editNo === o.no, S = editing ? E : o;
   const s = sumOf(S.rows), c = countryOf(S.rows), mine = isMine(o), rev = isReviewer();
@@ -637,7 +655,7 @@ function orderCard(o, mode) {
       ${pl ? `<span class="badge b-blue" title="同一批货分批发">分批 ${pl.idx}/${pl.n} · 计划合计 ${pl.qty.toLocaleString()} 件</span>` : ''}
       <span class="kv">提交人 <b>${esc(o.by)}</b></span><span class="kv"><b>${c}</b></span>
       <span class="kv">发货 <b>${md(S.shipDate)}</b></span><span class="kv">${S.split === '是' ? `分仓 <b>${usedShips(S).length}</b> 个货件` : `预计到达 <b>${md(S.ships[0].eta)}</b>`}</span>
-      <span class="kv">渠道 <b>${esc(chs.join(' / ') || '未定')}</b></span>
+      ${S.split === '是' ? '' : `<span class="kv">渠道 <b>${esc(chs.join(' / ') || '未定')}</b></span>`}
       <span class="kv">${s.msku} 个MSKU · <b data-sumboxes>${s.boxes}</b> 箱 · <b data-sumqty>${s.qty.toLocaleString()}</b> 件</span>
       <div class="acts">${acts}</div></div>
     ${copying === o.no ? `<div class="rejbox" style="background:#f5f8ff;align-items:center">复制 <input type="number" id="cpN" value="1" min="1" max="20" style="flex:none;width:60px"> 张，每张发货日期往后推
@@ -660,7 +678,7 @@ function orderCard(o, mode) {
         <td>${esc(r.perBox)}</td><td>${esc(r.boxes)}</td><td><b>${tot(r).toLocaleString()}</b></td><td class="mono">${esc(r.po) || '<span class="hint">—</span>'}</td>
         ${mode === 'ship' ? `<td>${fba ? `<b class="mono">${esc(fba)}</b>` : `<span class="badge b-gray">${LOADERR.plan ? '读不到' : '未建'}</span>`}</td>` : ''}<td>${esc(r.note)}</td></tr>`; }).join('')}
     </tbody></table></div>
-    <div class="order-foot">${usedShips(o).map((x) => `<span>${o.split === '是' ? '货件' + (x.i + 1) : '货件'}：${esc(x.ch) || '渠道未定'} · 预计到达 ${md(x.eta)}</span>`).join('')}</div>
+    ${shipCards(o, (x) => [...new Set(o.rows.map((r) => r.planRec && planById[r.planRec]?.['货件' + (x.i + 1)]).filter(Boolean))].join(' / '))}
     <div class="order-foot">${o.editedAt ? `<span>最后修改 ${o.editedAt}</span>` : ''}${o.checkedAt ? `<span>审核通过 ${o.checkedAt}</span>` : ''}${mode === 'ship' ? `<span class="wrote">✓ 已写入发货计划 ${o.rows.filter((r) => r.planRec).length} 行</span>` : ''}${o.note ? `<span>备注：<span style="color:var(--ink)">${esc(o.note)}</span></span>` : ''}</div>
   </div>`;
 }
