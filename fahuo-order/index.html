@@ -444,14 +444,30 @@ const countryOf = (rows) => rows.length ? P(rows[0]).c : '';
 // 一张指令只能一个店铺：有明细取明细的店铺，没明细取手选的
 const storeOf = (S) => (S.rows.length ? P(S.rows[0]).s : '') || S.store || '';
 const storeCountry = (s) => /-CA\b|-CA-|CA$/.test(s || '') ? '加拿大' : s ? '美国' : '';
-function storeList() {   // 按国家分组，产品多的店在前
+// 店铺清单 = 产品主表-灯类+精铺 / 产品主表-鞋类 两张表「店铺」字段的全部选项（7 个店 × 美国/加拿大站），读不到字段时退回产品里出现过的店铺
+function storeList() {
+  const names = new Set();
+  for (const k of ['pm', 'shoe']) for (const o of META[k]?.byName['店铺']?.property?.options || []) if (o.name) names.add(o.name);
+  PRODS.forEach((p) => p.s && names.add(p.s));
   const n = {}; PRODS.forEach((p) => { if (p.s) n[p.s] = (n[p.s] || 0) + 1; });
   const g = { '美国': [], '加拿大': [] };
-  Object.keys(n).sort((a, b) => n[b] - n[a]).forEach((s) => (g[storeCountry(s)] ||= []).push(s));
+  [...names].sort((a, b) => (n[b] || 0) - (n[a] || 0) || a.localeCompare(b, 'zh')).forEach((s) => (g[storeCountry(s)] ||= []).push(s));
   return g;
 }
-const storeOptions = (sel, empty) => `<option value="">${empty}</option>` + Object.entries(storeList()).filter(([, ss]) => ss.length)
+// only = 只列这个国家的店铺（明细里已有产品时）
+const storeOptions = (sel, empty, only) => `<option value="">${empty}</option>` + Object.entries(storeList()).filter(([c, ss]) => ss.length && (!only || c === only))
   .map(([c, ss]) => `<optgroup label="${c}">${ss.map((s) => `<option value="${esc(s)}" ${s === sel ? 'selected' : ''}>${esc(s)}</option>`).join('')}</optgroup>`).join('');
+// 换店铺：明细里每个产品换成新店铺里同 SKU、同国家的 MSKU；有对不上的就不换
+function switchStore(S, to) {
+  const miss = [], map = [];
+  for (const r of S.rows) {
+    const p = P(r), q = PRODS.find((x) => x.s === to && x.sku === p.sku && x.c === p.c);
+    if (!q) miss.push(p.m); else map.push([r, q]);
+  }
+  if (miss.length) return `「${to}」没有这些产品（按 SKU 找不到）：${[...new Set(miss)].slice(0, 6).join('、')}${miss.length > 6 ? ' 等 ' + miss.length + ' 个' : ''}，没换店铺`;
+  for (const [r, q] of map) Object.assign(r, { key: q.c + '|' + q.m, c: q.c, m: q.m, a: q.a, n: q.n, fn: q.fn, sku: q.sku, s: q.s, line: q.line || '灯', spu: q.spu || '', color: q.color || '', size: q.size || '' });
+  S.store = to; return '';
+}
 const sumOf = (rows) => ({ msku: new Set(rows.map((r) => r.key)).size, boxes: rows.reduce((s, r) => s + (byBox(r) ? +r.boxes : 0), 0), qty: rows.reduce((s, r) => s + tot(r), 0) });
 const usedShips = (o) => o.split === '是' ? o.ships.map((s, i) => ({ ...s, i })).filter((s) => s.ch || s.eta || s.no) : [{ ...o.ships[0], i: 0 }];
 const statusCls = (s) => ({ '草稿': 'b-gray', '待审核': 'b-yellow', '已驳回': 'b-red', '待发货': 'b-blue' }[s]);
@@ -679,9 +695,9 @@ function editorHTML(S, scope) {
   const chs = CHS.filter((x) => !c || !x.c || x.c === c);
   const n = S.split === '是' ? SHIP_SLOTS : 1;
   return `
-  <h4>① 店铺 · 选产品 <span class="hint">一张指令只能一个店铺（不同店铺不能进同一个货件）；先选店铺，或直接选产品自动带出店铺</span></h4>
-  <div class="store-row"><label>店铺 <b style="color:var(--red);font-weight:normal">*</b></label><select data-o="store" class="${err && !storeOf(S) ? 'miss' : ''}">${storeOptions(storeOf(S), '— 选店铺（选产品后自动带出）—')}</select>
-    ${storeOf(S) ? `<span class="badge ${storeCountry(storeOf(S)) === '美国' ? 'b-blue' : 'b-green'}">${storeCountry(storeOf(S))}</span>` : ''}${S.rows.length ? '<span class="hint">明细里已有产品，要换店铺先「清空明细」</span>' : ''}</div>
+  <h4>① 店铺 · 选产品 <span class="hint">一张指令只能一个店铺（不同店铺不能进同一个货件）；直接选产品或按采购单导入，店铺自动带出，带出后可改</span></h4>
+  <div class="store-row"><label>店铺 <b style="color:var(--red);font-weight:normal">*</b></label><select data-o="store" class="${err && !storeOf(S) ? 'miss' : ''}">${storeOptions(storeOf(S), '— 不用先选：选产品/导入后自动带出 —', S.rows.length ? countryOf(S.rows) : '')}</select>
+    ${storeOf(S) ? `<span class="badge ${storeCountry(storeOf(S)) === '美国' ? 'b-blue' : 'b-green'}">${storeCountry(storeOf(S))}</span>` : ''}${S.rows.length ? '<span class="hint">可改店铺：明细里的产品会换成新店铺同 SKU 的 MSKU / FNSKU</span>' : ''}</div>
   <div class="picker"><div class="picker-row">
     <div class="picker-box ${pick.scope === scope && pick.mode !== 'po' ? 'open' : ''}" data-pickbox>🔍<input data-pickq value="${pick.scope === scope ? esc(pick.q) : ''}" placeholder="搜品名 / ASIN / MSKU / SPU，点开勾选" autocomplete="off">
       ${c ? `<span class="badge b-blue">${c}</span>` : ''}<span class="hint">已选 ${new Set(S.rows.map((r) => r.key)).size}</span></div>
@@ -1306,7 +1322,11 @@ main.addEventListener('change', (e) => {
   const scope = scopeOf(t), S = scope && stateOf(scope); if (!S) return;
   if (t.dataset.o === 'shipDate') { S.shipDate = t.value; render(); return; }
   if (t.dataset.o === 'store') {
-    if (S.rows.length && t.value !== P(S.rows[0]).s) { toast('明细里是「' + P(S.rows[0]).s + '」的产品，要换店铺先清空明细', 4000); render(); return; }
+    if (S.rows.length && t.value && t.value !== P(S.rows[0]).s) {
+      const err = switchStore(S, t.value);
+      toast(err || `已换成「${t.value}」，明细里 ${S.rows.length} 行的 MSKU / FNSKU 已跟着换`, err ? 6000 : 3500); render(); return;
+    }
+    if (S.rows.length && !t.value) { render(); return; }
     S.store = t.value; render(); return;
   }
   if (t.hasAttribute('data-postore')) { pick.store = t.value; pick.poSel.clear(); renderPoPick(); return; }
