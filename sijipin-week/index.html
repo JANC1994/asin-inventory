@@ -148,6 +148,9 @@
   .goal-h { display: flex; align-items: center; justify-content: space-between; font-size: 12px; color: var(--or-d); font-weight: 600; }
   .gedit { border: 1px solid transparent; background: transparent; color: var(--or-d); width: 26px; height: 24px; border-radius: 6px; cursor: pointer; font-size: 14px; }
   .gedit:hover { background: #fff; border-color: var(--or-soft2); }
+  .goal.tg .tg-l { font-size: 13px; line-height: 1.5; margin-top: 3px; white-space: pre-wrap; word-break: break-word; font-weight: 700; }
+  .goal.tg .tg-l span { display: inline-block; min-width: 56px; font-weight: 400; color: var(--sub); font-size: 11.5px; }
+  .goal.tg .tg-l i { font-style: normal; font-weight: 400; color: #c3a98e; }
   .goal-v { font-size: 16px; font-weight: 700; line-height: 1.5; color: var(--ink); white-space: pre-wrap; word-break: break-word; margin-top: 2px; }
   .goal.gnum .goal-v { font-size: 22px; font-variant-numeric: tabular-nums; }
   .goal-v.none, .goal.gnum .goal-v.none { font-size: 13px; font-weight: normal; color: #c3a98e; }
@@ -315,7 +318,7 @@
   </div>
   <div class="tip" id="tallTip" style="display:none">插件框比屏幕还高，往下滑时顶部筛选栏会被滚走。请在应用编辑模式里把这个插件组件的高度拖到一屏以内，页面会改成内部滚动、顶栏固定。</div>
   <template id="helpText">每张卡 = 一个 SPU × 国家在所选那一周的经营数据，红灯排前。数字和红黄绿灯由系统每天按「四季品经营表」算好；
-        卡片顶部是本周目标与策略（新周自动沿用上周，点 ✎ 修改），右侧填本周复盘（竞品动态 / 问题和归因 / 计划操作）和主管建议，点「保存」写回多维表的这一周。
+        卡片顶部是目标（周目标 = 月目标按天拆；年度目标、当月策略/指标来自产品目标总表，在「目标填写」页改，本页只读），右侧填本周复盘（竞品动态 / 问题和归因 / 计划操作）和主管建议，点「保存」写回多维表的这一周。
         「产品表现」看单个 SPU 或 ASIN 的每日趋势（产品、广告可切近 7/14/30 天并对比上一周期，库存看未来 120 天预测）。</template>
   <div class="sticky" id="sticky">
     <div class="hero hero-f">
@@ -336,10 +339,10 @@
 // ===== ① 页面配置 =====
 const SDK_URL = 'https://cdn.jsdelivr.net/npm/@lark-base-open/js-sdk@1.0.2/dist/index.mjs';
 const BASE_TOKEN = 'JGvebyaAYapWtOslxc9cuKYXnwd';   // 灯具组-全流程
-const GOAL_FIELDS = ['产品目标', '经营策略', '关键指标'];          // 沿用上周，可改
+const GOAL_FIELDS = ['产品目标', '经营策略', '关键指标'];          // 2026-10-30 起只在产品目标总表填（年度=SPU 行，月度=月度行），本页只读显示，周表不再写
 const REVIEW_FIELDS = ['竞品动态', '问题和归因', '计划操作'];       // 本周复盘（3 项都填 = 已填）
 const BOSS_FIELDS = ['建议操作'];                                   // 主管填
-const TEXT_FIELDS = [...GOAL_FIELDS, ...REVIEW_FIELDS, ...BOSS_FIELDS];
+const TEXT_FIELDS = [...REVIEW_FIELDS, ...BOSS_FIELDS];
 const NUM_EDIT = [];   // 周目标销量 2026-10-16 起是公式（产品目标总表 月目标 / ASIN 预估按天拆到周），页面只读
 // 只读数字（存储）字段；CVR/ACOS 等比率是经营表的公式字段，插件里读到的是带格式的值（如「8.8%」），改在页面按同一公式算（见 normRow）
 const WK_NUM = ['有效天数', '启用', '销量', '订单量', '销售额', '总点击数', '广告展示数', '广告点击', '广告花费', '广告销售额', '广告订单量', '直接广告订单',
@@ -365,7 +368,7 @@ const TABLES = {
   sv: { id: 'tblXt1ki1ZvR2o8U', name: '备货计划-页面存档', fields: ['记录键', '方案数据', '更新时间'] },
   // 月销量目标：四季品-月度行，目标键 = SPU|国家|YYYYMM，「当月销量」= 子 ASIN 预估月销量之和（公式）
   // ASIN 预估：四季品-ASIN预估行，目标键 = ASIN|国家|YYYYMM，「预估日均」= 库存趋势的日销（2026-10-16 起取代备货表 X月日均）
-  tg: { id: 'tblE3XbKD8PUEX7Y', name: '产品目标总表-灯', fields: ['目标键', '目标类型', 'ASIN', '国家文本', '销售年月', '当月销量', '预估日均'] },
+  tg: { id: 'tblE3XbKD8PUEX7Y', name: '产品目标总表-灯', fields: ['目标键', '目标类型', 'ASIN', '国家文本', '销售年月', '当月销量', '预估日均', ...GOAL_FIELDS] },
   ch: { id: 'tblxl08WV9pLwxdi', name: '头程渠道时效', fields: ['物流渠道', '国家', '运输方式', '标准时效天数', '历史样本数', '启用'] },
 };
 const CAL_DAYS = 120;   // 库存趋势看未来 120 天
@@ -687,7 +690,7 @@ function ctry(v) {
   return t;
 }
 const asinOf = (v) => String(cell(v) ?? '').trim().split(/[、,\s]/)[0];
-let INV = { ov: {}, ships: {}, o: {} }, BH = null, MTG = {};
+let INV = { ov: {}, ships: {}, o: {} }, BH = null, MTG = {}, TGT_SPU = {}, TGT_MON = {};
 const first = (v) => String(cell(v) ?? '').split('、')[0];
 const msDay = (v) => { if (v == null || v === '') return ''; const n = dn(typeof v === 'number' ? v : Date.parse(v)); const d = ud(n);
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`; };
@@ -1024,10 +1027,19 @@ function refreshMonthBars() {
 // 目标带：大字展示，✎ 才出输入框（改动进 DRAFT，卡片「保存」统一写回）
 const GOALS = [
   { f: '周目标销量', ph: '无月目标 · 按环比判灯', num: true, ro: true },   // 公式：月目标按天拆到周，只读
-  { f: '产品目标', ph: '如：月销 2K+，毛利 20%' },
-  { f: '经营策略', ph: '如：拓展变体、拓展泛词' },
-  { f: '关键指标', ph: '如：销量、利润率' },
 ];
+// 文字目标（只读）：年度 = 目标总表 SPU 行；当月 = 所选周的月份对应的月度行。去「目标填写」页改
+function tgtGoalsHtml(e) {
+  const y = TGT_SPU[`${e.spu}|${e.country}`] || {}, mo = monthOf(e), m = TGT_MON[`${e.spu}|${e.country}|${mo.ym}`] || {};
+  const line = (k, v) => `<div class="tg-l"><span>${k}</span>${v ? esc(v) : '<i>未填</i>'}</div>`;
+  const tip = 'title="来自产品目标总表，在「目标填写」页修改（本页只读）"';
+  return `<div class="goal ro tg" ${tip}><div class="goal-h"><span>年度目标 <small style="font-weight:normal;color:var(--sub)">· 目标总表</small></span></div>
+      ${line('产品目标', y['产品目标'])}${line('经营策略', y['经营策略'])}${line('关键指标', y['关键指标'])}</div>
+    <div class="goal ro tg" ${tip}><div class="goal-h"><span>${mo.m + 1}月经营策略 <small style="font-weight:normal;color:var(--sub)">· 目标总表</small></span></div>
+      <div class="goal-v${m['经营策略'] ? '' : ' none'}">${m['经营策略'] ? esc(m['经营策略']) : '未填（去「目标填写」页填）'}</div></div>
+    <div class="goal ro tg" ${tip}><div class="goal-h"><span>${mo.m + 1}月关键指标 <small style="font-weight:normal;color:var(--sub)">· 目标总表</small></span></div>
+      <div class="goal-v${m['关键指标'] ? '' : ' none'}">${m['关键指标'] ? esc(m['关键指标']) : '未填（去「目标填写」页填）'}</div></div>`;
+}
 // 右栏复盘：和目标带一样默认只显示（加粗），点 ✎ 或双击才编辑
 const REVIEW_DEFS = [
   { f: '竞品动态', ph: '未填 · 竞品降价/上新/排名变化…', rows: 4, cls: 'rv' },
@@ -1072,7 +1084,7 @@ function cardHtml(x) {
       <div class="pc-act"><button class="btn ghost" data-trend>📈 看趋势</button><span data-msg>${pending ? `${pending} 项未保存` : ''}</span>
         <button class="btn primary" data-save${pending ? '' : ' disabled'}>保存</button></div>
     </div>
-    <div class="goals">${GOALS.map((g) => goalHtml(r, g, g.num ? rateHtml : '')).join('')}</div>
+    <div class="goals">${GOALS.map((g) => goalHtml(r, g, g.num ? rateHtml : '')).join('')}${tgtGoalsHtml(e)}</div>
     <div class="pc-body">
       <div class="pc-col left">
         ${monthBarHtml(e)}
@@ -1273,7 +1285,7 @@ function renderProgress(main) {
   const all = cards();
   renderFilters(all);
   const list = sortCards(all.filter((x) => (state.light === 'all' || x.light === state.light) && (state.fill === 'all' || x.fill === state.fill)));
-  const cols = [...NUM_EDIT, ...GOAL_FIELDS, ...REVIEW_FIELDS, ...BOSS_FIELDS];
+  const cols = [...NUM_EDIT, ...REVIEW_FIELDS, ...BOSS_FIELDS];
   const g = {};
   list.forEach((x) => { const o = owners(x.r)[0] || '（未填负责人）'; (g[o] = g[o] || []).push(x); });
   let body = '';
@@ -1644,6 +1656,13 @@ window.addEventListener('resize', layoutCheck); layoutCheck();
 function finish(wk, day, pm, src, inv = {}) {
   build(wk.map((r) => normRow('wk', r)), day.map((r) => normRow('day', r)), pm);
   buildInv(inv.ov || [], inv.ship || [], inv.bh || [], inv.sv || [], inv.ch || [], inv.tg || []);
+  TGT_SPU = {}; TGT_MON = {};   // 文字目标：SPU|国家 → 年度行（取年份最大）；SPU|国家|YYYYMM → 月度行
+  for (const t of inv.tg || []) {
+    const k = String(cell(t['目标键']) || ''), ty = first(t['目标类型']), p = k.split('|');
+    const o = Object.fromEntries(GOAL_FIELDS.map((f) => [f, cell(t[f])]));
+    if (ty === '四季品-SPU' && p.length === 3 && (!TGT_SPU[`${p[0]}|${p[1]}`] || TGT_SPU[`${p[0]}|${p[1]}`]._y < p[2])) TGT_SPU[`${p[0]}|${p[1]}`] = { ...o, _y: p[2] };
+    if (ty === '四季品-月度') TGT_MON[k] = o;
+  }
   MTG = {}; for (const t of inv.tg || []) { const v = num(cell(t['当月销量'])); if (t['目标键'] && v > 0 && first(t['目标类型']) === '四季品-月度') MTG[cell(t['目标键'])] = v; }
   state.week = DEFAULT_WEEK;
   const nSpu = Object.values(ENT).filter((e) => e.layer === 'SPU').length;

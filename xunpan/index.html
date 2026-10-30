@@ -219,7 +219,9 @@ const TABLES = {
     '销量', '订单量', '销售额', '广告花费', '曝光', '点击', '广告订单', '直接广告订单', '广告销售额', 'Sessions', '退货量',
     'FBA可售', '预留', '在途', '可售天数', '星级', '评论数', 'BSR', '前日BSR'] },
   pm: { id: 'tblqksywqgYvywOT', name: '产品主表', fields: ['ASIN', '国家文本', 'SPU', '销售季分类', OWNER_F, '品名', '图片', '领星SKU'] },
-  week: { id: 'tblbSnNiUOOLlZwu', name: '四季品经营表(周)', view: 'vewL1VwST4', fields: ['层级', '_SPU键', '国家文本', '周起始日', '周标签', '周目标销量', '产品目标', '经营策略', '关键指标'] },
+  week: { id: 'tblbSnNiUOOLlZwu', name: '四季品经营表(周)', view: 'vewL1VwST4', fields: ['层级', '_SPU键', '国家文本', '周起始日', '周标签', '周目标销量'] },
+  // 四季品文字目标 2026-10-30 起只在产品目标总表（年度 = SPU 行，当月 = 月度行）；周表只剩周目标销量（公式）
+  tg: { id: 'tblE3XbKD8PUEX7Y', name: '产品目标总表-灯', fields: ['目标键', '目标类型', '产品目标', '经营策略', '关键指标'] },
   track: { id: 'tblKdwDOmVZxf6DN', name: '季节品追踪表', view: 'vew0aHeZlE', fields: ['行类型', '启用追踪', 'ASIN', '国家文本', '当前阶段', '产品目标', '关键指标', '距清仓截止天数',
     ...STAGES.flatMap((s) => [s, s + '目标', s + '日均'])] },
 };
@@ -290,7 +292,7 @@ const RAWK = { units: '销量', orders: '订单量', sales: '销售额', spend: 
 let ENT = {};          // `${asin}|${ctry}` → { asin, ctry, days: Map(天序号 → 行), pm }
 let DATES = [];        // 有数据的日期（天序号，降序，最多 7 个）
 let SNAPTYPE = {};     // 天序号 → 数据类型文字
-let WEEK = [], CAMP = {};
+let WEEK = [], CAMP = {}, TGY = {}, TGM = {};
 
 function prepare(D) {
   ENT = {}; SNAPTYPE = {};
@@ -325,6 +327,12 @@ function prepare(D) {
     e.sku = (p && p['领星SKU']) || '';
   }
   WEEK = (D.week || []).filter((r) => r['层级'] === 'SPU' && r['周起始日']);
+  TGY = {}; TGM = {};   // 年度：SPU|国家文本（取年份最大）；当月：SPU|国家文本|YYYYMM
+  for (const t of D.tg || []) {
+    const p = String(t['目标键'] || '').split('|');
+    if (t['目标类型'] === '四季品-SPU' && p.length === 3 && (!TGY[`${p[0]}|${p[1]}`] || TGY[`${p[0]}|${p[1]}`]._y < p[2])) TGY[`${p[0]}|${p[1]}`] = { ...t, _y: p[2] };
+    if (t['目标类型'] === '四季品-月度') TGM[t['目标键']] = t;
+  }
   CAMP = {};
   for (const r of D.track || []) {
     if (r['行类型'] !== '战役' || !r['ASIN']) continue;
@@ -485,14 +493,21 @@ function weekGoal(spu, ctry, D) {
 }
 function spuGoalBox(spu, items, D) {
   const g = weekGoal(spu, state.country, D);
-  if (!g || !(g['产品目标'] || g['关键指标'] || g['经营策略'] || g['周目标销量'])) return `<div class="goals"><div class="gboxes">${gbox('产品目标')}${gbox('关键指标')}${gbox('经营策略')}</div><div class="prog">本周「四季品经营表」还没填这个 SPU 的目标</div></div>`;
+  const ctxt = g ? g['国家文本'] : (state.country === 'CA' ? '加拿大' : '美国');
+  const dd = new Date(D * DAY), ym = `${dd.getUTCFullYear()}${String(dd.getUTCMonth() + 1).padStart(2, '0')}`;
+  const y = TGY[`${spu}|${ctxt}`] || {}, m = TGM[`${spu}|${ctxt}|${ym}`] || {}, mn = dd.getUTCMonth() + 1;
+  // 经营策略/关键指标：当月有就用当月，否则用年度
+  const pick = (f) => m[f] ? [`${mn}月${f}`, m[f]] : [`年度${f}`, y[f]];
+  const [ks, vs] = pick('经营策略'), [kk, vk] = pick('关键指标');
+  const boxes = `${gbox('年度目标', y['产品目标'])}${gbox(kk, vk)}${gbox(ks, vs)}`;
+  if (!g) return `<div class="goals"><div class="gboxes">${boxes}</div><div class="prog">本周「四季品经营表」没有这个 SPU 的周行（文字目标来自产品目标总表）</div></div>`;
   const c = CTRY[g['国家文本']], start = wsd(g);
   const its = items.filter((v) => v.e.ctry === c);
   const weekSold = its.reduce((a, v) => a + range(start, D).reduce((s, d) => s + rawAt(v.e, d).units, 0), 0);
   const tU = its.reduce((a, v) => a + v.t.units, 0), wt = num(g['周目标销量']), need = wt / 7;
-  return `<div class="goals"><div class="gboxes">${gbox('产品目标', g['产品目标'])}${gbox('关键指标', g['关键指标'])}${gbox('经营策略', g['经营策略'])}</div>
+  return `<div class="goals"><div class="gboxes">${boxes}</div>
     <div class="prog"><span>${esc(g['周标签'] || '')} · ${esc(g['国家文本'] || '')}</span>${wt ? `<span>周目标 <b>${wt}</b></span><span>本周已售 <b>${weekSold}</b>（达成 <b>${Math.round(weekSold / wt * 100)}%</b>）</span>
-      <span>目标日均 <b>${need.toFixed(0)}</b> · 今日 <b class="${tU >= need ? 'good' : 'bad'}">${tU}</b></span>` : '<span>周目标销量未填</span>'}</div></div>`;
+      <span>目标日均 <b>${need.toFixed(0)}</b> · 今日 <b class="${tU >= need ? 'good' : 'bad'}">${tU}</b></span>` : '<span>周目标为空（该月没有月目标：去「目标填写」页填 ASIN 预估）</span>'}</div></div>`;
 }
 function asinGoalBox(v) {
   if (v.e.season !== '季节品') return '<div class="spacer"></div>';
@@ -676,8 +691,8 @@ try {
   let snapErr = null;
   try { D.snap = await readTable('snap'); } catch (e) { snapErr = e; D.snap = []; }
   if (snapErr) throw new Error(`询盘快照表读不到（${snapErr && snapErr.message ? snapErr.message : snapErr}）。请在编辑模式点插件右上角 ⋮ → 配置 → 「保存到页面」重新保存一次，给插件登记这张新表。`);
-  const [pm, week, track] = await Promise.all(['pm', 'week', 'track'].map((k) => readTable(k).catch((e) => { console.warn(k, e); return []; })));
-  Object.assign(D, { pm, week, track });
+  const [pm, week, track, tg] = await Promise.all(['pm', 'week', 'track', 'tg'].map((k) => readTable(k).catch((e) => { console.warn(k, e); return []; })));
+  Object.assign(D, { pm, week, track, tg });
   prepare(D);
   if (!DATES.length) throw new Error('询盘快照表还没有数据');
   state.date = DATES[0];
