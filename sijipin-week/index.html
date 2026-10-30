@@ -158,6 +158,7 @@
   .ss.cur { background: var(--or-soft); border-color: var(--or); box-shadow: 0 0 0 1px var(--or); }
   .ss.cur .ss-v { color: var(--or-d); }
   .ss.cur .pbar { height: 4px; margin-top: 3px; }
+  .ss-err { grid-column: 1 / -1; font-size: 12px; color: var(--red); background: #fdebec; border-radius: 6px; padding: 4px 8px; }
   .ss.fc { background: #fff; border: 1px dashed var(--line2); }
   .ss.fc .ss-v { color: #6b5d50; font-weight: 700; }
   @media (max-width: 1000px) { .sstrip { grid-template-columns: repeat(6, minmax(0, 1fr)); } .ss-h { grid-column: 1 / -1; flex-direction: row; gap: 6px; padding: 3px; } }
@@ -1083,7 +1084,10 @@ function salesStripHtml(e) {
     const f = MTG[`${e.spu}|${e.country}|${c.ym}`];
     return `<div class="ss fc" title="预估 = 产品目标总表月度行（各 ASIN 预估日均 × 天数）">${lab}<div class="ss-v">${f ? fmtN(f) : '—'}</div><small>${f ? '预估' : '未填'}</small></div>`;
   };
-  return `<div class="sstrip" data-sstrip="${esc(e.key)}"><div class="ss-h"><span>月销量</span><small>前 6 月实际 · 本月实时 · 后 5 月预估</small></div>${cols.map(cell1).join('')}</div>`;
+  const pfErr = DIAG.err && DIAG.err[TABLES.pf.name];
+  const warn = pfErr ? `<div class="ss-err">历史月销量读不到「${esc(TABLES.pf.name)}」：${esc(pfErr)}（前几个月只能用每日数据表补，日表从 7 月中才有）——请截图这行发回</div>`
+    : (!PF_N ? `<div class="ss-err">「${esc(TABLES.pf.name)}」读到 0 行可用数据（读到 ${DIAG.read && DIAG.read[TABLES.pf.name] != null ? DIAG.read[TABLES.pf.name] : '?'} 行）——请截图这行发回</div>` : '');
+  return `<div class="sstrip" data-sstrip="${esc(e.key)}"><div class="ss-h"><span>月销量</span><small>前 6 月实际 · 本月实时 · 后 5 月预估</small></div>${cols.map(cell1).join('')}${warn}</div>`;
 }
 function tgtGoalsHtml(e) {   // 年、月两层：只读，来自产品目标总表（在「目标填写」页改）
   const y = TGT_SPU[`${e.spu}|${e.country}`] || {}, mo = monthOf(e), m = TGT_MON[`${e.spu}|${e.country}|${mo.ym}`] || {};
@@ -1722,15 +1726,11 @@ function finish(wk, day, pm, src, inv = {}) {
   PFM = {}; PF_N = 0;
   const own = {};
   for (const a of Object.values(ENT)) if (a.layer === 'ASIN') own[`${a.asin}|${a.country}`] = a.spu;
-  const ownAsin = {};   // 主表只登记了另一国的 ASIN（如加拿大站没单独建行）：借同 ASIN 另一国那行的 SPU（10-30 补：纸袋蜡烛灯套装/字母灯牌套装/太阳能蜡烛灯 加拿大的销量原来漏算）
-  for (const [k, p] of Object.entries(PM)) if (String(cell(p['销售季分类']) || '').split('、').includes('四季品') && cell(p['SPU'])) {
-    const spu = String(cell(p['SPU'])).trim();
-    if (!own[k]) own[k] = spu;
-    ownAsin[k.split('|')[0]] = ownAsin[k.split('|')[0]] || spu;
-  }
+  // 只认主表登记了「ASIN+国家」的行（用户 10-30 定：加拿大没发过备货、走北美共享库存的不进主表，也不算进加拿大卡）
+  for (const [k, p] of Object.entries(PM)) if (String(cell(p['销售季分类']) || '').split('、').includes('四季品') && cell(p['SPU']) && !own[k]) own[k] = String(cell(p['SPU'])).trim();
   for (const r of inv.pf || []) {
     const asin = asinOf(r['子ASIN']), c = /-CA|-CA-|加拿大/.test(String(cell(r['店铺']) || '')) ? '加拿大' : '美国';
-    const spu = own[`${asin}|${c}`] || (PM[`${asin}|${c}`] ? null : ownAsin[asin]), ym = String(cell(r['月份']) || '').replace('-', '').slice(0, 6);
+    const spu = own[`${asin}|${c}`], ym = String(cell(r['月份']) || '').replace('-', '').slice(0, 6);
     if (!spu || ym.length !== 6) continue;
     PFM[`${spu}|${c}|${ym}`] = (PFM[`${spu}|${c}|${ym}`] || 0) + (num(cell(r['销量'])) || 0); PF_N++;
   }
