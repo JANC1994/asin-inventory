@@ -261,7 +261,18 @@
 
 <script type="module">
 // ===== ① 页面配置 =====
-const SDK_URL = 'https://cdn.jsdelivr.net/npm/@lark-base-open/js-sdk@1.0.2/dist/index.mjs';
+// SDK 依次尝试：同目录自带副本 → jsdelivr → unpkg（发布时 sdk/ 目录要一起拷；jsdelivr 国内偶发断，10-30 用户遇到加载失败）
+const SDK_URLS = [new URL('./sdk/index.mjs', location.href).href,
+  'https://cdn.jsdelivr.net/npm/@lark-base-open/js-sdk@1.0.2/dist/index.mjs',
+  'https://unpkg.com/@lark-base-open/js-sdk@1.0.2/dist/index.mjs'];
+async function loadSdk() {
+  const errs = [];
+  for (const u of SDK_URLS) {
+    try { return await Promise.race([import(u), new Promise((_, rej) => setTimeout(() => rej(new Error('超时 12s')), 12000))]); }
+    catch (e) { errs.push(`${u} → ${e && e.message ? e.message : e}`); }
+  }
+  throw new Error('飞书 SDK 三个来源都没加载上，请截图：' + errs.join(' ｜ '));
+}
 const BASE_TOKEN = 'JGvebyaAYapWtOslxc9cuKYXnwd';   // 灯具组-全流程
 const COPY = ['标题', '亮点', '卖点1', '卖点2', '卖点3', '卖点4', '卖点5', 'ST'];
 const DONE = ['文案完成', '图片完成', 'A+完成', '视频完成', '品牌故事完成', '旗舰店完成'];
@@ -930,7 +941,7 @@ try {
     SNAP = true;
     finish(window.__SNAPSHOT__.lr, window.__SNAPSHOT__.pm, `本地快照 ${window.__SNAPSHOT__.at}（预览，保存不写回）`);
   } else {
-    SDK = await import(SDK_URL);
+    SDK = await loadSdk();
     setupSave();
     const rows = await readTable('lr');
     let pm = [];

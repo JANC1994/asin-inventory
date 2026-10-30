@@ -915,7 +915,18 @@ document.addEventListener('click', (e) => {
 });
 
 // ===== 应用版：按表 ID 实时读多维表（飞书应用自定义插件，硬规矩见 wiki/页面设计/概念/飞书应用自定义插件页.md） =====
-const SDK_URL = 'https://cdn.jsdelivr.net/npm/@lark-base-open/js-sdk@1.0.2/dist/index.mjs';
+// SDK 依次尝试：同目录自带副本 → jsdelivr → unpkg（发布时 sdk/ 目录要一起拷；jsdelivr 国内偶发断，10-30 用户遇到加载失败）
+const SDK_URLS = [new URL('./sdk/index.mjs', location.href).href,
+  'https://cdn.jsdelivr.net/npm/@lark-base-open/js-sdk@1.0.2/dist/index.mjs',
+  'https://unpkg.com/@lark-base-open/js-sdk@1.0.2/dist/index.mjs'];
+async function loadSdk() {
+  const errs = [];
+  for (const u of SDK_URLS) {
+    try { return await Promise.race([import(u), new Promise((_, rej) => setTimeout(() => rej(new Error('超时 12s')), 12000))]); }
+    catch (e) { errs.push(`${u} → ${e && e.message ? e.message : e}`); }
+  }
+  throw new Error('飞书 SDK 三个来源都没加载上，请截图：' + errs.join(' ｜ '));
+}
 const BASE_TOKEN = 'JGvebyaAYapWtOslxc9cuKYXnwd';   // 灯具组-全流程
 const TABLES = {
   bh: { id: 'tblBymnJvmClZQdy', name: '销量预估-备货表', fields: ['领星SKU', '国家', 'ASIN', '品名', '店铺', 'SPU', '负责人', 'FBA可售', '本地仓可用', '采购在途',
@@ -1051,7 +1062,7 @@ function buildData(T) {
 }
 
 async function loadLive() {
-  SDK = await import(SDK_URL);
+  SDK = await loadSdk();
   setupSave();
   const keys = Object.keys(TABLES);
   // 核心表读不到直接报错；头程渠道表读不到只降级（没有渠道建议）

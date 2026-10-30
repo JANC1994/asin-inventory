@@ -361,7 +361,18 @@
 
 <script type="module">
 // ===== ① 页面配置 =====
-const SDK_URL = 'https://cdn.jsdelivr.net/npm/@lark-base-open/js-sdk@1.0.2/dist/index.mjs';
+// SDK 依次尝试：同目录自带副本 → jsdelivr → unpkg（发布时 sdk/ 目录要一起拷；jsdelivr 国内偶发断，10-30 用户遇到加载失败）
+const SDK_URLS = [new URL('./sdk/index.mjs', location.href).href,
+  'https://cdn.jsdelivr.net/npm/@lark-base-open/js-sdk@1.0.2/dist/index.mjs',
+  'https://unpkg.com/@lark-base-open/js-sdk@1.0.2/dist/index.mjs'];
+async function loadSdk() {
+  const errs = [];
+  for (const u of SDK_URLS) {
+    try { return await Promise.race([import(u), new Promise((_, rej) => setTimeout(() => rej(new Error('超时 12s')), 12000))]); }
+    catch (e) { errs.push(`${u} → ${e && e.message ? e.message : e}`); }
+  }
+  throw new Error('飞书 SDK 三个来源都没加载上，请截图：' + errs.join(' ｜ '));
+}
 const BASE_TOKEN = 'JGvebyaAYapWtOslxc9cuKYXnwd';   // 灯具组-全流程
 const GOAL_FIELDS = ['产品目标', '经营策略', '关键指标'];          // 周层目标（周表），新周沿用上周，可改；年/月层同名字段在产品目标总表（本页只读显示）
 const REVIEW_FIELDS = ['竞品动态', '问题和归因', '计划操作'];       // 本周复盘（3 项都填 = 已填）
@@ -1756,7 +1767,7 @@ try {
     const S = window.__SNAPSHOT__;
     finish(S.wk, S.day, S.pm, `本地快照 ${S.at}（预览：保存只是模拟，不写回）`, S);
   } else {
-    SDK = await import(SDK_URL);
+    SDK = await loadSdk();
     setupSave();
     const wk = await readTable('wk');
     let pm = [];
