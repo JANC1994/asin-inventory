@@ -517,7 +517,7 @@ function blockSJ(e) {
 // ===== ⑩ 渲染：季节品 =====
 let STEDIT = null;   // 正在改时段的 {rid, i}
 function cardJJ(x) {
-  const r = x.r, s = stat(needJJ(x)), B = bounds(x), cur = curStage(B), mine = own(x);
+  const r = x.r, s = stat(needJJ(x)), B = bounds(x), cur = curStage(B), CB = bounds(x, x.cal || {}), mine = !!(B && CB && B.some((b, i) => b !== CB[i]));   // 10-30：日期都在目标总表里，「自定义」= 和节奏日历不一样
   const est = estOf(x);
   const stock = num(val(r, '总库存数量')), diff = stock != null ? stock - est : null;
   const stg = STAGES.map((st, i) => {
@@ -534,7 +534,7 @@ function cardJJ(x) {
         : '<div class="meta">本品没有这个阶段（0 天），不用填；双击日期可加回来</div>'}</div>`;
   }).join('');
   const dirtyDates = DATES.some((f) => dk(r._id, f) in DRAFT);
-  const src = mine ? `<span class="tag ${dirtyDates ? 'bad' : 'or'}" title="本品时段和节奏日历不同，存在目标总表这一行">自定义时段${dirtyDates ? '（未保存）' : ''}</span><button class="btn sm" data-dreset="${r._id}" title="清掉本品时段，回到季节节奏日历">恢复日历</button>`
+  const src = mine ? `<span class="tag ${dirtyDates ? 'bad' : 'or'}" title="本品时段和节奏日历不同，存在目标总表这一行">自定义时段${dirtyDates ? '（未保存）' : ''}</span><button class="btn sm" data-dreset="${r._id}" title="把本品时段改回季节节奏日历的日期">恢复日历</button>`
     : `<span class="tag" title="双击阶段日期可改成本品自己的时段">节奏日历时段</span>`;
   return `<div class="sc" id="c-${r._id}"><div class="sc-top">
       <div class="img" data-img="${esc(x.imgKey)}">${imgTag(x.imgKey)}</div>
@@ -630,8 +630,9 @@ function bind() {
   });
   m.querySelectorAll('[data-dreset]').forEach((b) => b.onclick = () => {
     const x = JJ.find((i) => i.r._id === b.dataset.dreset);
-    if (!confirm('清掉这个产品自己的时段，回到季节节奏日历？')) return;
-    DATES.forEach((f) => setDraft(x.r, f, null)); saveDraft(); STEDIT = null; rerenderCard(x.r._id);
+    if (!x.cal) { toast('节奏日历里没有这个分类×年份×国家，无法恢复'); return; }
+    if (!confirm('把这个产品的时段改回季节节奏日历的日期？（保存后生效）')) return;
+    DATES.forEach((f) => setDraft(x.r, f, toMs(x.cal[f]))); saveDraft(); STEDIT = null; rerenderCard(x.r._id);
   });
   m.querySelectorAll('[data-fillright]').forEach((b) => b.onclick = () => {
     const [spu, c, asin] = b.dataset.fillright.split('|');

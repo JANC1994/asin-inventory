@@ -209,6 +209,9 @@
   .ptbl .pin:focus { outline: none; border: 1px solid var(--or); background: #fff; }
   .ptbl .pin.dirty { border: 1px solid #f2b705; background: #fffbea; }
   .ptbl .pin::placeholder { color: #c3b8ad; }
+  .ptbl td.dcell.can { cursor: pointer; } .ptbl td.dcell.can:hover { background: var(--or-soft); color: var(--or-d); }
+  .ptbl td.ded { overflow: visible; } .ptbl td.ded input { width: 48%; font-size: 11px; padding: 1px 2px; }
+  .ptbl tr.dedr td { text-align: left; background: #fffaf3; }
   .goals { display: flex; flex-direction: column; gap: 4px; padding: 6px 10px 8px; border-top: 1px dashed var(--line2); }
   .goal { display: flex; gap: 8px; align-items: flex-start; }
   .goal label { flex: none; width: 66px; font-size: 12px; color: var(--sub); padding-top: 5px; }
@@ -296,7 +299,7 @@
       <h2>季节品每日追踪</h2>
       <p class="desc">每张卡 = 一个季节品链接（SKU×国家）。左侧按 SPU 列出（红灯多的排前），按销售季分组可折叠，点哪个 SPU 右边就显示它每个产品的横向大卡（左：阶段预估+库存，中：数据，右：目标和计划）。红黄绿灯和原因由系统每天按追踪表判定；
         「今日分析」每天自动沿用上一日的内容，点「记动作」改完保存即可；「红/黄未分析」= 当天亮红/黄灯、但竞品动态/问题归因/计划/建议操作都没填、或和上一日一字不差的产品。
-        各阶段日均和阶段目标请到应用里的「目标填写」页修改，本页只显示。数据来源：季节品追踪表 + 产品目标总表，每天更新。</p>
+        各阶段日均可直接点数字改、阶段日期双击改，保存写入产品目标总表（与「目标填写」页同一份）；阶段文字目标在「目标填写」页改。数据来源：季节品追踪表 + 产品目标总表，每天更新。</p>
     </div>
   </div>
   <div class="sticky" id="sticky">
@@ -326,6 +329,7 @@ async function loadSdk() {
   throw new Error('飞书 SDK 三个来源都没加载上，请截图：' + errs.join(' ｜ '));
 }
 const BASE_TOKEN = 'JGvebyaAYapWtOslxc9cuKYXnwd';   // 灯具组-全流程
+const TDATES = ['起量期开始', '爆发期开始', '高峰期开始', '消退期开始', '清仓期开始', '清仓期结束'];   // 季节品时段：只认目标总表
 const ANA_FIELDS = ['产品目标', '关键指标', '竞品动态', '当前问题+归因', '计划操作', '建议操作'];   // 今日分析：可编辑、写回日行
 const STAGES = ['起量期', '爆发期', '高峰期', '消退期', '清仓期'];
 // 「已分析」= 当天日行这 4 项任一有字（产品目标/关键指标 每天沿用，不算）
@@ -342,7 +346,8 @@ const TABLES = {
     ...ANA_FIELDS] },
   pm: { id: 'tblqksywqgYvywOT', name: '产品主表-灯类+精铺', fields: ['领星SKU', '国家文本', '图片'] },
   // 目标在「目标填写」页填，存这里；追踪表战役行的同名字段是 X21 每晚抄过去的副本（授权靠「目标总览」页插件）
-  tgt: { id: 'tblE3XbKD8PUEX7Y', name: '产品目标总表-灯', fields: ['目标类型', 'ASIN', '国家文本', '销售年份', ...STAGES.map((s) => s + '日均'), ...STAGES.map((s) => s + '目标')] },
+  // 10-30：五个时段（6 个日期）也只认目标总表；本页可改 日均 + 时段，保存直接写目标总表（追踪表副本当晚 X21 同步）
+  tgt: { id: 'tblE3XbKD8PUEX7Y', name: '产品目标总表-灯', fields: ['目标类型', 'ASIN', '国家文本', '销售年份', ...STAGES.map((s) => s + '日均'), ...STAGES.map((s) => s + '目标'), ...TDATES] },
 };
 const SAVE_TABLE = 'track';
 
@@ -379,7 +384,7 @@ function cell(v) {
 function norm(name, v) {
   if (name === '上级记录') return linkIds(v);
   if (name === '图片') return Array.isArray(v) ? v.filter((x) => x && typeof x === 'object' && x.token) : [];
-  if (name === '日期') return typeof v === 'number' ? v : (v ? Date.parse(v) : null);
+  if (name === '日期' || TDATES.includes(name)) { if (v == null || v === '') return null; const t = typeof v === 'number' ? v : Date.parse(cell(v)); return isNaN(t) ? null : t; }
   return cell(v);
 }
 
@@ -455,6 +460,22 @@ let state = { owner:store.get('stp.owner') || '', date: null, light: 'all', seas
 const WK = '日一二三四五六';
 const isSold = (x) => String(x.c['销售状态'] || '').includes('售罄');   // 销售状态 = ⛔售罄
 
+// 时段：6 个边界的北京天序号 [起量,爆发,高峰,消退,清仓开始, 清仓结束]；高峰空 = 高峰 0 天
+function boundsOf(t) {
+  const B = TDATES.map((f) => (num(t[f]) != null ? dn(t[f]) : null));
+  if (B[2] == null) B[2] = B[3];
+  return B.every((b) => b != null) ? B : null;
+}
+const bDays = (B, i) => Math.max(0, i < 4 ? B[i + 1] - B[i] : B[5] - B[4] + 1);
+const mdTxt = (n) => { const d = ud(n); return `${d.getUTCMonth() + 1}.${d.getUTCDate()}`; };
+const ymdTxt = (n) => ud(n).toISOString().slice(0, 10);
+function applyBounds(c, B) {   // 把时段写到战役行对象上（页面显示/判断用；表里副本当晚 X21 同步）
+  if (!B) return;
+  c._B = B;
+  STAGES.forEach((st, i) => { const d = bDays(B, i); c[st + '天数'] = d; c[st] = d ? `${mdTxt(B[i])}-${mdTxt(i < 4 ? B[i + 1] - 1 : B[5])}` : (st === '高峰期' ? '—' : ''); });
+  const T = dn(Date.now());
+  c['当前阶段'] = T < B[0] ? '未开始' : T < B[1] ? '起量期' : T < B[2] ? '爆发期' : T < B[3] ? '高峰期' : T < B[4] ? '消退期' : T <= B[5] ? '清仓期' : '已结束';
+}
 // 目标总表的五期日均/阶段目标盖到战役行上（键 = ASIN|国家|年份），整季预估按新日均重算
 let TGT_ROWS = [];
 function overlayTargets(camps) {
@@ -464,8 +485,9 @@ function overlayTargets(camps) {
   for (const c of camps) {
     const t = by[`${c['ASIN']}|${c['国家文本']}|${c['销售年份']}`];
     if (!t || c._tgt) continue;
-    c._tgt = true; n++;
+    c._tgt = true; n++; c._tgtRow = t;
     for (const st of STAGES) { c[st + '日均'] = num(t[st + '日均']); c[st + '目标'] = t[st + '目标'] || ''; }
+    applyBounds(c, boundsOf(t));
     c['预估销量-整季'] = STAGES.reduce((s, st) => s + (num(c[st + '天数']) || 0) * (num(c[st + '日均']) || 0), 0);
   }
   return n;
@@ -624,22 +646,111 @@ function spuSection(k, xs, cardFn = bigCardHtml, season = '') {
   }
 }
 
-// 五个期预估销量（折叠）：每期预估 = X期日均 × X期天数，与表里「预估销量-整季」公式同口径
+// 五个期预估销量（折叠）：每期预估 = X期日均 × X期天数。10-30 起 日均可改、时段双击可改，保存写目标总表（与「目标填写」页同一份数据）
+const PDRAFT = {};   // 战役行 _id → { avg: {阶段: 值}, B: [6 个边界] }
+let PEDIT = null;    // 正在改时段的 { id, i }
+function planVals(c) {
+  const d = PDRAFT[c._id] || {};
+  const B = d.B || c._B || null;
+  const avg = (st) => (d.avg && st in d.avg ? d.avg[st] : num(c[st + '日均']));
+  return { B, avg, dirty: !!(d.B || (d.avg && Object.keys(d.avg).length)) };
+}
 function stagePlan(x, opt = {}) {
-  const c = x.c;
-  const rows = STAGES.map((s) => ({ s, range: c[s] || '', days: num(c[s + '天数']), avg: num(c[s + '日均']) }))
-    .map((r) => ({ ...r, est: r.days != null && r.avg != null ? Math.round(r.days * r.avg) : null }));
-  const total = num(c['预估销量-整季']), sold = num(c['累计销量']), prog = num(c['销售进度']);
-  // 只读：日均和阶段目标在「目标填写」页改
-  const tr = rows.map((r) => `<tr class="${r.s === x.stage ? 'cur' : ''}"><td>${r.s}</td><td>${esc(r.range || '—')}</td>
-    <td>${r.days != null ? fmtN(r.days) : '—'}</td>
-    <td>${r.avg != null ? fmtN(r.avg, 2) : '<span class="tbd">未填</span>'}</td>
-    <td>${r.est != null ? fmtN(r.est) : '—'}</td>
-    <td>${r.est != null && total ? pct(r.est / total) : '—'}</td></tr>`).join('');
-  return `<details class="plan"${opt.open ? ' open' : ''}><summary>${opt.title || '阶段预估销量'} <span class="meta">整季预估 ${fmtN(total)} · 已售 ${fmtN(sold)} · 进度 ${pct(prog)}</span></summary>
+  const c = x.c, v = planVals(c), can = !!c._tgtRow;
+  const rows = STAGES.map((s, i) => {
+    const days = v.B ? bDays(v.B, i) : num(c[s + '天数']);
+    const range = v.B ? (days ? `${mdTxt(v.B[i])}-${mdTxt(i < 4 ? v.B[i + 1] - 1 : v.B[5])}` : '—') : (c[s] || '');
+    const avg = v.avg(s);
+    return { s, i, range, days, avg, est: days != null && avg != null ? Math.round(days * avg) : null };
+  });
+  const total = rows.reduce((t, r) => t + (r.est || 0), 0), sold = num(c['累计销量']), prog = total ? (sold || 0) / total : null;
+  const dAvg = (PDRAFT[c._id] && PDRAFT[c._id].avg) || {};
+  const tr = rows.map((r) => {
+    const ed = PEDIT && PEDIT.id === c._id && PEDIT.i === r.i && v.B;
+    const dcell = ed ? `<td colspan="2" class="ded"><input type="date" data-ds value="${ymdTxt(v.B[r.i])}"><input type="date" data-de value="${ymdTxt(r.i < 4 ? v.B[r.i + 1] - 1 : v.B[5])}"></td>`
+      : `<td class="dcell${can ? ' can' : ''}" ${can ? `data-dedit="${r.i}" title="双击修改本品这个阶段的起止日期（相邻阶段跟着动）"` : ''}>${esc(r.range || '—')}</td><td>${r.days != null ? fmtN(r.days) : '—'}</td>`;
+    const ac = can ? `<input class="pin${r.s in dAvg ? ' dirty' : ''}" data-avg="${r.s}" inputmode="decimal" value="${r.avg ?? ''}" placeholder="未填">`
+      : (r.avg != null ? fmtN(r.avg, 2) : '<span class="tbd">未填</span>');
+    return `<tr class="${r.s === x.stage ? 'cur' : ''}"><td>${r.s}</td>${dcell}<td>${ac}</td><td data-pest="${r.s}">${r.est != null ? fmtN(r.est) : '—'}</td><td>${r.est != null && total ? pct(r.est / total) : '—'}</td></tr>`
+      + (ed ? `<tr class="dedr"><td colspan="6"><button class="btn primary" data-dok>确定时段</button> <button class="btn ghost" data-dno>取消</button> <span class="meta" data-derr style="color:var(--red)"></span></td></tr>` : '');
+  }).join('');
+  const foot = !can ? '<span>目标总表没有这个产品的行（每天自动补行）</span>'
+    : v.dirty ? `<span class="meta" style="color:#8a6500">改动未保存（写入产品目标总表，「目标填写」页同步可见）</span> <button class="btn ghost" data-pundo>撤销</button> <button class="btn primary" data-psave>保存</button>`
+    : '<span>日均点数字改 · 日期双击改 · 保存写入产品目标总表；红绿灯/应达当晚按新值重算</span>';
+  return `<details class="plan"${opt.open ? ' open' : ''} data-plan="${c._id}"><summary>${opt.title || '阶段预估销量'} <span class="meta">整季预估 <b data-ptot>${fmtN(total)}</b> · 已售 ${fmtN(sold)} · 进度 ${pct(prog)}</span></summary>
     <table class="ptbl"><thead><tr><th>阶段</th><th>日期</th><th>天数</th><th>日均</th><th>预估</th><th>占比</th></tr></thead>
-    <tbody>${tr}</tbody><tfoot><tr><td colspan="4">整季预估</td><td><b>${fmtN(total)}</b></td><td></td></tr></tfoot></table>
-    <div class="pfoot"><span>日均、阶段目标请到「目标填写」页修改</span></div></details>`;
+    <tbody>${tr}</tbody><tfoot><tr><td colspan="4">整季预估</td><td><b data-ptot2>${fmtN(total)}</b></td><td></td></tr></tfoot></table>
+    <div class="pfoot">${foot}</div></details>`;
+}
+// 改第 i 段起止：只动它和相邻段的边界；压成负天数就拒绝
+function moveStage(B0, i, start, end) {
+  const B = B0.slice();
+  if (end < start) return [null, '结束日期不能早于开始日期'];
+  B[i] = start; if (i < 4) B[i + 1] = end + 1; else B[5] = end;
+  for (let k = 0; k < 4; k++) if (B[k + 1] < B[k]) return [null, `会把「${STAGES[k]}」压成负天数，请先改相邻阶段`];
+  if (B[5] < B[4] - 1) return [null, '会把「清仓期」压成负天数'];
+  return [B, null];
+}
+const ptoast = (m) => { const t = document.getElementById('ptoast') || Object.assign(document.body.appendChild(document.createElement('div')), { id: 'ptoast' });
+  t.textContent = m; t.style.cssText = 'position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#2b2118;color:#fff;padding:8px 16px;border-radius:8px;font-size:13px;z-index:99';
+  clearTimeout(t._h); t._h = setTimeout(() => t.remove(), 2600); };
+function bindPlan(el, x) {
+  const box = el.querySelector(`[data-plan="${x.c._id}"]`); if (!box) return;
+  const c = x.c;
+  const rer = () => { const keep = box.open; render(); const nb = document.querySelector(`[data-plan="${c._id}"]`); if (nb) nb.open = keep; };
+  box.querySelectorAll('[data-avg]').forEach((inp) => {
+    inp.oninput = () => {
+      const st = inp.dataset.avg, t = inp.value.trim(), val = t === '' ? null : Number(t.replace(/[,，]/g, ''));
+      if (t !== '' && (isNaN(val) || val < 0)) { inp.style.borderColor = 'var(--red)'; return; }
+      inp.style.borderColor = '';
+      const d = (PDRAFT[c._id] ??= {}); d.avg ??= {};
+      if (val === num(c[st + '日均'])) delete d.avg[st]; else d.avg[st] = val;
+      inp.classList.toggle('dirty', st in d.avg);
+      const v = planVals(c); let tot = 0;
+      STAGES.forEach((s2, i) => {
+        const days = v.B ? bDays(v.B, i) : num(c[s2 + '天数']), a = v.avg(s2);
+        const e = days != null && a != null ? Math.round(days * a) : null; tot += e || 0;
+        const cellE = box.querySelector(`[data-pest="${s2}"]`); if (cellE) cellE.textContent = e != null ? fmtN(e) : '—';
+      });
+      box.querySelector('[data-ptot]').textContent = fmtN(tot); box.querySelector('[data-ptot2]').textContent = fmtN(tot);
+    };
+    inp.onchange = rer;   // 离开输入框再重画（出现保存/撤销按钮），打字时不重画免得丢光标
+  });
+  box.querySelectorAll('[data-dedit]').forEach((td) => td.ondblclick = () => { PEDIT = { id: c._id, i: +td.dataset.dedit }; rer(); });
+  const dno = box.querySelector('[data-dno]'); if (dno) dno.onclick = () => { PEDIT = null; rer(); };
+  const dok = box.querySelector('[data-dok]');
+  if (dok) dok.onclick = () => {
+    const ds = box.querySelector('[data-ds]').value, de = box.querySelector('[data-de]').value;
+    if (!ds || !de) { box.querySelector('[data-derr]').textContent = '开始、结束都要选'; return; }
+    const v = planVals(c);
+    const [B, err] = moveStage(v.B, PEDIT.i, dn(Date.parse(ds + 'T00:00:00+08:00')), dn(Date.parse(de + 'T00:00:00+08:00')));
+    if (err) { box.querySelector('[data-derr]').textContent = err; return; }
+    (PDRAFT[c._id] ??= {}).B = B; PEDIT = null; rer();
+  };
+  const undo = box.querySelector('[data-pundo]'); if (undo) undo.onclick = () => { delete PDRAFT[c._id]; PEDIT = null; rer(); };
+  const save = box.querySelector('[data-psave]');
+  if (save) save.onclick = async () => {
+    const t = c._tgtRow, d = PDRAFT[c._id] || {}, ids = FIDS.tgt || {};
+    if (!TBLS.tgt) { ptoast('预览模式不能写回'); return; }
+    const fields = {};
+    for (const [st, val] of Object.entries(d.avg || {})) { const fid = ids[st + '日均']; if (!fid) { ptoast(`目标总表缺字段「${st}日均」`); return; } fields[fid] = val; }
+    if (d.B) for (let k = 0; k < TDATES.length; k++) { const fid = ids[TDATES[k]]; if (!fid) { ptoast(`目标总表缺字段「${TDATES[k]}」`); return; } fields[fid] = d.B[k] * DAY - BJ; }
+    save.disabled = true; save.textContent = '保存中…';
+    try {
+      await TBLS.tgt.setRecord(t._id, { fields });
+      for (const [st, val] of Object.entries(d.avg || {})) t[st + '日均'] = val;
+      if (d.B) TDATES.forEach((f, k) => { t[f] = d.B[k] * DAY - BJ; });
+      delete PDRAFT[c._id];
+      // 同一 ASIN×国家×年 的其他 SKU 战役行共用这一行目标：一起刷新
+      for (const a of ALL) if (a.c._tgtRow === t) {
+        for (const st of STAGES) a.c[st + '日均'] = num(t[st + '日均']);
+        applyBounds(a.c, boundsOf(t));
+        a.c['预估销量-整季'] = STAGES.reduce((s2, st) => s2 + (num(a.c[st + '天数']) || 0) * (num(a.c[st + '日均']) || 0), 0);
+        a.stage = a.c['当前阶段'] || ''; a.hasStage = STAGES.includes(a.stage); a.target = a.hasStage ? num(a.c[a.stage + '日均']) : null;
+      }
+      applyDate(); rer(); ptoast('已保存到产品目标总表（红绿灯/应达当晚 X21 后按新值算）');
+    } catch (e) { save.disabled = false; save.textContent = '保存'; ptoast('保存失败：' + (e && e.message ? e.message : e) + '（应用数据权限要对产品目标总表开「可编辑」）'); }
+  };
 }
 
 // ===== 库存块：本季已发货 = 已售 + FBA可售 + 在途 + 其他（调拨/不可售/差额），数都取战役行 =====
@@ -800,6 +911,7 @@ function render() {
 // ===== ⑤ 今日分析写回日行 =====
 function bindCard(el) {
   const x = LIST().find((k) => k.c._id === el.dataset.id);
+  if (x) bindPlan(el, x);
   if (!x || !x.today) return;
   const tas = [...el.querySelectorAll('textarea')];
   const editBtn = el.querySelector('[data-edit]'), saveBtn = el.querySelector('[data-save]'), msg = el.querySelector('[data-msg]');
