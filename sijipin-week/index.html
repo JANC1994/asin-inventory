@@ -148,6 +148,19 @@
   .goal-h { display: flex; align-items: center; justify-content: space-between; font-size: 12px; color: var(--or-d); font-weight: 600; }
   .gedit { border: 1px solid transparent; background: transparent; color: var(--or-d); width: 26px; height: 24px; border-radius: 6px; cursor: pointer; font-size: 14px; }
   .gedit:hover { background: #fff; border-color: var(--or-soft2); }
+  .sstrip { display: grid; grid-template-columns: 64px repeat(12, minmax(0, 1fr)); gap: 4px; margin-bottom: 8px; }
+  .ss-h { display: flex; flex-direction: column; justify-content: center; align-items: center; border-radius: 10px; background: var(--grey-soft); font-size: 13px; font-weight: 800; color: var(--sub); text-align: center; line-height: 1.25; }
+  .ss-h small { font-size: 9.5px; font-weight: 400; }
+  .ss { border-radius: 8px; padding: 4px 6px 5px; text-align: center; min-width: 0; border: 1px solid var(--line); background: #f6f2ed; }
+  .ss-m { font-size: 11px; color: var(--sub); white-space: nowrap; }
+  .ss-v { font-size: 15px; font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .ss small { display: block; font-size: 10px; color: var(--sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ss.cur { background: var(--or-soft); border-color: var(--or); box-shadow: 0 0 0 1px var(--or); }
+  .ss.cur .ss-v { color: var(--or-d); }
+  .ss.cur .pbar { height: 4px; margin-top: 3px; }
+  .ss.fc { background: #fff; border: 1px dashed var(--line2); }
+  .ss.fc .ss-v { color: #6b5d50; font-weight: 700; }
+  @media (max-width: 1000px) { .sstrip { grid-template-columns: repeat(6, minmax(0, 1fr)); } .ss-h { grid-column: 1 / -1; flex-direction: row; gap: 6px; padding: 3px; } }
   .layers { display: flex; flex-direction: column; gap: 6px; }
   .lyr { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 8px; align-items: stretch; }
   .lyr-t { display: flex; flex-direction: column; justify-content: center; align-items: center; border-radius: 10px; background: var(--grey-soft); font-size: 16px; font-weight: 800; color: var(--sub); }
@@ -369,7 +382,7 @@ const TABLES = {
     '红绿灯', '亮灯原因', ...NUM_EDIT, ...TEXT_FIELDS] },
   // view：「插件-近66天（经营表页面用，勿删）」= 公式字段 _经营表页面=1（近66天 且 产品主表勾了「进四季品经营表」，约 5000 行；全表 1.8 万行太慢）
   day: { id: 'tblKAoK9pN3cWI9t', name: '每日数据表-灯', view: 'vew7B6MlLH', fields: ['日期', 'ASIN', '国家', '店铺', '维度', ...DAY_NUM] },
-  pm: { id: 'tblqksywqgYvywOT', name: '产品主表-灯类+精铺', fields: ['ASIN', '国家文本', '国家', '领星SKU', '品名', '图片', '采购成本不含税', '头程费用', 'FBA配送费', 'FBA配送费（旺季）', '佣金比例', '汇率'] },
+  pm: { id: 'tblqksywqgYvywOT', name: '产品主表-灯类+精铺', fields: ['ASIN', '国家文本', '国家', '领星SKU', 'SPU', '销售季分类', '品名', '图片', '采购成本不含税', '头程费用', 'FBA配送费', 'FBA配送费（旺季）', '佣金比例', '汇率'] },
   // 库存预测：口径与「四季品备货计划」页一致（model() 由 sync_bh_model.py 原样复制）
   ov: { id: 'tbl23j9fj1autV9a', name: 'ASIN库存概况-灯', fields: ['记录键', 'ASIN', '国家', 'FBA可售', 'FBA预留', '近30天日均', '数据更新日'] },
   ship: { id: 'tblDvoc2YSab7TMr', name: 'FBA在途货件明细-灯', fields: ['ASIN', '国家', '货件号', '发货量', '已收量', '预计到仓日'] },
@@ -378,6 +391,8 @@ const TABLES = {
   sv: { id: 'tblXt1ki1ZvR2o8U', name: '备货计划-页面存档', fields: ['记录键', '方案数据', '更新时间'] },
   // 月销量目标：四季品-月度行，目标键 = SPU|国家|YYYYMM，「当月销量」= 子 ASIN 预估月销量之和（公式）
   // ASIN 预估：四季品-ASIN预估行，目标键 = ASIN|国家|YYYYMM，「预估日均」= 库存趋势的日销（2026-10-16 起取代备货表 X月日均）
+  // 月销量条：前 6 个月实际 = 领星-产品表现-灯（子ASIN×店铺×月，店铺名带 -CA = 加拿大），按产品主表 SPU 汇总；授权在应用页「数据授权3」
+  pf: { id: 'tblKBfp4lPDngvqB', name: '领星-产品表现-灯', fields: ['月份', '子ASIN', '店铺', '销量'] },
   tg: { id: 'tblE3XbKD8PUEX7Y', name: '产品目标总表-灯', fields: ['目标键', '目标类型', 'ASIN', '国家文本', '销售年月', '当月销量', '预估日均', ...GOAL_FIELDS] },
   ch: { id: 'tblxl08WV9pLwxdi', name: '头程渠道时效', fields: ['物流渠道', '国家', '运输方式', '标准时效天数', '历史样本数', '启用'] },
 };
@@ -700,7 +715,7 @@ function ctry(v) {
   return t;
 }
 const asinOf = (v) => String(cell(v) ?? '').trim().split(/[、,\s]/)[0];
-let INV = { ov: {}, ships: {}, o: {} }, BH = null, MTG = {}, TGT_SPU = {}, TGT_MON = {};
+let INV = { ov: {}, ships: {}, o: {} }, BH = null, MTG = {}, TGT_SPU = {}, TGT_MON = {}, PFM = {}, PF_N = 0;
 const first = (v) => String(cell(v) ?? '').split('、')[0];
 const msDay = (v) => { if (v == null || v === '') return ''; const n = dn(typeof v === 'number' ? v : Date.parse(v)); const d = ud(n);
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`; };
@@ -1031,6 +1046,7 @@ function monthBarHtml(e) {
     <div class="mbar-f"><span>时间进度 ${pct(tq, 0)}（${fmtD(upto)}）</span><span>${q >= 1 ? '已达成' : `还差 ${fmtN(tgt - sold)} · 剩 ${days - gone} 天需日均 ${days - gone > 0 ? fmtN((tgt - sold) / (days - gone), 1) : '—'}`}</span></div></div>`;
 }
 function refreshMonthBars() {
+  document.querySelectorAll('[data-sstrip]').forEach((el) => { const e = ENT[el.dataset.sstrip]; if (e) el.outerHTML = salesStripHtml(e); });
   document.querySelectorAll('[data-mbar]').forEach((el) => { const e = ENT[el.dataset.mbar]; if (e) el.outerHTML = monthBarHtml(e); });
 }
 
@@ -1042,6 +1058,33 @@ const GOALS = [
   { f: '关键指标', ph: '如：日销量、TACoS' },
 ];
 // 文字目标（只读）：年度 = 目标总表 SPU 行；当月 = 所选周的月份对应的月度行。去「目标填写」页改
+// 月销量条（用户 10-30 定，放在年/月/周目标上方）：本月前 6 个月实际 | 本月实时（已卖/目标）| 后 5 个月预估，按月总销量
+function salesStripHtml(e) {
+  const now = new Date(Date.now() + 8 * 3600000), Y = now.getUTCFullYear(), M = now.getUTCMonth();
+  const cols = Array.from({ length: 12 }, (_, i) => { const k = i - 6, mm = ((M + k) % 12 + 12) % 12, yy = Y + Math.floor((M + k) / 12);
+    return { k, y: yy, m: mm, ym: `${yy}${String(mm + 1).padStart(2, '0')}`, first: Math.floor(Date.UTC(yy, mm, 1) / DAY), last: Math.floor(Date.UTC(yy, mm + 1, 0) / DAY) }; });
+  const keys = Object.values(ENT).filter((a) => a.layer === 'ASIN' && a.spu === e.spu && a.country === e.country).map((a) => `${a.asin}|${a.country}`);
+  const latest = DAYS.length ? DAYS[DAYS.length - 1] : null;
+  const daySum = (c, upto) => { let t = 0; for (const k of keys) for (let d = c.first; d <= upto; d++) t += (DAYAGG[k] && DAYAGG[k][d] && DAYAGG[k][d].sales) || 0; return t; };
+  const cell1 = (c) => {
+    const lab = `<div class="ss-m">${c.m === 0 || c.k === -6 ? `${String(c.y).slice(2)}年` : ''}${c.m + 1}月</div>`;
+    if (c.k < 0) {
+      let v = PFM[`${e.spu}|${e.country}|${c.ym}`], src = '';
+      if (v == null && DAY_READY && DAYS.length && DAYS[0] <= c.first) { v = daySum(c, c.last); src = '<small>日表口径</small>'; }
+      return `<div class="ss act" title="实际销量（领星-产品表现，按产品主表 SPU 汇总）">${lab}<div class="ss-v">${v != null ? fmtN(v) : '—'}</div>${src}</div>`;
+    }
+    if (c.k === 0) {
+      const tgt = MTG[`${e.spu}|${e.country}|${c.ym}`];
+      if (!DAY_READY) return `<div class="ss cur">${lab}<div class="ss-v" style="font-size:12px">每日数据读取中…</div></div>`;
+      const sold = daySum(c, Math.min(c.last, latest)), q = tgt ? sold / tgt : null;
+      return `<div class="ss cur" title="本月实时：每日数据表截至 ${latest != null ? fmtD(latest) : '—'}">${lab}<div class="ss-v">${fmtN(sold)}</div>
+        <small>目标 ${tgt ? fmtN(tgt) : '未填'}${q != null ? ` · ${pct(q, 0)}` : ''}</small>${q != null ? `<div class="pbar"><i style="width:${Math.min(100, q * 100)}%"></i></div>` : ''}</div>`;
+    }
+    const f = MTG[`${e.spu}|${e.country}|${c.ym}`];
+    return `<div class="ss fc" title="预估 = 产品目标总表月度行（各 ASIN 预估日均 × 天数）">${lab}<div class="ss-v">${f ? fmtN(f) : '—'}</div><small>${f ? '预估' : '未填'}</small></div>`;
+  };
+  return `<div class="sstrip" data-sstrip="${esc(e.key)}"><div class="ss-h"><span>月销量</span><small>前 6 月实际 · 本月实时 · 后 5 月预估</small></div>${cols.map(cell1).join('')}</div>`;
+}
 function tgtGoalsHtml(e) {   // 年、月两层：只读，来自产品目标总表（在「目标填写」页改）
   const y = TGT_SPU[`${e.spu}|${e.country}`] || {}, mo = monthOf(e), m = TGT_MON[`${e.spu}|${e.country}|${mo.ym}`] || {};
   const mt = MTG[`${e.spu}|${e.country}|${mo.ym}`];
@@ -1100,6 +1143,7 @@ function cardHtml(x) {
       <div class="pc-act"><button class="btn ghost" data-trend>📈 看趋势</button><span data-msg>${pending ? `${pending} 项未保存` : ''}</span>
         <button class="btn primary" data-save${pending ? '' : ' disabled'}>保存</button></div>
     </div>
+    ${salesStripHtml(e)}
     <div class="layers">${tgtGoalsHtml(e)}<div class="lyr wk"><div class="lyr-t">周<small>${wkLabel(state.week)} · 可改</small></div><div class="goals">${GOALS.map((g) => goalHtml(r, g, g.num ? rateHtml : '')).join('')}</div></div></div>
     <div class="pc-body">
       <div class="pc-col left">
@@ -1673,6 +1717,18 @@ window.addEventListener('resize', layoutCheck); layoutCheck();
 function finish(wk, day, pm, src, inv = {}) {
   build(wk.map((r) => normRow('wk', r)), day.map((r) => normRow('day', r)), pm);
   buildInv(inv.ov || [], inv.ship || [], inv.bh || [], inv.sv || [], inv.ch || [], inv.tg || []);
+  // 月度实际销量：SPU|国家|YYYYMM → 件数。只算这张四季品卡的 ASIN：经营表里该 SPU×国家 的 ASIN 行 ∪ 产品主表 销售季分类=四季品 且 SPU 相同
+  //（同 SPU 下的季节品颜色，如菱形祈祷的万圣节款，不算进四季品卡）
+  PFM = {}; PF_N = 0;
+  const own = {};
+  for (const a of Object.values(ENT)) if (a.layer === 'ASIN') own[`${a.asin}|${a.country}`] = a.spu;
+  for (const [k, p] of Object.entries(PM)) if (String(cell(p['销售季分类']) || '').split('、').includes('四季品') && cell(p['SPU']) && !own[k]) own[k] = String(cell(p['SPU'])).trim();
+  for (const r of inv.pf || []) {
+    const asin = asinOf(r['子ASIN']), c = /-CA|-CA-|加拿大/.test(String(cell(r['店铺']) || '')) ? '加拿大' : '美国';
+    const spu = own[`${asin}|${c}`], ym = String(cell(r['月份']) || '').replace('-', '').slice(0, 6);
+    if (!spu || ym.length !== 6) continue;
+    PFM[`${spu}|${c}|${ym}`] = (PFM[`${spu}|${c}|${ym}`] || 0) + (num(cell(r['销量'])) || 0); PF_N++;
+  }
   TGT_SPU = {}; TGT_MON = {};   // 文字目标：SPU|国家 → 年度行（取年份最大）；SPU|国家|YYYYMM → 月度行
   for (const t of inv.tg || []) {
     const k = String(cell(t['目标键']) || ''), ty = first(t['目标类型']), p = k.split('|');
@@ -1701,7 +1757,7 @@ try {
     let pm = [];
     try { pm = await readTable('pm'); } catch (e) { DIAG.err[TABLES.pm.name] = e && e.message ? e.message : String(e); console.warn('产品主表读不到，卡片不显示图片和毛利', e); }
     const inv = {};
-    for (const k of ['ov', 'ship', 'bh', 'sv', 'ch', 'tg']) { try { inv[k] = await readTable(k); } catch (e) { inv[k] = []; DIAG.err[TABLES[k].name] = e && e.message ? e.message : String(e); console.warn(`${TABLES[k].name} 读不到，库存预测不完整`, e); } }
+    for (const k of ['ov', 'ship', 'bh', 'sv', 'ch', 'tg', 'pf']) { try { inv[k] = await readTable(k); } catch (e) { inv[k] = []; DIAG.err[TABLES[k].name] = e && e.message ? e.message : String(e); console.warn(`${TABLES[k].name} 读不到，库存预测不完整`, e); } }
     DAY_LOADING = true;
     finish(wk, [], pm, '取数：四季品经营表 + 产品主表 + 备货计划五表', inv);
     const meta0 = $('meta').textContent;
