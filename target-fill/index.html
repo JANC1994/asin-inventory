@@ -8,7 +8,7 @@
   飞书应用「灯具组-全流程」自定义插件页：目标填写（2026-10-16）
   读写 产品目标总表-灯 tblE3XbKD8PUEX7Y（口径 wiki/工具/产品目标总表口径.md §6），两个分页：
     · 四季品：左侧 SPU 栏；右侧每个国家一块 = 年度（SPU 父行：产品目标/经营策略/关键指标）
-              + 月度（月度行：经营策略/关键指标；月销量目标 = ASIN 预估之和，只读）
+              + 月度（月度行：产品目标/经营策略/关键指标；月销量目标 = ASIN 预估之和，只读）
               + ASIN 预估日均（四季品-ASIN预估行，每个 ASIN × 每个月都要填，0 也算填）
     · 季节品：左侧按季节分组（可折叠）→ SPU；右侧选中 SPU 的每个 ASIN×国家一张卡
               = 总库存（发货量，表里公式自动抓，只读）+ 五个阶段（日均 + 阶段目标）；阶段日期/天数取 季节节奏日历，天数为 0 的阶段不用填
@@ -216,7 +216,7 @@ async function loadSdk() {
 const BASE_TOKEN = 'JGvebyaAYapWtOslxc9cuKYXnwd';   // 灯具组-全流程
 const STAGES = ['起量期', '爆发期', '高峰期', '消退期', '清仓期'];
 const Y_TEXT = ['产品目标', '经营策略', '关键指标'];        // 四季品 SPU 父行（年级）必填
-const M_TEXT = ['经营策略', '关键指标'];                    // 四季品 月度行 必填（月销量目标 = ASIN 预估之和，自动）
+const M_TEXT = ['产品目标', '经营策略', '关键指标'];        // 四季品 月度行 必填（月销量目标 = ASIN 预估之和，自动）；年/月/周三层都是 目标+策略+指标
 const DATES = ['起量期开始', '爆发期开始', '高峰期开始', '消退期开始', '清仓期开始', '清仓期结束'];   // 季节品本品时段（空 = 用节奏日历）
 const NUMS = ['当月销量', '预估日均', '预估月销量', '总库存数量', ...STAGES.map((s) => s + '日均'), '预估销量-整季', '库存差额'];
 const TABLES = {
@@ -496,8 +496,8 @@ function blockSJ(e) {
   const rows = [];
   rows.push(`<tr class="tot"><td class="c0">② 月销量目标<div class="meta" style="font-weight:400">= 下面各 ASIN 预估之和（自动）</div></td>${mcol((ym) =>
     `<td class="m"><span data-calc="mtot" data-e="${esc(e.spu + '|' + e.country)}" data-ym="${ym}">${fmtN(e.asins.reduce((t, a) => t + (num(val(a.cells[ym], '预估日均')) || 0) * daysIn(ym), 0))}</span></td>`)}</tr>`);
-  for (const f of M_TEXT) rows.push(`<tr><td class="c0 rk">当月${f}<b style="color:var(--red)">*</b><small>${f === '经营策略' ? '这个月主打什么动作' : '这个月盯哪几个数'}</small></td>${mcol((ym) =>
-    e.mon[ym] ? `<td class="m">${inp(e.mon[ym], f, { ta: true, rows: 3, ph: f === '经营策略' ? '如：黑五前加预算冲排名' : '如：日均 60、TACoS ≤15%' })}</td>` : '<td class="m nr">缺月度行</td>')}</tr>`);
+  for (const f of M_TEXT) rows.push(`<tr><td class="c0 rk">当月${f}<b style="color:var(--red)">*</b><small>${{ 产品目标: '这个月要达成什么', 经营策略: '这个月主打什么动作', 关键指标: '这个月盯哪几个数' }[f]}</small></td>${mcol((ym) =>
+    e.mon[ym] ? `<td class="m">${inp(e.mon[ym], f, { ta: true, rows: 3, ph: { 产品目标: '如：月销 1500、进类目前 20', 经营策略: '如：黑五前加预算冲排名', 关键指标: '如：日均 60、TACoS ≤15%' }[f] })}</td>` : '<td class="m nr">缺月度行</td>')}</tr>`);
   rows.push(`<tr class="sep"><td class="c0">③ ASIN 预估日均<span style="font-weight:400;color:var(--sub)">（必填，没量也填 0）</span></td>${mcol(() => '<td></td>')}</tr>`);
   for (const a of e.asins) {
     const ik = `${a.asin}|${e.country}`;
