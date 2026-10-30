@@ -1722,10 +1722,15 @@ function finish(wk, day, pm, src, inv = {}) {
   PFM = {}; PF_N = 0;
   const own = {};
   for (const a of Object.values(ENT)) if (a.layer === 'ASIN') own[`${a.asin}|${a.country}`] = a.spu;
-  for (const [k, p] of Object.entries(PM)) if (String(cell(p['销售季分类']) || '').split('、').includes('四季品') && cell(p['SPU']) && !own[k]) own[k] = String(cell(p['SPU'])).trim();
+  const ownAsin = {};   // 主表只登记了另一国的 ASIN（如加拿大站没单独建行）：借同 ASIN 另一国那行的 SPU（10-30 补：纸袋蜡烛灯套装/字母灯牌套装/太阳能蜡烛灯 加拿大的销量原来漏算）
+  for (const [k, p] of Object.entries(PM)) if (String(cell(p['销售季分类']) || '').split('、').includes('四季品') && cell(p['SPU'])) {
+    const spu = String(cell(p['SPU'])).trim();
+    if (!own[k]) own[k] = spu;
+    ownAsin[k.split('|')[0]] = ownAsin[k.split('|')[0]] || spu;
+  }
   for (const r of inv.pf || []) {
     const asin = asinOf(r['子ASIN']), c = /-CA|-CA-|加拿大/.test(String(cell(r['店铺']) || '')) ? '加拿大' : '美国';
-    const spu = own[`${asin}|${c}`], ym = String(cell(r['月份']) || '').replace('-', '').slice(0, 6);
+    const spu = own[`${asin}|${c}`] || (PM[`${asin}|${c}`] ? null : ownAsin[asin]), ym = String(cell(r['月份']) || '').replace('-', '').slice(0, 6);
     if (!spu || ym.length !== 6) continue;
     PFM[`${spu}|${c}|${ym}`] = (PFM[`${spu}|${c}|${ym}`] || 0) + (num(cell(r['销量'])) || 0); PF_N++;
   }
