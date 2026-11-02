@@ -136,7 +136,7 @@ const SDK_URLS = [new URL('./sdk/index.mjs', location.href).href,
 const BASE_TOKEN = 'JGvebyaAYapWtOslxc9cuKYXnwd';   // 灯具组-全流程
 // 10-28 起数据全部来自「出口对账」表（旧 出口退税明细/出口货件/出口采购单-曾舒婷(9.30) 三表下线）
 const TABLES = {
-  dec: { id: 'tbl6VbtZoxlBbC8F', name: '出口对账-报关明细', links: ['采购合同'],   // 首表：saveConfig 第一条
+  dec: { id: 'tbl6VbtZoxlBbC8F', name: '出口对账-报关明细', links: ['采购合同'],   // 首表（授权见数据授权3）
     fields: ['合同协议号', '报关单号', '报关时间', '运营', '品名', '开票数量', '单位', '开票金额', '货件编号', '采购单号', '采购合同',
       '匹配状态', '财务表核对', '提运单号', '申报金额总价c&f', '币种', 'FOB（外币）', 'FOB金额（人民币）', '发票号码', '发票认证',
       '退税日期', '退税金额', '回款日期'] },
@@ -617,7 +617,9 @@ function setupSave() {
       try {
         // 应用只认第一条 dataCondition；其余表靠应用页「数据授权2（勿删）」的原生列表组件授权
         const ok = await dash.saveConfig({
-          dataConditions: Object.values(TABLES).map((t) => ({ tableId: t.id, baseToken: BASE_TOKEN, dataRange: { type: 'ALL' }, series: 'COUNTA' })),
+          // 11-01：登记出口对账表时宿主报「配置数据发生变更」（同 caigou-flow 10-28）→ 只登记产品主表；
+          // 报关明细/物流跟踪 靠「数据授权3（勿删）」、采购合同/货件明细 靠「数据授权4（勿删）」页授权
+          dataConditions: [{ tableId: 'tblqksywqgYvywOT', baseToken: BASE_TOKEN, dataRange: { type: 'ALL' }, series: 'COUNTA' }],
           customConfig: { page: document.title, version: 1 },
         });
         $('saveMsg').textContent = ok === false ? '保存失败，请重试' : '已保存 ✔';
