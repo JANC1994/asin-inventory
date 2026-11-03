@@ -1049,7 +1049,9 @@ function orderCard(o, mode) {
     if (mine && o.status === '待审核') acts += '<button class="btn sm ghost" data-act="withdraw">撤回</button>';
     if (rev && o.status === '待审核') acts += '<button class="btn sm green" data-act="approve">审核通过</button><button class="btn sm red" data-act="reject">驳回</button>';
   } else if (rev) acts += `<button class="btn sm" data-act="fillFba">${built(o) ? '改货件号' : '填货件号'}</button><button class="btn sm ghost" data-act="splitOrder">拆分</button><button class="btn sm red" data-act="reject">驳回到指令列表</button>`;
-  if (!editing) acts += '<button class="btn sm ghost" data-act="copy">复制</button>';
+  if (!editing && mode === 'list' && mine) acts += '<button class="btn sm ghost" data-act="copy">复制</button>';
+  // 拆分：提交人拆自己的草稿/被驳回；审核人拆待审核（待发货的拆分按钮在上面审核人那组）
+  if (!editing && mode === 'list' && ((mine && (o.status === '草稿' || o.status === '已驳回')) || (rev && o.status === '待审核'))) acts += '<button class="btn sm ghost" data-act="splitOrder">拆分</button>';
   const st = mode === 'ship' ? `<span class="badge ${built(o) ? 'b-green' : 'b-yellow'}">${built(o) ? '已建货件' : '待建货件'}</span>` : `<span class="badge ${statusCls(o.status)}">${o.status}</span>`;
   const chs = [...new Set(usedShips(S).map((x) => x.ch).filter(Boolean))];
   const pl = planOf(o), can = !editing && canSel(o, mode);
@@ -1201,7 +1203,7 @@ async function openSplit(o) {
         <td><input class="num" data-split="${r.id}" data-max="${max}" placeholder="0" style="width:70px"> ${box ? '箱' : '件'}</td>
         <td><button class="link" onclick="this.closest('tr').querySelector('[data-split]').value=${max}">全部</button></td></tr>`; }).join('')}
     </tbody></table></div>`;
-  return modal(`拆分 ${o.no}`, body, '拆出的新指令沿用原单的店铺、开船日期、分仓和渠道（货件号清空，单独填）', '确定拆分', () => {
+  return modal(`拆分 ${o.no}（${o.status}）`, body, o.status === '待发货' ? '拆出的新指令沿用原单的店铺、开船日期、分仓和渠道（货件号清空，单独填）；发货计划的行跟着拆' : '拆出的新指令沿用原单的店铺、开船日期、分仓和渠道，状态跟原单一样（被驳回的拆出来是草稿）', '确定拆分', () => {
     const amt = {}; let bad = '';
     document.querySelectorAll('[data-split]').forEach((i) => { const v = +i.value || 0, mx = +i.dataset.max; if (v < 0 || v > mx || !Number.isInteger(v)) bad = '拆出数量要是 0 到现有数量之间的整数'; if (v) amt[i.dataset.split] = v; });
     if (bad) { toast(bad); return false; }
@@ -1210,7 +1212,8 @@ async function openSplit(o) {
   });
 }
 async function doSplit(o, amt) {
-  await fresh(o, ['待发货']);
+  const st = o.status, shipped = st === '待发货';
+  await fresh(o, [st]);
   const A = [], B = [];
   for (const r of clone(o.rows)) {
     const a = +amt[r.id] || 0;
@@ -1225,6 +1228,16 @@ async function doSplit(o, amt) {
   }
   if (!B.length) throw new Error('没有要拆出的数量');
   if (!A.length) throw new Error('全部拆走等于没拆；要整单改就驳回后修改');
+  if (!shipped) {
+    // 还没审核通过的单：只拆明细，新单状态同原单；整行拆走的行不带走旧的发货计划行（以前审核过又被驳回留下的），新单审核时再写
+    B.forEach((r) => { delete r.planRec; });
+    const SB = { rows: B, store: o.store || storeOf(o), shipDate: o.shipDate, split: o.split, ships: o.ships.map(({ ch, eta }) => ({ no: '', ch, eta })), note: `从 ${o.no} 拆出` + (o.note ? '；' + o.note : '') };
+    busy('建新指令…');
+    const nb = await createOrder(SB, { '状态': st === '已驳回' ? '草稿' : st, '分批计划': o.plan || null });
+    const fA = orderFields({ ...o, rows: A });
+    await setOrder(o, { '合计箱数': fA['合计箱数'], '合计件数': fA['合计件数'], '摘要': fA['摘要'], '明细JSON': fA['明细JSON'] });
+    return `已拆分：${o.no} 剩 ${sumOf(A).qty.toLocaleString()} 件，拆出 ${nb.no} ${sumOf(B).qty.toLocaleString()} 件（${st === '已驳回' ? '新单是草稿' : '新单也是' + st}）`;
+  }
   const SB = { rows: B, store: o.store || storeOf(o), shipDate: o.shipDate, split: o.split, ships: o.ships.map(({ ch, eta }) => ({ no: '', ch, eta })), note: `从 ${o.no} 拆出` + (o.note ? '；' + o.note : '') };
   busy('建新指令…');
   const nb = await createOrder(SB, { '状态': '待发货', '审核时间': Date.now(), '分批计划': o.plan || null });
