@@ -178,6 +178,9 @@
   .fill-slot { display: flex; flex-direction: column; gap: 4px; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; background: #fafbfc; font-size: 13px; }
   .fill-slot input { font-size: 14px; }
   .fill-cands { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 8px; font-size: 12.5px; line-height: 1.8; }
+  .split-opts { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; font-size: 13px; }
+  .split-opts .seg button { padding: 3px 12px; }
+  .split-warn { color: var(--red); font-weight: 600; }
   .pick-err { position: sticky; top: 0; z-index: 2; background: var(--red-soft); color: var(--red); font-weight: 600; padding: 8px 12px; border-bottom: 1px solid #f9b9b7; }
   .modal { position: fixed; inset: 0; background: rgba(15,23,42,.45); z-index: 95; display: none; align-items: flex-start; justify-content: center; padding: 24px 12px; overflow: auto; }
   .modal.show { display: flex; }
@@ -1048,10 +1051,10 @@ function orderCard(o, mode) {
     if (mine && (o.status === '草稿' || o.status === '已驳回')) acts += '<button class="btn sm ghost" data-act="edit">编辑</button><button class="btn sm" data-act="submit">提交审核</button><button class="btn sm red" data-act="del">删除</button>';
     if (mine && o.status === '待审核') acts += '<button class="btn sm ghost" data-act="withdraw">撤回</button>';
     if (rev && o.status === '待审核') acts += '<button class="btn sm green" data-act="approve">审核通过</button><button class="btn sm red" data-act="reject">驳回</button>';
-  } else if (rev) acts += `<button class="btn sm" data-act="fillFba">${built(o) ? '改货件号' : '填货件号'}</button><button class="btn sm ghost" data-act="splitOrder">拆分</button><button class="btn sm red" data-act="reject">驳回到指令列表</button>`;
+  } else if (rev) acts += `<button class="btn sm" data-act="fillFba">${built(o) ? '改货件号' : '填货件号'}</button>${built(o) ? '' : '<button class="btn sm ghost" data-act="splitOrder">拆分</button>'}<button class="btn sm red" data-act="reject">驳回到指令列表</button>`;
   if (!editing && mode === 'list' && mine) acts += '<button class="btn sm ghost" data-act="copy">复制</button>';
   // 拆分：提交人拆自己的草稿/被驳回；审核人拆待审核（待发货的拆分按钮在上面审核人那组）
-  if (!editing && mode === 'list' && ((mine && (o.status === '草稿' || o.status === '已驳回')) || (rev && o.status === '待审核'))) acts += '<button class="btn sm ghost" data-act="splitOrder">拆分</button>';
+  if (!editing && mode === 'list' && !built(o) && ((mine && (o.status === '草稿' || o.status === '已驳回')) || (rev && o.status === '待审核'))) acts += '<button class="btn sm ghost" data-act="splitOrder">拆分</button>';
   const st = mode === 'ship' ? `<span class="badge ${built(o) ? 'b-green' : 'b-yellow'}">${built(o) ? '已建货件' : '待建货件'}</span>` : `<span class="badge ${statusCls(o.status)}">${o.status}</span>`;
   const chs = [...new Set(usedShips(S).map((x) => x.ch).filter(Boolean))];
   const pl = planOf(o), can = !editing && canSel(o, mode);
@@ -1185,7 +1188,7 @@ function modal(title, body, hint, yes, collect, no = '取消') {
   $('mTitle').textContent = title; $('mBody').innerHTML = body; $('mFootHint').textContent = hint || '';
   $('mYes').textContent = yes; $('mNo').textContent = no; $('modal').classList.add('show');
   return new Promise((res) => {
-    const done = (v) => { $('modal').classList.remove('show'); $('mYes').onclick = $('mNo').onclick = null; res(v); };
+    const done = (v) => { $('modal').classList.remove('show'); $('mYes').onclick = $('mNo').onclick = $('mBody').oninput = $('mBody').onclick = null; res(v); };
     $('mNo').onclick = () => done(null);
     $('mYes').onclick = () => { const v = collect(); if (v !== false) done(v); };
   });
@@ -1193,7 +1196,30 @@ function modal(title, body, hint, yes, collect, no = '取消') {
 
 // ================= 拆分：待发货的指令按产品/数量拆成两张 =================
 function splitRowLabel(r) { const p = P(r); return isShoe(r) ? `${esc(p.spu)} ${esc(p.color)} <b>${esc(p.size)}</b>` : `${esc(p.n)}`; }
+const MIN_SPLIT_BOXES = 5;   // 用户 11-03 定：低于 5 箱不能分仓
+// 拆分后两部分的箱数（有不按箱算的行 = 箱数不确定，返回 null，不做 5 箱检查）
+function splitParts(o, amt) {
+  const A = [], B = [];
+  for (const r of o.rows) {
+    const a = +amt[r.id] || 0, box = byBox(r);
+    if (!a) { A.push(r); continue; }
+    if (box) { if (a >= +r.boxes) B.push(r); else { A.push({ ...r, boxes: +r.boxes - a }); B.push({ ...r, boxes: a }); } }
+    else { if (a >= tot(r)) B.push(r); else { A.push({ ...r, qty: tot(r) - a }); B.push({ ...r, qty: a }); } }
+  }
+  const boxes = (rs) => rs.every(byBox) ? rs.reduce((s, r) => s + +r.boxes, 0) : null;
+  return { A, B, boxA: boxes(A), boxB: boxes(B), qtyA: sumOf(A).qty, qtyB: sumOf(B).qty };
+}
+// 换分仓设置时重排货件：不分仓 1 个货件（美+35/加+40），分仓 5 个（+30/30/35/45/55）；渠道沿用
+function reShips(o, split) {
+  if (split === o.split) return clone(o.ships);
+  const c = countryOf(o.rows), off = split === '是' ? ETA_SPLIT : [c === '加拿大' ? 40 : 35];
+  return Array.from({ length: SHIP_SLOTS }, (_, i) => ({ no: '', ch: i === 0 ? (o.ships[0]?.ch || '') : (split === '是' ? (o.ships[i]?.ch || '') : ''), eta: i < off.length && o.shipDate ? ds(dn(o.shipDate) + off[i]) : '' }));
+}
+function splitWarn(boxes, split, who) {
+  return split === '是' && boxes != null && boxes > 0 && boxes < MIN_SPLIT_BOXES ? `${who}只有 ${boxes} 箱，低于 ${MIN_SPLIT_BOXES} 箱不能分仓，请改成「不分仓」` : '';
+}
 async function openSplit(o) {
+  if (built(o)) { toast('已建货件的指令不能拆分'); return null; }
   const rows = [...grouped(o.rows.filter((r) => !isShoe(r))), ...shoeGroups(o.rows.filter(isShoe)).flat()];
   const body = `<div class="hint" style="margin-bottom:8px">填要拆出去的数量（有箱规的按箱、没箱规的按件），拆出的部分变成一张新的待发货指令，原单留剩下的；发货计划里的行跟着拆。整行拆出点「全部」。</div>
     <div class="lines"><table class="tbl"><thead><tr><th>产品</th><th>MSKU</th><th>采购单</th><th>现在</th><th>拆出</th><th></th></tr></thead><tbody>
@@ -1202,17 +1228,45 @@ async function openSplit(o) {
         <td>${box ? `${esc(r.perBox)} × ${esc(r.boxes)} 箱 = ${tot(r)}` : `${tot(r)} 件`}</td>
         <td><input class="num" data-split="${r.id}" data-max="${max}" placeholder="0" style="width:70px"> ${box ? '箱' : '件'}</td>
         <td><button class="link" onclick="this.closest('tr').querySelector('[data-split]').value=${max}">全部</button></td></tr>`; }).join('')}
-    </tbody></table></div>`;
-  return modal(`拆分 ${o.no}（${o.status}）`, body, o.status === '待发货' ? '拆出的新指令沿用原单的店铺、开船日期、分仓和渠道（货件号清空，单独填）；发货计划的行跟着拆' : '拆出的新指令沿用原单的店铺、开船日期、分仓和渠道，状态跟原单一样（被驳回的拆出来是草稿）', '确定拆分', () => {
+    </tbody></table></div>
+    <div class="split-opts">
+      <div><b>原单 ${esc(o.no)} 剩下</b> <span data-sinfo="A"></span> · 是否分仓 <span class="seg">${['否', '是'].map((x) => `<button type="button" data-ssplit="A" data-v="${x}" class="${o.split === x ? 'on' : ''}">${x}</button>`).join('')}</span></div>
+      <div><b>拆出的新单</b> <span data-sinfo="B"></span> · 是否分仓 <span class="seg">${['否', '是'].map((x) => `<button type="button" data-ssplit="B" data-v="${x}" class="${o.split === x ? 'on' : ''}">${x}</button>`).join('')}</span></div>
+      <div class="split-warn" id="splitWarn"></div>
+    </div>`;
+  const choice = { A: o.split, B: o.split };
+  const readAmt = () => { const amt = {}; document.querySelectorAll('[data-split]').forEach((i) => { const v = +i.value || 0; if (v) amt[i.dataset.split] = v; }); return amt; };
+  const refresh = () => {
+    const s = splitParts(o, readAmt());
+    const info = (b, q) => `${b != null ? b + ' 箱 · ' : ''}${q.toLocaleString()} 件`;
+    document.querySelector('[data-sinfo="A"]').textContent = info(s.boxA, s.qtyA);
+    document.querySelector('[data-sinfo="B"]').textContent = info(s.boxB, s.qtyB);
+    const w = [splitWarn(s.boxA, choice.A, '原单剩下的'), splitWarn(s.boxB, choice.B, '拆出的新单')].filter(Boolean);
+    document.getElementById('splitWarn').innerHTML = w.map((x) => `⚠ ${esc(x)}`).join('<br>');
+    return w;
+  };
+  const pr = modal(`拆分 ${o.no}（${o.status}）`, body, o.status === '待发货' ? '拆出的新指令沿用原单的店铺、开船日期、分仓和渠道（货件号清空，单独填）；发货计划的行跟着拆' : '拆出的新指令沿用原单的店铺、开船日期、分仓和渠道，状态跟原单一样（被驳回的拆出来是草稿）', '确定拆分', () => {
     const amt = {}; let bad = '';
     document.querySelectorAll('[data-split]').forEach((i) => { const v = +i.value || 0, mx = +i.dataset.max; if (v < 0 || v > mx || !Number.isInteger(v)) bad = '拆出数量要是 0 到现有数量之间的整数'; if (v) amt[i.dataset.split] = v; });
     if (bad) { toast(bad); return false; }
     if (!Object.keys(amt).length) { toast('至少填一行拆出数量'); return false; }
-    return amt;
+    const w = refresh(); if (w.length) { toast(w[0], 5000); return false; }
+    return { amt, splitA: choice.A, splitB: choice.B };
   });
+  const mb = $('mBody');
+  mb.oninput = refresh;
+  mb.onclick = (e) => {
+    const b = e.target.closest('[data-ssplit]');
+    if (b) { choice[b.dataset.ssplit] = b.dataset.v; mb.querySelectorAll(`[data-ssplit="${b.dataset.ssplit}"]`).forEach((x) => x.classList.toggle('on', x === b)); }
+    setTimeout(refresh, 0);   // 「全部」按钮改了值也要刷新
+  };
+  refresh();
+  return pr;
 }
-async function doSplit(o, amt) {
+async function doSplit(o, choice) {
+  const { amt, splitA, splitB } = choice;
   const st = o.status, shipped = st === '待发货';
+  if (built(o)) throw new Error('已建货件的指令不能拆分');
   await fresh(o, [st]);
   const A = [], B = [];
   for (const r of clone(o.rows)) {
@@ -1228,17 +1282,21 @@ async function doSplit(o, amt) {
   }
   if (!B.length) throw new Error('没有要拆出的数量');
   if (!A.length) throw new Error('全部拆走等于没拆；要整单改就驳回后修改');
+  const pa = splitParts(o, amt), w = [splitWarn(pa.boxA, splitA, '原单剩下的'), splitWarn(pa.boxB, splitB, '拆出的新单')].filter(Boolean);
+  if (w.length) throw new Error(w[0]);
+  const shipsA = reShips(o, splitA), shipsB = reShips(o, splitB).map(({ ch, eta }) => ({ no: '', ch, eta }));
+  const oA = { ...o, split: splitA, ships: shipsA };
   if (!shipped) {
     // 还没审核通过的单：只拆明细，新单状态同原单；整行拆走的行不带走旧的发货计划行（以前审核过又被驳回留下的），新单审核时再写
     B.forEach((r) => { delete r.planRec; });
-    const SB = { rows: B, store: o.store || storeOf(o), shipDate: o.shipDate, split: o.split, ships: o.ships.map(({ ch, eta }) => ({ no: '', ch, eta })), note: `从 ${o.no} 拆出` + (o.note ? '；' + o.note : '') };
+    const SB = { rows: B, store: o.store || storeOf(o), shipDate: o.shipDate, split: splitB, ships: shipsB, note: `从 ${o.no} 拆出` + (o.note ? '；' + o.note : '') };
     busy('建新指令…');
     const nb = await createOrder(SB, { '状态': st === '已驳回' ? '草稿' : st, '分批计划': o.plan || null });
-    const fA = orderFields({ ...o, rows: A });
-    await setOrder(o, { '合计箱数': fA['合计箱数'], '合计件数': fA['合计件数'], '摘要': fA['摘要'], '明细JSON': fA['明细JSON'] });
+    const fA = orderFields({ ...oA, rows: A });
+    await setOrder(o, { '合计箱数': fA['合计箱数'], '合计件数': fA['合计件数'], '摘要': fA['摘要'], '明细JSON': fA['明细JSON'], '是否分仓': splitA, '货件JSON': fA['货件JSON'] });
     return `已拆分：${o.no} 剩 ${sumOf(A).qty.toLocaleString()} 件，拆出 ${nb.no} ${sumOf(B).qty.toLocaleString()} 件（${st === '已驳回' ? '新单是草稿' : '新单也是' + st}）`;
   }
-  const SB = { rows: B, store: o.store || storeOf(o), shipDate: o.shipDate, split: o.split, ships: o.ships.map(({ ch, eta }) => ({ no: '', ch, eta })), note: `从 ${o.no} 拆出` + (o.note ? '；' + o.note : '') };
+  const SB = { rows: B, store: o.store || storeOf(o), shipDate: o.shipDate, split: splitB, ships: shipsB, note: `从 ${o.no} 拆出` + (o.note ? '；' + o.note : '') };
   busy('建新指令…');
   const nb = await createOrder(SB, { '状态': '待发货', '审核时间': Date.now(), '分批计划': o.plan || null });
   const oB = { ...SB, rid: nb.rid, no: nb.no };
@@ -1246,9 +1304,9 @@ async function doSplit(o, amt) {
   const rowsB = await syncPlan(oB, B);
   await setOrder(oB, { '明细JSON': JSON.stringify(rowsB.map(({ id, ...r }) => r)) });
   const keepB = new Set(rowsB.map((r) => r.planRec).filter(Boolean));
-  const rowsA = await syncPlan(o, A, keepB);
-  const fA = orderFields({ ...o, rows: rowsA });
-  await setOrder(o, { '合计箱数': fA['合计箱数'], '合计件数': fA['合计件数'], '摘要': fA['摘要'], '明细JSON': fA['明细JSON'] });
+  const rowsA = await syncPlan(oA, A, keepB);
+  const fA = orderFields({ ...oA, rows: rowsA });
+  await setOrder(o, { '合计箱数': fA['合计箱数'], '合计件数': fA['合计件数'], '摘要': fA['摘要'], '明细JSON': fA['明细JSON'], '是否分仓': splitA, '货件JSON': fA['货件JSON'] });
   return `已拆分：${o.no} 剩 ${sumOf(rowsA).qty.toLocaleString()} 件，拆出 ${nb.no} ${sumOf(rowsB).qty.toLocaleString()} 件（都在待发货）`;
 }
 
@@ -1392,7 +1450,7 @@ main.addEventListener('click', (e) => {
   }
   if (a === 'withdraw') return act('撤回中', async () => { await fresh(o, ['待审核']); await setOrder(o, { '状态': '草稿' }); return '已撤回为草稿'; });
   if (a === 'del') return act('删除中', async () => { await fresh(o, ['草稿', '已驳回']); await delOrder(o); return `${o.no} 已删除`; });
-  if (a === 'splitOrder') return openSplit(o).then((amt) => amt && act('拆分中', () => doSplit(o, amt)));
+  if (a === 'splitOrder') return openSplit(o).then((c) => c && act('拆分中', () => doSplit(o, c)));
   if (a === 'fillFba') return openFill([o]).then((nos) => nos && act('写货件号', () => saveFba([o], nos)));
   if (a === 'approve') return act('审核中（写入发货计划）', async () => `${o.no} 审核通过 → 已写入发货计划 ${await approve(o)} 行`);
   if (a === 'reject') { rejecting = o.no; render(); $('rejReason')?.focus(); return; }
