@@ -613,12 +613,13 @@ async function makeCopies(src, n, gap, planNo) {
 }
 
 // 审核通过：每行写/更新一条发货计划
-async function approve(o) {
-  await fresh(o, ['待审核']);
+// 把一张指令的明细逐行写进发货计划（有 planRec 就更新那一行，没有就新建）；
+// 本指令以前写过、这次不在的行：没建货件删掉、建了货件标已驳回（exclude 里的行已转给别的指令，不动）
+async function syncPlan(o, rowsIn, exclude = new Set()) {
   if (!META.plan || LOADERR.plan) throw new Error('读不到「出口对账-发货计划」，没法写入（查应用数据权限）');
   const chTxt = usedShips(o).map((s) => (o.split === '是' ? `货件${s.i + 1} ` : '') + (s.ch || '渠道未定') + (s.eta ? ` ${md(s.eta)}到` : '')).join('；');
   const keep = new Set();
-  const rows = clone(o.rows);
+  const rows = clone(rowsIn);
   for (const r of rows) {
     const p = P(r), poId = r.po && poRec[r.po + '|' + p.sku];
     const memo = [r.po && !poId ? `采购单 ${r.po}（采购合同表没找到）` : '', r.note, o.note].filter(Boolean).join(' / ');
@@ -638,10 +639,15 @@ async function approve(o) {
     keep.add(r.planRec);
   }
   // 上次写过、这次没有的行：没建货件就删，建了就标已驳回
-  for (const pr of (DATA.plan || []).filter((x) => x['指令号'] === o.no && !keep.has(x._id))) {
+  for (const pr of (DATA.plan || []).filter((x) => x['指令号'] === o.no && !keep.has(x._id) && !exclude.has(x._id))) {
     if ([1, 2, 3, 4, 5, 6].some((i) => pr['货件' + i])) await T('plan').setRecord(pr._id, { fields: fieldsOf('plan', { '指令状态': '已驳回' }) });
     else await T('plan').deleteRecord(pr._id);
   }
+  return rows;
+}
+async function approve(o) {
+  await fresh(o, ['待审核']);
+  const rows = await syncPlan(o, o.rows);
   const obj = { '状态': '待发货', '审核时间': Date.now(), '驳回原因': null, '明细JSON': JSON.stringify(rows.map(({ id, ...r }) => r)) };
   await setOrder(o, obj);
   try { if (ME.ids[0]) await setOrder(o, { '审核人': [{ id: ME.ids[0] }] }); } catch (e) { /* 人员 ID 不认就算了，审核时间已记 */ }
@@ -804,7 +810,7 @@ function rowsHTML(S, err, list = S.rows) {
       <td><input class="num" data-k="boxes" value="${esc(r.boxes)}" placeholder="可空"></td>
       <td class="total">${totInput(r, err)}</td>
       <td><input class="po" data-k="po" list="po-${r.id}" value="${esc(r.po)}" placeholder="${pos.length ? '可选/可空' : '可空'}">
-        <datalist id="po-${r.id}">${pos.map((o) => `<option value="${esc(o.po)}">下单${md(o.d)} · 共${o.q} · ${esc(o.st)}</option>`).join('')}</datalist></td>
+        <datalist id="po-${r.id}">${pos.map((o) => `<option value="${esc(o.po)}">下单${md(o.d)} · 共${o.q} · ${esc(o.st)}</option>`).join('')}</datalist>${pos.length > 1 ? ' <button class="link" data-act="poMulti" title="一行勾多张采购单，自动拆行">多张</button>' : ''}</td>
       <td><input class="rk" data-k="note" value="${esc(r.note)}" placeholder="备注"></td>
       <td>${last ? '<button class="link" data-act="splitRow">＋另起一行</button> ' : ''}<button class="link red" data-act="delRow">删</button></td></tr>`;
   }).join('');
@@ -1042,7 +1048,7 @@ function orderCard(o, mode) {
     if (mine && (o.status === '草稿' || o.status === '已驳回')) acts += '<button class="btn sm ghost" data-act="edit">编辑</button><button class="btn sm" data-act="submit">提交审核</button><button class="btn sm red" data-act="del">删除</button>';
     if (mine && o.status === '待审核') acts += '<button class="btn sm ghost" data-act="withdraw">撤回</button>';
     if (rev && o.status === '待审核') acts += '<button class="btn sm green" data-act="approve">审核通过</button><button class="btn sm red" data-act="reject">驳回</button>';
-  } else if (rev) acts += `<button class="btn sm" data-act="fillFba">${built(o) ? '改货件号' : '填货件号'}</button><button class="btn sm red" data-act="reject">驳回到指令列表</button>`;
+  } else if (rev) acts += `<button class="btn sm" data-act="fillFba">${built(o) ? '改货件号' : '填货件号'}</button><button class="btn sm ghost" data-act="splitOrder">拆分</button><button class="btn sm red" data-act="reject">驳回到指令列表</button>`;
   if (!editing) acts += '<button class="btn sm ghost" data-act="copy">复制</button>';
   const st = mode === 'ship' ? `<span class="badge ${built(o) ? 'b-green' : 'b-yellow'}">${built(o) ? '已建货件' : '待建货件'}</span>` : `<span class="badge ${statusCls(o.status)}">${o.status}</span>`;
   const chs = [...new Set(usedShips(S).map((x) => x.ch).filter(Boolean))];
@@ -1172,6 +1178,96 @@ async function saveFba(os, nos) {
   return `${os.map((o) => o.no).join('、')} 已写货件号` + (merge ? `（合并批次 ${merge}）` : '');
 }
 
+// 通用弹窗：确定时调 collect() 取结果（返回 false 表示不关窗）；取消 → null
+function modal(title, body, hint, yes, collect, no = '取消') {
+  $('mTitle').textContent = title; $('mBody').innerHTML = body; $('mFootHint').textContent = hint || '';
+  $('mYes').textContent = yes; $('mNo').textContent = no; $('modal').classList.add('show');
+  return new Promise((res) => {
+    const done = (v) => { $('modal').classList.remove('show'); $('mYes').onclick = $('mNo').onclick = null; res(v); };
+    $('mNo').onclick = () => done(null);
+    $('mYes').onclick = () => { const v = collect(); if (v !== false) done(v); };
+  });
+}
+
+// ================= 拆分：待发货的指令按产品/数量拆成两张 =================
+function splitRowLabel(r) { const p = P(r); return isShoe(r) ? `${esc(p.spu)} ${esc(p.color)} <b>${esc(p.size)}</b>` : `${esc(p.n)}`; }
+async function openSplit(o) {
+  const rows = [...grouped(o.rows.filter((r) => !isShoe(r))), ...shoeGroups(o.rows.filter(isShoe)).flat()];
+  const body = `<div class="hint" style="margin-bottom:8px">填要拆出去的数量（有箱规的按箱、没箱规的按件），拆出的部分变成一张新的待发货指令，原单留剩下的；发货计划里的行跟着拆。整行拆出点「全部」。</div>
+    <div class="lines"><table class="tbl"><thead><tr><th>产品</th><th>MSKU</th><th>采购单</th><th>现在</th><th>拆出</th><th></th></tr></thead><tbody>
+    ${rows.map((r) => { const box = byBox(r), max = box ? +r.boxes : tot(r);
+      return `<tr><td>${splitRowLabel(r)}</td><td class="mono">${esc(P(r).m)}</td><td class="mono">${esc(r.po) || '—'}</td>
+        <td>${box ? `${esc(r.perBox)} × ${esc(r.boxes)} 箱 = ${tot(r)}` : `${tot(r)} 件`}</td>
+        <td><input class="num" data-split="${r.id}" data-max="${max}" placeholder="0" style="width:70px"> ${box ? '箱' : '件'}</td>
+        <td><button class="link" onclick="this.closest('tr').querySelector('[data-split]').value=${max}">全部</button></td></tr>`; }).join('')}
+    </tbody></table></div>`;
+  return modal(`拆分 ${o.no}`, body, '拆出的新指令沿用原单的店铺、开船日期、分仓和渠道（货件号清空，单独填）', '确定拆分', () => {
+    const amt = {}; let bad = '';
+    document.querySelectorAll('[data-split]').forEach((i) => { const v = +i.value || 0, mx = +i.dataset.max; if (v < 0 || v > mx || !Number.isInteger(v)) bad = '拆出数量要是 0 到现有数量之间的整数'; if (v) amt[i.dataset.split] = v; });
+    if (bad) { toast(bad); return false; }
+    if (!Object.keys(amt).length) { toast('至少填一行拆出数量'); return false; }
+    return amt;
+  });
+}
+async function doSplit(o, amt) {
+  await fresh(o, ['待发货']);
+  const A = [], B = [];
+  for (const r of clone(o.rows)) {
+    const a = +amt[r.id] || 0;
+    if (!a) { A.push(r); continue; }
+    if (byBox(r)) {
+      if (a >= +r.boxes) B.push(r);                                         // 整行拆走：发货计划那一行跟着转到新单
+      else { A.push({ ...r, boxes: +r.boxes - a }); B.push({ ...r, boxes: a, planRec: undefined, id: ++rowSeq }); }
+    } else {
+      if (a >= tot(r)) B.push(r);
+      else { A.push({ ...r, qty: tot(r) - a }); B.push({ ...r, qty: a, planRec: undefined, id: ++rowSeq }); }
+    }
+  }
+  if (!B.length) throw new Error('没有要拆出的数量');
+  if (!A.length) throw new Error('全部拆走等于没拆；要整单改就驳回后修改');
+  const SB = { rows: B, store: o.store || storeOf(o), shipDate: o.shipDate, split: o.split, ships: o.ships.map(({ ch, eta }) => ({ no: '', ch, eta })), note: `从 ${o.no} 拆出` + (o.note ? '；' + o.note : '') };
+  busy('建新指令…');
+  const nb = await createOrder(SB, { '状态': '待发货', '审核时间': Date.now(), '分批计划': o.plan || null });
+  const oB = { ...SB, rid: nb.rid, no: nb.no };
+  busy('写发货计划…');
+  const rowsB = await syncPlan(oB, B);
+  await setOrder(oB, { '明细JSON': JSON.stringify(rowsB.map(({ id, ...r }) => r)) });
+  const keepB = new Set(rowsB.map((r) => r.planRec).filter(Boolean));
+  const rowsA = await syncPlan(o, A, keepB);
+  const fA = orderFields({ ...o, rows: rowsA });
+  await setOrder(o, { '合计箱数': fA['合计箱数'], '合计件数': fA['合计件数'], '摘要': fA['摘要'], '明细JSON': fA['明细JSON'] });
+  return `已拆分：${o.no} 剩 ${sumOf(rowsA).qty.toLocaleString()} 件，拆出 ${nb.no} ${sumOf(rowsB).qty.toLocaleString()} 件（都在待发货）`;
+}
+
+// ================= 采购单多选：一行勾多张采购单 → 每张一行 =================
+async function openPoMulti(S, row) {
+  const p = P(row), pos = poBySku[p.sku] || [];
+  const body = `<div class="hint" style="margin-bottom:8px">${esc(p.n)} <span class="mono">${esc(p.m)}</span>：勾选要出货的采购单并填件数（默认 = 剩余发货数），确定后这一行按采购单拆成几行，每行一个采购单${byBox(row) || +row.perBox > 0 ? '，按每箱 ' + esc(row.perBox) + ' 自动算箱数、零头另起尾箱行' : ''}。</div>
+    <div class="lines"><table class="tbl"><thead><tr><th></th><th>采购单</th><th>下单</th><th>到货</th><th>采购数</th><th>剩余发货数</th><th>本次件数</th></tr></thead><tbody>
+    ${pos.map((o) => `<tr><td><input type="checkbox" data-pm="${esc(o.po)}" ${o.po === row.po ? 'checked' : ''}></td><td class="mono">${esc(o.po)}</td><td>${md(o.d)}</td><td>${esc(o.st)}</td><td>${o.q}</td><td>${o.rem ?? '—'}</td>
+      <td><input class="num" data-pmq="${esc(o.po)}" value="${o.po === row.po && tot(row) ? tot(row) : (o.rem != null && o.rem > 0 ? o.rem : o.q)}" style="width:80px"></td></tr>`).join('')}
+    </tbody></table></div>`;
+  return modal('选多张采购单', body, '每张采购单单独一行，写进发货计划时各挂各的采购合同，出口对账能算清每张单发了多少', '确定', () => {
+    const sel = [...document.querySelectorAll('[data-pm]:checked')].map((c) => ({ po: c.dataset.pm, qty: +document.querySelector(`[data-pmq="${CSS.escape(c.dataset.pm)}"]`).value || 0 }));
+    if (!sel.length) { toast('至少勾一张采购单'); return false; }
+    if (sel.some((x) => !(x.qty > 0))) { toast('勾选的采购单件数要大于 0'); return false; }
+    return sel;
+  });
+}
+function applyPoMulti(S, row, sel) {
+  const at = S.rows.indexOf(row), per = +row.perBox || 0, out = [];
+  for (const { po, qty } of sel) {
+    const base = { ...row, po, planRec: undefined };
+    if (per > 0) {
+      const full = Math.floor(qty / per), tail = qty - full * per;
+      if (full) out.push({ ...base, id: ++rowSeq, boxes: full, qty: '' });
+      if (tail) out.push({ ...base, id: ++rowSeq, perBox: tail, boxes: 1, qty: '', note: '尾箱' });
+    } else out.push({ ...base, id: ++rowSeq, perBox: '', boxes: '', qty });
+  }
+  S.rows.splice(at, 1, ...out);
+  return `已按 ${sel.length} 张采购单拆成 ${out.length} 行`;
+}
+
 // 提交前确认：把 FNSKU / SKU / 数量 标红让运营再核一遍
 function confirmSubmit(os) {
   const body = os.map((o) => {
@@ -1245,6 +1341,7 @@ main.addEventListener('click', (e) => {
     const row = S.rows.find((r) => r.id === +t.closest('tr')?.dataset.r);
     if (a === 'splitRow') { const nr = newRow(P(row)); nr.po = row.po; S.rows.splice(S.rows.indexOf(row) + 1, 0, nr); render(); return; }
     if (a === 'delRow') { const rr = row || S.rows.find((r) => r.id === +t.closest('[data-r]')?.dataset.r); S.rows = S.rows.filter((x) => x !== rr); render(); return; }
+    if (a === 'poMulti') { const rr = row; return openPoMulti(S, rr).then((sel) => { if (sel) { toast(applyPoMulti(S, rr, sel)); render(); } }); }
     if (a === 'delGroup') { const ids = t.closest('.shoe-grp').dataset.ids.split(',').map(Number); S.rows = S.rows.filter((r) => !ids.includes(r.id)); render(); return; }
   }
   if (a === 'saveNew') {
@@ -1282,6 +1379,7 @@ main.addEventListener('click', (e) => {
   }
   if (a === 'withdraw') return act('撤回中', async () => { await fresh(o, ['待审核']); await setOrder(o, { '状态': '草稿' }); return '已撤回为草稿'; });
   if (a === 'del') return act('删除中', async () => { await fresh(o, ['草稿', '已驳回']); await delOrder(o); return `${o.no} 已删除`; });
+  if (a === 'splitOrder') return openSplit(o).then((amt) => amt && act('拆分中', () => doSplit(o, amt)));
   if (a === 'fillFba') return openFill([o]).then((nos) => nos && act('写货件号', () => saveFba([o], nos)));
   if (a === 'approve') return act('审核中（写入发货计划）', async () => `${o.no} 审核通过 → 已写入发货计划 ${await approve(o)} 行`);
   if (a === 'reject') { rejecting = o.no; render(); $('rejReason')?.focus(); return; }
