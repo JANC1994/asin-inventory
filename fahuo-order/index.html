@@ -180,7 +180,7 @@
   .fill-cands { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 8px; font-size: 12.5px; line-height: 1.8; }
   .split-opts { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; font-size: 13px; }
   .split-opts .seg button { padding: 3px 12px; }
-  .split-warn { color: var(--red); font-weight: 600; }
+  .split-warn { color: var(--red); font-weight: 600; line-height: 1.7; }
   .pick-err { position: sticky; top: 0; z-index: 2; background: var(--red-soft); color: var(--red); font-weight: 600; padding: 8px 12px; border-bottom: 1px solid #f9b9b7; }
   .modal { position: fixed; inset: 0; background: rgba(15,23,42,.45); z-index: 95; display: none; align-items: flex-start; justify-content: center; padding: 24px 12px; overflow: auto; }
   .modal.show { display: flex; }
@@ -936,6 +936,7 @@ function problems(o) {
   o.rows.forEach((r) => { if (!(tot(r) > 0)) e.push(`${P(r).m} 没填数量（填 每箱×箱数，或直接填总数）`); });
   if (!o.shipDate) e.push('没填发货日期');
   if (!o.ships[0].eta) e.push(o.split === '是' ? '至少填货件1的预计到达' : '没填预计到达');
+  { const w = splitWarn(o.rows, o.split, '这张单'); if (w) e.push(w); }
   usedShips(o).forEach((s) => {
     const nm = o.split === '是' ? `货件${s.i + 1}` : '货件';
     if (s.ch && CHS.length && !chByName[s.ch]) e.push(`${nm}渠道请从下拉里选`);
@@ -1051,7 +1052,7 @@ function orderCard(o, mode) {
     if (mine && (o.status === '草稿' || o.status === '已驳回')) acts += '<button class="btn sm ghost" data-act="edit">编辑</button><button class="btn sm" data-act="submit">提交审核</button><button class="btn sm red" data-act="del">删除</button>';
     if (mine && o.status === '待审核') acts += '<button class="btn sm ghost" data-act="withdraw">撤回</button>';
     if (rev && o.status === '待审核') acts += '<button class="btn sm green" data-act="approve">审核通过</button><button class="btn sm red" data-act="reject">驳回</button>';
-  } else if (rev) acts += `<button class="btn sm" data-act="fillFba">${built(o) ? '改货件号' : '填货件号'}</button>${built(o) ? '' : '<button class="btn sm ghost" data-act="splitOrder">拆分</button>'}<button class="btn sm red" data-act="reject">驳回到指令列表</button>`;
+  } else if (rev) acts += `<button class="btn sm" data-act="fillFba">${built(o) ? '改货件号' : '填货件号'}</button><button class="btn sm ghost" data-act="fillPo">${o.rows.every((r) => r.po) ? '改采购单' : '填采购单'}</button>${built(o) ? '' : '<button class="btn sm ghost" data-act="splitOrder">拆分</button>'}<button class="btn sm red" data-act="reject">驳回到指令列表</button>`;
   if (!editing && mode === 'list' && mine) acts += '<button class="btn sm ghost" data-act="copy">复制</button>';
   // 拆分：提交人拆自己的草稿/被驳回；审核人拆待审核（待发货的拆分按钮在上面审核人那组）
   if (!editing && mode === 'list' && !built(o) && ((mine && (o.status === '草稿' || o.status === '已驳回')) || (rev && o.status === '待审核'))) acts += '<button class="btn sm ghost" data-act="splitOrder">拆分</button>';
@@ -1215,8 +1216,16 @@ function reShips(o, split) {
   const c = countryOf(o.rows), off = split === '是' ? ETA_SPLIT : [c === '加拿大' ? 40 : 35];
   return Array.from({ length: SHIP_SLOTS }, (_, i) => ({ no: '', ch: i === 0 ? (o.ships[0]?.ch || '') : (split === '是' ? (o.ships[i]?.ch || '') : ''), eta: i < off.length && o.shipDate ? ds(dn(o.shipDate) + off[i]) : '' }));
 }
-function splitWarn(boxes, split, who) {
-  return split === '是' && boxes != null && boxes > 0 && boxes < MIN_SPLIT_BOXES ? `${who}只有 ${boxes} 箱，低于 ${MIN_SPLIT_BOXES} 箱不能分仓，请改成「不分仓」` : '';
+// 分仓要每个 SKU 至少 5 箱（用户 11-03 定：任一 SKU 低于 5 箱就不能分仓，不看总箱数）
+function smallSkus(rows) {
+  const g = {};
+  for (const r of rows) { const k = r.key; (g[k] ||= { m: P(r).m, boxes: 0, ok: true }); if (byBox(r)) g[k].boxes += +r.boxes; else g[k].ok = false; }
+  return Object.values(g).filter((x) => x.ok && x.boxes > 0 && x.boxes < MIN_SPLIT_BOXES);
+}
+function splitWarn(rows, split, who) {
+  if (split !== '是') return '';
+  const s = smallSkus(rows);
+  return s.length ? `${who}里 ${s.map((x) => `${x.m} 只有 ${x.boxes} 箱`).join('、')}，任一 SKU 低于 ${MIN_SPLIT_BOXES} 箱不能分仓，请改成「不分仓」` : '';
 }
 async function openSplit(o) {
   if (built(o)) { toast('已建货件的指令不能拆分'); return null; }
@@ -1241,7 +1250,7 @@ async function openSplit(o) {
     const info = (b, q) => `${b != null ? b + ' 箱 · ' : ''}${q.toLocaleString()} 件`;
     document.querySelector('[data-sinfo="A"]').textContent = info(s.boxA, s.qtyA);
     document.querySelector('[data-sinfo="B"]').textContent = info(s.boxB, s.qtyB);
-    const w = [splitWarn(s.boxA, choice.A, '原单剩下的'), splitWarn(s.boxB, choice.B, '拆出的新单')].filter(Boolean);
+    const w = [splitWarn(s.A, choice.A, '原单剩下的'), splitWarn(s.B, choice.B, '拆出的新单')].filter(Boolean);
     document.getElementById('splitWarn').innerHTML = w.map((x) => `⚠ ${esc(x)}`).join('<br>');
     return w;
   };
@@ -1282,7 +1291,7 @@ async function doSplit(o, choice) {
   }
   if (!B.length) throw new Error('没有要拆出的数量');
   if (!A.length) throw new Error('全部拆走等于没拆；要整单改就驳回后修改');
-  const pa = splitParts(o, amt), w = [splitWarn(pa.boxA, splitA, '原单剩下的'), splitWarn(pa.boxB, splitB, '拆出的新单')].filter(Boolean);
+  const pa = splitParts(o, amt), w = [splitWarn(pa.A, splitA, '原单剩下的'), splitWarn(pa.B, splitB, '拆出的新单')].filter(Boolean);
   if (w.length) throw new Error(w[0]);
   const shipsA = reShips(o, splitA), shipsB = reShips(o, splitB).map(({ ch, eta }) => ({ no: '', ch, eta }));
   const oA = { ...o, split: splitA, ships: shipsA };
@@ -1308,6 +1317,35 @@ async function doSplit(o, choice) {
   const fA = orderFields({ ...oA, rows: rowsA });
   await setOrder(o, { '合计箱数': fA['合计箱数'], '合计件数': fA['合计件数'], '摘要': fA['摘要'], '明细JSON': fA['明细JSON'], '是否分仓': splitA, '货件JSON': fA['货件JSON'] });
   return `已拆分：${o.no} 剩 ${sumOf(rowsA).qty.toLocaleString()} 件，拆出 ${nb.no} ${sumOf(rowsB).qty.toLocaleString()} 件（都在待发货）`;
+}
+
+// ================= 待发货：审核人补填采购单号（同步发货计划的采购合同关联） =================
+async function openPoFill(o) {
+  const lamp = grouped(o.rows.filter((r) => !isShoe(r))), shoes = shoeGroups(o.rows.filter(isShoe));
+  const opts = (sku) => (poBySku[sku] || []).map((x) => `<option value="${esc(x.po)}">下单${md(x.d)} · 共${x.q} · 剩${x.rem ?? '—'} · ${esc(x.st)}</option>`).join('');
+  const body = `<div class="hint" style="margin-bottom:8px">每行填一个采购单号（可从下拉选，也可手填）；鞋子按 款·颜色 一组填一个。保存后写回本指令，并更新发货计划对应行的采购合同关联（已填的货件号不动）。</div>
+    <div class="lines"><table class="tbl"><thead><tr><th>产品</th><th>MSKU</th><th>数量</th><th>采购单号</th></tr></thead><tbody>
+    ${lamp.map((r) => `<tr><td>${esc(P(r).n)}${r.note ? ` <span class="hint">${esc(r.note)}</span>` : ''}</td><td class="mono">${esc(P(r).m)}</td><td>${tot(r)}</td>
+      <td><input class="mono" data-pof="${r.id}" list="pof-${r.id}" value="${esc(r.po || '')}" placeholder="采购单号" style="width:150px"><datalist id="pof-${r.id}">${opts(P(r).sku)}</datalist></td></tr>`).join('')}
+    ${shoes.map((rs) => { const p = P(rs[0]); return `<tr><td>${esc(p.spu)} ${esc(p.color)} <span class="hint">${rs.length} 个尺码</span></td><td class="mono">${esc(p.m.replace(/-[^-]+$/, '-*'))}</td><td>${rs.reduce((s, r) => s + tot(r), 0)}</td>
+      <td><input class="mono" data-pofg="${rs.map((r) => r.id).join(',')}" list="pofg-${rs[0].id}" value="${esc(rs[0].po || '')}" placeholder="采购单号" style="width:150px"><datalist id="pofg-${rs[0].id}">${[...new Set(rs.flatMap((r) => (poBySku[P(r).sku] || []).map((x) => x.po)))].map((x) => `<option value="${esc(x)}">`).join('')}</datalist></td></tr>`; }).join('')}
+    </tbody></table></div>`;
+  return modal(`${o.no} · 填采购单号`, body, '采购单号要在「出口对账-采购合同」里对得上（单号 + SKU）才会挂关联，对不上的写进发货计划备注', '保存', () => {
+    const m = {};
+    document.querySelectorAll('[data-pof]').forEach((i) => { m[i.dataset.pof] = i.value.trim(); });
+    document.querySelectorAll('[data-pofg]').forEach((i) => i.dataset.pofg.split(',').forEach((id) => { m[id] = i.value.trim(); }));
+    return m;
+  });
+}
+async function savePo(o, m) {
+  await fresh(o, ['待发货']);
+  const rows = clone(o.rows); let n = 0;
+  rows.forEach((r) => { if (r.id in m && (r.po || '') !== m[r.id]) { r.po = m[r.id]; n++; } });
+  if (!n) return '采购单号没有变化';
+  const out = await syncPlan(o, rows);
+  await setOrder(o, { '明细JSON': JSON.stringify(out.map(({ id, ...r }) => r)) });
+  const miss = out.filter((r) => r.po && !poRec[r.po + '|' + P(r).sku]).length;
+  return `${o.no} 已更新 ${n} 行采购单号，发货计划已同步` + (miss ? `（${miss} 行在采购合同表里对不上，写进了备注）` : '');
 }
 
 // ================= 采购单多选：一行勾多张采购单 → 每张一行 =================
@@ -1450,6 +1488,7 @@ main.addEventListener('click', (e) => {
   }
   if (a === 'withdraw') return act('撤回中', async () => { await fresh(o, ['待审核']); await setOrder(o, { '状态': '草稿' }); return '已撤回为草稿'; });
   if (a === 'del') return act('删除中', async () => { await fresh(o, ['草稿', '已驳回']); await delOrder(o); return `${o.no} 已删除`; });
+  if (a === 'fillPo') return openPoFill(o).then((m) => m && act('写采购单号', () => savePo(o, m)));
   if (a === 'splitOrder') return openSplit(o).then((c) => c && act('拆分中', () => doSplit(o, c)));
   if (a === 'fillFba') return openFill([o]).then((nos) => nos && act('写货件号', () => saveFba([o], nos)));
   if (a === 'approve') return act('审核中（写入发货计划）', async () => `${o.no} 审核通过 → 已写入发货计划 ${await approve(o)} 行`);
