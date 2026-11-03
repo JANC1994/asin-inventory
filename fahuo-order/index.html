@@ -180,6 +180,9 @@
   .fill-cands { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 8px; font-size: 12.5px; line-height: 1.8; }
   .split-opts { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; font-size: 13px; }
   .split-opts .seg button { padding: 3px 12px; }
+  input.po-auto { border-color: #7cc47f; background: #f3fbf3; }
+  .auto-po { font-size: 11.5px; color: var(--green); margin-top: 2px; }
+  .auto-po.short { color: #c2410c; }
   .split-warn { color: var(--red); font-weight: 600; line-height: 1.7; }
   .pick-err { position: sticky; top: 0; z-index: 2; background: var(--red-soft); color: var(--red); font-weight: 600; padding: 8px 12px; border-bottom: 1px solid #f9b9b7; }
   .modal { position: fixed; inset: 0; background: rgba(15,23,42,.45); z-index: 95; display: none; align-items: flex-start; justify-content: center; padding: 24px 12px; overflow: auto; }
@@ -1320,15 +1323,40 @@ async function doSplit(o, choice) {
 }
 
 // ================= 待发货：审核人补填采购单号（同步发货计划的采购合同关联） =================
+// 自动带出采购单：本 SKU 还有剩余发货数的采购单，按下单日期从早到晚，先挑剩余够这一行的；同 SKU 多行在本次弹窗里依次扣减
+function poSuggester() {
+  const left = {};   // po|sku → 本次还可分配
+  const avail = (x) => { const k = x.po + '|' + x.sku; if (!(k in left)) left[k] = x.rem != null ? x.rem : x.q; return left[k]; };
+  return (sku, qty) => {
+    const list = (poBySku[sku] || []).slice().sort((a, b) => (a.d || '').localeCompare(b.d || ''));
+    const pick = list.find((x) => avail(x) >= qty) || list.filter((x) => avail(x) > 0).sort((a, b) => avail(b) - avail(a))[0];   // 都不够就选剩得最多的
+    if (!pick) return list.length ? { po: '', rem: 0, used: true } : null;
+    const before = avail(pick); left[pick.po + '|' + sku] = before - qty;
+    return { po: pick.po, rem: before, short: before < qty, qty };
+  };
+}
 async function openPoFill(o) {
   const lamp = grouped(o.rows.filter((r) => !isShoe(r))), shoes = shoeGroups(o.rows.filter(isShoe));
+  const sug = poSuggester(), auto = {};
+  for (const r of lamp) if (!r.po) { const s = sug(P(r).sku, tot(r)); if (s) auto[r.id] = s; }
+  // 鞋子一组：选能覆盖最多尺码（剩余够）的采购单
+  const autoG = {};
+  for (const rs of shoes) {
+    if (rs[0].po) continue;
+    const cnt = {};
+    rs.forEach((r) => (poBySku[P(r).sku] || []).forEach((x) => { if ((x.rem != null ? x.rem : x.q) >= tot(r)) cnt[x.po] = (cnt[x.po] || 0) + 1; }));
+    const best = Object.entries(cnt).sort((a, b) => b[1] - a[1])[0];
+    if (best) autoG[rs[0].id] = { po: best[0], n: best[1], of: rs.length };
+  }
+  const autoTag = (s) => !s ? '' : s.used ? '<div class="auto-po short">这个 SKU 的采购单剩余发货数已用完，请手填或核对</div>'
+    : `<div class="auto-po ${s.short ? 'short' : ''}">自动带出 · 剩 ${s.rem} 件${s.short ? `，不够本行 ${s.qty} 件` : ''}</div>`;
   const opts = (sku) => (poBySku[sku] || []).map((x) => `<option value="${esc(x.po)}">下单${md(x.d)} · 共${x.q} · 剩${x.rem ?? '—'} · ${esc(x.st)}</option>`).join('');
-  const body = `<div class="hint" style="margin-bottom:8px">每行填一个采购单号（可从下拉选，也可手填）；鞋子按 款·颜色 一组填一个。保存后写回本指令，并更新发货计划对应行的采购合同关联（已填的货件号不动）。</div>
+  const body = `<div class="hint" style="margin-bottom:8px">空着的行已按「该 SKU 还有剩余、下单最早、剩余够这一行」自动带出（绿色），请核对，可改；鞋子按 款·颜色 一组填一个。保存后写回本指令，并更新发货计划对应行的采购合同关联（已填的货件号不动）。</div>
     <div class="lines"><table class="tbl"><thead><tr><th>产品</th><th>MSKU</th><th>数量</th><th>采购单号</th></tr></thead><tbody>
     ${lamp.map((r) => `<tr><td>${esc(P(r).n)}${r.note ? ` <span class="hint">${esc(r.note)}</span>` : ''}</td><td class="mono">${esc(P(r).m)}</td><td>${tot(r)}</td>
-      <td><input class="mono" data-pof="${r.id}" list="pof-${r.id}" value="${esc(r.po || '')}" placeholder="采购单号" style="width:150px"><datalist id="pof-${r.id}">${opts(P(r).sku)}</datalist></td></tr>`).join('')}
+      <td><input class="mono ${auto[r.id]?.po ? 'po-auto' : ''}" data-pof="${r.id}" list="pof-${r.id}" value="${esc(r.po || auto[r.id]?.po || '')}" placeholder="${(poBySku[P(r).sku] || []).length ? '采购单号' : '该 SKU 没有采购单，手填'}" style="width:150px">${autoTag(auto[r.id])}<datalist id="pof-${r.id}">${opts(P(r).sku)}</datalist></td></tr>`).join('')}
     ${shoes.map((rs) => { const p = P(rs[0]); return `<tr><td>${esc(p.spu)} ${esc(p.color)} <span class="hint">${rs.length} 个尺码</span></td><td class="mono">${esc(p.m.replace(/-[^-]+$/, '-*'))}</td><td>${rs.reduce((s, r) => s + tot(r), 0)}</td>
-      <td><input class="mono" data-pofg="${rs.map((r) => r.id).join(',')}" list="pofg-${rs[0].id}" value="${esc(rs[0].po || '')}" placeholder="采购单号" style="width:150px"><datalist id="pofg-${rs[0].id}">${[...new Set(rs.flatMap((r) => (poBySku[P(r).sku] || []).map((x) => x.po)))].map((x) => `<option value="${esc(x)}">`).join('')}</datalist></td></tr>`; }).join('')}
+      <td><input class="mono ${autoG[rs[0].id] ? 'po-auto' : ''}" data-pofg="${rs.map((r) => r.id).join(',')}" list="pofg-${rs[0].id}" value="${esc(rs[0].po || autoG[rs[0].id]?.po || '')}" placeholder="采购单号" style="width:150px">${autoG[rs[0].id] ? `<div class="auto-po">自动带出 · 覆盖 ${autoG[rs[0].id].n}/${autoG[rs[0].id].of} 个尺码</div>` : ''}<datalist id="pofg-${rs[0].id}">${[...new Set(rs.flatMap((r) => (poBySku[P(r).sku] || []).map((x) => x.po)))].map((x) => `<option value="${esc(x)}">`).join('')}</datalist></td></tr>`; }).join('')}
     </tbody></table></div>`;
   return modal(`${o.no} · 填采购单号`, body, '采购单号要在「出口对账-采购合同」里对得上（单号 + SKU）才会挂关联，对不上的写进发货计划备注', '保存', () => {
     const m = {};
