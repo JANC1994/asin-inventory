@@ -16,6 +16,8 @@
   2026-10-23：「目标填写」视图撤掉，五期日均/阶段目标统一在「目标填写」页（存 产品目标总表-灯）填；本页只读，
     优先显示目标总表的当前值（读不到就用追踪表副本，X21 每晚同步）。X21 把空的今日分析沿用上一日，
     所以「已分析」= 4 项任一有字且和前一日不完全一样。
+  2026-11-04：问题/归因拆两个字段（可手填可下拉勾选）、竞品动态取消；操作闭环（预期效果/复盘时间/实际效果/效果判断，写日行，
+    连续相同的计划操作算同一条操作）；7日计划取代昨日计划；归档不关注（战役行 归档生效日，生效后并入售罄）。
   四条硬规矩见 wiki/页面设计/概念/飞书应用自定义插件页.md。
 -->
 <style>
@@ -66,7 +68,7 @@
   .pc.big .pc-img { width: 72px; height: 72px; }
   .pc.big .pc-title b { font-size: 16px; }
   .pc-body, .pc-top { display: grid; grid-template-columns: minmax(320px, .95fr) minmax(330px, 1.05fr) minmax(320px, 1.1fr); gap: 16px; align-items: start; }
-  .pc-top { align-items: stretch; padding-bottom: 12px; border-bottom: 1px dashed var(--line2); }
+  .pc-top { grid-template-columns: minmax(320px, 1fr) minmax(330px, 1fr); align-items: stretch; padding-bottom: 12px; border-bottom: 1px dashed var(--line2); }
   .pc-top .pc-head { align-self: center; min-width: 0; }
   .prog-big { background: #fcfaf7; border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; display: flex; flex-direction: column; justify-content: center; gap: 6px; min-width: 0; }
   .pg-h { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 12.5px; color: var(--sub); font-weight: 600; }
@@ -99,6 +101,66 @@
   .af textarea.dirty { border-color: #f2b705; background: #fffbea; }
   .pc.editing .af textarea { display: block; } .pc.editing .af:not(.goal-cur):not(.yest-box) .af-v { display: none; }
   .pc.editing .af.blank { border-style: solid; }
+  .af.wide { grid-column: 1 / -1; }
+  .af-k { display: flex; justify-content: space-between; align-items: center; gap: 6px; }
+  .pick { display: none; position: relative; font-weight: 500; }
+  .pc.editing .pick { display: block; }
+  .pick summary { list-style: none; cursor: pointer; font-size: 11.5px; color: var(--or-d); background: var(--or-soft); border: 1px solid var(--or-soft2); border-radius: 6px; padding: 1px 7px; white-space: nowrap; }
+  .pick summary::-webkit-details-marker { display: none; }
+  .pick-l { position: absolute; right: 0; top: calc(100% + 4px); z-index: 30; width: 340px; max-width: 80vw; background: #fff; border: 1px solid var(--line2); border-radius: 8px; box-shadow: 0 8px 20px rgba(80,50,20,.18); padding: 5px; }
+  .pick-l label { display: flex; align-items: center; gap: 6px; padding: 4px 6px; border-radius: 5px; font-size: 12.5px; color: var(--ink); cursor: pointer; }
+  .pick-l label:hover { background: var(--or-soft); }
+  .pick-l label.off { color: #c3b8ad; cursor: not-allowed; background: none; }
+  .pick-n { font-size: 11.5px; color: var(--sub); padding: 2px 6px 4px; border-bottom: 1px solid var(--line); }
+  .pick-c { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+  .pick-c > div + div { border-left: 1px dashed var(--line2); padding-left: 4px; }
+  .pick-g { font-size: 12px; font-weight: 700; color: var(--or-d); padding: 6px 6px 2px; }
+  .arch { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
+  /* 操作闭环 + 7 日计划 */
+  .loop { background: #fcfaf7; border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+  .flow-r { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 8px; align-items: stretch; }
+  .flow-l { display: flex; align-items: center; justify-content: center; writing-mode: vertical-rl; letter-spacing: 3px; font-size: 12px; font-weight: 700; color: var(--or-d); background: var(--or-soft); border-radius: 8px; }
+  .flow.diag { grid-template-columns: 1.2fr 1.3fr 1.3fr 1.2fr; }
+  .flow.act { grid-template-columns: 2fr 2fr 1fr; }
+  .flow.goalrow { grid-template-columns: 1fr 1fr; gap: 10px; }
+  .flow.goalrow.g3 { grid-template-columns: 1fr 1fr 1fr; }
+  .flow.goalrow .goal-cur { grid-column: auto; }
+  .lp.af { padding: 8px 10px; }
+  .lp.jd .af-k { align-items: center; }
+  .lp.jd .reason { margin: 4px 0 0; font-size: 13px; }
+  .goalbar { background: #fcfaf7; border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px 10px; min-width: 0; }
+  .loop-h { display: flex; align-items: center; gap: 10px; }
+  .loop-h b { font-size: 14px; color: var(--or-d); }
+  .loop-h .acts { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+  .loop-h [data-msg] { font-size: 11.5px; color: var(--sub); }
+  .flow { display: grid; grid-template-columns: 1.5fr 1.5fr .8fr 1.5fr .8fr; gap: 18px; }
+  .lp { position: relative; background: #fff; border: 1px solid var(--line2); border-radius: 8px; padding: 8px 10px; min-width: 0; }
+  .lp + .lp::before { content: '→'; position: absolute; left: -15px; top: 50%; transform: translateY(-50%); color: var(--or); font-weight: 700; font-size: 14px; }
+  .vw { font-size: 13.5px; font-weight: 600; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+  .vw.mute, .mute { color: #c3b8ad; font-weight: 400; font-size: 12.5px; }
+  .ed { display: none; }
+  .pc.editing .ed { display: block; }
+  .pc.editing .vw { display: none; }
+  textarea.ed, .ed input, select.ed { width: 100%; box-sizing: border-box; border: 1px solid var(--or-soft2); border-radius: 6px; padding: 5px 7px; font: 600 13px/1.5 inherit; font-family: inherit; color: var(--ink); background: #fffdfa; }
+  textarea.ed { min-height: 56px; resize: vertical; }
+  .ed.dirty, .ed input.dirty { border-color: #f2b705; background: #fffbea; }
+  .quick { display: flex; gap: 4px; margin-top: 4px; }
+  .quick .btn { padding: 0 6px; height: 22px; font-size: 11.5px; }
+  .st { display: inline-block; border-radius: 10px; padding: 1px 8px; font-size: 12px; font-weight: 700; white-space: nowrap; }
+  .st.ok { background: var(--green-soft); color: var(--green); } .st.bad { background: var(--red-soft); color: var(--red); }
+  .st.due { background: var(--yellow-soft); color: var(--yellow); } .st.wait { background: var(--or-soft); color: var(--or-d); } .st.none { background: var(--grey-soft); color: var(--grey); font-weight: 500; }
+  .h7-t b { font-size: 13px; color: var(--or-d); }
+  .h7-w { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; }
+  .h7 { font-size: 12.5px; background: #fff; }
+  .h7 th { text-align: left; background: #fcfaf7; color: var(--sub); font-weight: 600; padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  .h7 td { padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; word-break: break-word; }
+  .h7 tr:last-child td { border-bottom: 0; }
+  .h7 .vw { font-size: 12.5px; font-weight: 500; }
+  .h7 td.d { white-space: nowrap; color: var(--sub); font-variant-numeric: tabular-nums; }
+  .h7 td.d small { display: block; font-size: 11px; color: var(--grey); }
+  .h7 tr.now td { background: #fff9f1; }
+  .h7-e { padding: 2px 0; }
+  @media (max-width: 1100px) { .flow, .flow.diag, .flow.act, .flow.goalrow.g3 { grid-template-columns: 1fr 1fr; } .lp + .lp::before { display: none; } }
   .af.yest-box { background: var(--grey-soft); border-color: var(--line); }
   .af.yest-box .af-k { color: var(--sub); }
   .af.yest-box .af-v { font-size: 13px; font-weight: 500; }
@@ -117,7 +179,7 @@
   .goalbox .goal label { width: auto; padding-top: 0; }
   .goalbox .goal textarea { border: 1px solid var(--line); background: #fffdfa; min-height: 44px; }
   .goalbox .pfoot { padding: 6px 0 0; }
-  @media (max-width: 1380px) { .pc-body, .pc-top { grid-template-columns: 1fr 1fr; } .pc-col.fill, .pc-top .judge { grid-column: 1 / -1; } .pc-col.fill { border-left: 0; padding-left: 0; border-top: 1px dashed var(--line2); padding-top: 10px; } }
+  @media (max-width: 1380px) { .pc-body, .pc-top { grid-template-columns: 1fr 1fr; } .pc-col.fill, .pc-top .goalbar { grid-column: 1 / -1; } .pc-col.fill { border-left: 0; padding-left: 0; border-top: 1px dashed var(--line2); padding-top: 10px; } }
   @media (max-width: 760px) { .pc-body, .pc-top { grid-template-columns: 1fr; } }
   @media (max-width: 900px) { .lib { grid-template-columns: 1fr; } .side { position: static; max-height: 220px; } }
   .meta { color: var(--sub); font-size: 12px; }
@@ -297,8 +359,8 @@
   <div class="hero hero-top">
     <div class="hero-t">
       <h2>季节品每日追踪</h2>
-      <p class="desc">每张卡 = 一个季节品链接（SKU×国家）。左侧按 SPU 列出（红灯多的排前），按销售季分组可折叠，点哪个 SPU 右边就显示它每个产品的横向大卡（左：阶段预估+库存，中：数据，右：目标和计划）。红黄绿灯和原因由系统每天按追踪表判定；
-        「今日分析」每天自动沿用上一日的内容，点「记动作」改完保存即可；「红/黄未分析」= 当天亮红/黄灯、但竞品动态/问题归因/计划/建议操作都没填、或和上一日一字不差的产品。
+      <p class="desc">每张卡 = 一个季节品链接（SKU×国家）。左侧按 SPU 列出（红灯多的排前），按销售季分组可折叠，点哪个 SPU 右边就显示它每个产品的横向大卡（上：数据——阶段预估、当日数据、库存、近 7 天；下：目标→判灯→问题→归因→计划→复盘 一条线 + 7 日计划）。红黄绿灯和原因由系统每天按追踪表判定；
+        「今日分析」每天自动沿用上一日的内容，点「记动作」改完保存即可；「红/黄未分析」= 当天亮红/黄灯、但问题/归因/计划/建议操作都没填、或和上一日一字不差的产品；「待复盘」= 操作已到复盘时间、还没判断有效/无效。
         各阶段日均可直接点数字改、阶段日期双击改，保存写入产品目标总表（与「目标填写」页同一份）；阶段文字目标在「目标填写」页改。数据来源：季节品追踪表 + 产品目标总表，每天更新。</p>
     </div>
   </div>
@@ -306,7 +368,7 @@
     <div class="hero hero-f">
       <select id="owner"><option value="">— 选择负责人 —</option></select>
       <select id="date" class="date"></select>
-      <label class="ck"><input type="checkbox" id="showSold"> 显示售罄 <span id="soldCnt"></span></label>
+      <label class="ck"><input type="checkbox" id="showSold"> 显示售罄/归档 <span id="soldCnt"></span></label>
       <span class="meta" id="meta">数据加载中…</span>
     </div>
     <div id="filters"></div>
@@ -330,10 +392,19 @@ async function loadSdk() {
 }
 const BASE_TOKEN = 'JGvebyaAYapWtOslxc9cuKYXnwd';   // 灯具组-全流程
 const TDATES = ['起量期开始', '爆发期开始', '高峰期开始', '消退期开始', '清仓期开始', '清仓期结束'];   // 季节品时段：只认目标总表
-const ANA_FIELDS = ['产品目标', '关键指标', '竞品动态', '当前问题+归因', '计划操作', '建议操作'];   // 今日分析：可编辑、写回日行
+const ANA_FIELDS = ['产品目标', '关键指标', '问题', '归因', '计划操作', '建议操作'];   // 今日分析：可编辑、写回日行
+const LOOP_FIELDS = ['预期效果', '复盘时间', '实际效果', '效果判断'];   // 操作闭环：写回日行；X21 不沿用，页面按「同一条操作」取值
+// 问题 = 看到的现象；归因 = 为什么。选项从现有填写内容归纳，要增删直接改这两个数组
+const PICK = {
+  问题: { 流量: ['引流不足', '点击率低', '广告花不出去', '广告无效花费', '关键词排名上不去'],
+          转化: ['转化差', '广告不出单', '自然单少', '广告成本高'] },
+  归因: { 流量: ['广告预算不足', '投放词不准', '关键词权重低', '竞品抢位', '主图吸引力弱', '季节节奏未到', '季节需求回落'],
+          转化: ['价格偏高', '竞品低价/Deal', 'Review少/评分低', '详情页说服力弱', '购物车问题', '可售库存不足', '产品竞争力弱'] },
+};
+const PICK_MAX = 2;   // 每个下拉框最多勾 2 项（手填文字不计）
 const STAGES = ['起量期', '爆发期', '高峰期', '消退期', '清仓期'];
 // 「已分析」= 当天日行这 4 项任一有字（产品目标/关键指标 每天沿用，不算）
-const ANA_DONE_FIELDS = ['竞品动态', '当前问题+归因', '计划操作', '建议操作'];
+const ANA_DONE_FIELDS = ['问题', '归因', '计划操作', '建议操作'];
 const TABLES = {
   // view：表里的视图「插件-近7天（季节品页面用，勿删）」= 战役行 + 近7天的日行（约 730 行，全表 5000+ 行太慢）
   track: { id: 'tblKdwDOmVZxf6DN', name: '季节品追踪表', view: 'vew0aHeZlE', fields: [
@@ -343,7 +414,7 @@ const TABLES = {
     '近7日均量', '阶段达成率', '正价段目标销量', '应达销量',
     '采购数量', '国内仓可用-SKU级共享', '售罄率', '预计冗余数量', '库存快照',
     ...STAGES.map((s) => s + '日均'), ...STAGES, ...STAGES.map((s) => s + '天数'), ...STAGES.map((s) => s + '目标'), '预估销量-整季', '累计销量', '销售进度',
-    ...ANA_FIELDS] },
+    ...ANA_FIELDS, ...LOOP_FIELDS, '归档生效日'] },
   pm: { id: 'tblqksywqgYvywOT', name: '产品主表-灯类+精铺', fields: ['领星SKU', '国家文本', '图片'] },
   // 目标在「目标填写」页填，存这里；追踪表战役行的同名字段是 X21 每晚抄过去的副本（授权靠「目标总览」页插件）
   // 10-30：五个时段（6 个日期）也只认目标总表；本页可改 日均 + 时段，保存直接写目标总表（追踪表副本当晚 X21 同步）
@@ -384,7 +455,7 @@ function cell(v) {
 function norm(name, v) {
   if (name === '上级记录') return linkIds(v);
   if (name === '图片') return Array.isArray(v) ? v.filter((x) => x && typeof x === 'object' && x.token) : [];
-  if (name === '日期' || TDATES.includes(name)) { if (v == null || v === '') return null; const t = typeof v === 'number' ? v : Date.parse(cell(v)); return isNaN(t) ? null : t; }
+  if (name === '日期' || name === '复盘时间' || name === '归档生效日' || TDATES.includes(name)) { if (v == null || v === '') return null; const t = typeof v === 'number' ? v : Date.parse(cell(v)); return isNaN(t) ? null : t; }
   return cell(v);
 }
 
@@ -402,7 +473,7 @@ function linkIds(v) {
 const DIAG = { missing: {}, raw: [], read: {} };   // 页面空白时显示的自查信息
 
 let SDK = null;
-const TBLS = {}, FIDS = {};
+const TBLS = {}, FIDS = {}, FMETA = {};
 async function readTable(key, full = false) {
   const cfg = TABLES[key];
   const table = await SDK.bitable.base.getTableById(cfg.id);
@@ -411,7 +482,7 @@ async function readTable(key, full = false) {
   const missing = cfg.fields.filter((w) => !idByName[w]);
   if (missing.length) console.warn(`表 ${cfg.name} 缺字段：`, missing);
   DIAG.missing[cfg.name] = missing;
-  TBLS[key] = table; FIDS[key] = idByName;
+  TBLS[key] = table; FIDS[key] = idByName; FMETA[key] = Object.fromEntries(fields.map((f) => [f.name, f]));
   const rows = [];
   let pageToken;
   for (let guard = 0; guard < 500; guard++) {
@@ -458,7 +529,40 @@ const isTodo = (x) => (x.light === 'red' || x.light === 'yellow') && !analyzed(x
 let ALL = [], CARDS = [], LATEST = null, DATES = [];
 let state = { owner:store.get('stp.owner') || '', date: null, light: 'all', season: 'all', stage: 'all', showSold: store.get('stp.showSold') === '1' };
 const WK = '日一二三四五六';
-const isSold = (x) => String(x.c['销售状态'] || '').includes('售罄');   // 销售状态 = ⛔售罄
+const archDay = (x) => (num(x.c['归档生效日']) != null ? dn(x.c['归档生效日']) : null);
+const isArchived = (x) => archDay(x) != null && state.date >= archDay(x);   // 归档生效日起并入售罄（不改 销售状态，X21 每晚会重写它）
+const isSold = (x) => String(x.c['销售状态'] || '').includes('售罄') || isArchived(x);   // 销售状态 = ⛔售罄 或 已归档不关注
+
+// ===== 操作闭环：所选日期往前 7 天，连续相同的 计划操作 = 同一条操作（X21 会把计划逐日沿用）=====
+const ymdOf = (ms) => (num(ms) != null ? ymdTxt(dn(ms)) : '');
+function planRuns(x) {
+  const D = state.date, runs = [];
+  const rows = x.ds.filter((d) => { const n = dn(d['日期']); return n <= D && (n >= D - 7 || (num(d['复盘时间']) != null && !txt(d, '效果判断'))); });   // 新→旧；超过 7 天但待复盘的也留着
+  let cur = null;
+  for (const r of rows) {
+    const t = txt(r, '计划操作');
+    if (!t) { cur = null; continue; }
+    if (!cur || cur.text !== t) { cur = { text: t, rows: [], to: dn(r['日期']), from: dn(r['日期']) }; runs.push(cur); }
+    cur.rows.push(r); cur.from = dn(r['日期']);
+  }
+  for (const u of runs) {
+    u.hasToday = u.to === D;
+    for (const f of LOOP_FIELDS) { const hit = u.rows.find((r) => (f === '复盘时间' ? num(r[f]) != null : txt(r, f))); u[f] = hit ? hit[f] : (f === '复盘时间' ? null : ''); }
+    u.st = runStatus(u);
+  }
+  return runs;
+}
+function runStatus(u) {
+  const v = txt(u, '效果判断');
+  if (v.includes('无效')) return { k: 'bad', t: '无效' };
+  if (v.includes('有效')) return { k: 'ok', t: '有效' };
+  if (num(u['复盘时间']) == null) return { k: 'none', t: '未定复盘' };
+  const left = dn(u['复盘时间']) - dn(Date.now());
+  return left <= 0 ? { k: 'due', t: left === 0 ? '今日复盘' : `待复盘 · 逾期${-left}天` } : { k: 'wait', t: `还有${left}天复盘` };
+}
+const needReview = (x) => planRuns(x).some((u) => u.st.k === 'due');
+// 一条操作的 预期/复盘/实际/判断 都写在同一行：已有复盘时间的那行，否则最新一行（视图靠 _待复盘 留住这行）
+const runRow = (u) => (u.rows.find((r) => num(r['复盘时间']) != null) || u.rows[0])._id;
 
 // 时段：6 个边界的北京天序号 [起量,爆发,高峰,消退,清仓开始, 清仓结束]；高峰空 = 高峰 0 天
 function boundsOf(t) {
@@ -514,6 +618,7 @@ function build(track, pm) {
              owner: c['负责人'] || '（未填负责人）', season: c['销售季分类'] || '（无分类）', spu: c['SPU'] || '（无SPU）' };
   });
   DATES = [...dset].sort((a, b) => b - a);
+  if (!LOADED_FULL) DATES = DATES.filter((d) => d >= DATES[0] - 7);
   LATEST = DATES.length ? DATES[0] : null;
   if (state.date == null) state.date = LATEST;
   applyDate();
@@ -776,7 +881,7 @@ function invHtml(x) {
 
 // ===== 近 7 天概览 =====
 function week7(x) {
-  const ds = x.ds.slice(0, 7).reverse();
+  const ds = x.ds.filter((d) => dn(d['日期']) >= dn(x.ds[0]['日期']) - 6).slice(0, 7).reverse();
   if (!ds.length) return `<div class="w7"><div class="meta">近 7 天没有日行数据</div></div>`;
   const vals = ds.map((d) => num(d['今日销量']) || 0);
   const tgt = x.target;
@@ -794,6 +899,64 @@ function week7(x) {
 }
 
 
+// ===== 下拉勾选：textarea 是唯一真值，勾选 = 往文字里加/去掉这个词（手填内容不受影响）=====
+function pickHtml(f) {
+  return `<details class="pick"><summary>下拉勾选 ▾</summary><div class="pick-l" data-pick="${esc(f)}"><div class="pick-n" data-pickn></div><div class="pick-c">${Object.entries(PICK[f]).map(([g, opts]) => `<div><div class="pick-g">${esc(g)}</div>${opts.map((o) => `<label><input type="checkbox" value="${esc(o)}"> ${esc(o)}</label>`).join('')}</div>`).join('')}</div></div></details>`;
+}
+function togglePhrase(text, o, on) {
+  const parts = text.split(/[、，,；;\n]/).map((p) => p.trim());
+  if (on) return parts.includes(o) ? text : (text.trim() ? `${text.trim()}、${o}` : o);
+  return text.split('、').filter((p) => p.trim() !== o).join('、').trim();
+}
+const hasPhrase = (text, o) => text.split(/[、，,；;\n]/).map((p) => p.trim()).includes(o);
+
+// ===== 归档按钮 =====
+function archBtn(x) {
+  return `<div class="arch"><button class="btn ghost" data-arch>${archDay(x) != null ? '取消归档' : '归档不关注'}</button><span class="meta" data-archmsg></span></div>`;
+}
+
+// ===== 操作闭环 + 7 日计划（卡片底部通栏）=====
+const stChip = (st) => `<span class="st ${st.k}">${esc(st.t)}</span>`;
+const edText = (row, f, v, ph = '') => `<textarea class="ed" data-f="${f}" data-row="${esc(row)}" data-orig="${esc(v || '')}" placeholder="${esc(ph)}">${esc(v || '')}</textarea>`;
+const edDate = (row, v) => { const y = ymdOf(v); return `<div class="ed"><input type="date" data-f="复盘时间" data-kind="date" data-row="${esc(row)}" data-orig="${y}" value="${y}"><div class="quick"><button class="btn ghost" data-plus="3">+3天</button><button class="btn ghost" data-plus="7">+7天</button></div></div>`; };
+const edVerdict = (row, v) => `<select class="ed" data-f="效果判断" data-kind="select" data-row="${esc(row)}" data-orig="${esc(v || '')}"><option value=""${v ? '' : ' selected'}>未判断</option>${['有效', '无效'].map((o) => `<option${v === o ? ' selected' : ''}>${o}</option>`).join('')}</select>`;
+const vwTxt = (v) => `<div class="vw${v ? '' : ' mute'}">${v ? esc(v) : '未填'}</div>`;
+function loopHtml(x, box, goals) {
+  const t = x.today;
+  if (!t) return `<div class="loop"><div class="loop-h"><b>今日分析</b><span class="meta">这一天没有日行</span></div></div>`;
+  const runs = planRuns(x), cur = runs.find((u) => u.hasToday) || null, id = t._id;
+  const val = (f) => (cur ? cur[f] : (f === '复盘时间' ? null : ''));
+  const step = (k, inner, cls = '') => `<div class="lp ${cls}"><div class="af-k">${k}</div>${inner}</div>`;
+  const rv = val('复盘时间');
+  const judge = `<div class="lp jd"><div class="af-k"><span>判灯</span><span class="light ${x.light}">${esc(x.lightTxt || '未判灯')}</span></div><div class="reason ${x.light}">${esc(t['红绿灯原因'] || x.c['红绿灯原因'] || '（表里无红绿灯原因）')}</div></div>`;
+  const diag = judge + box('问题', 'lp') + box('归因', 'lp') + box('建议操作', 'lp');
+  const lid = cur ? runRow(cur) : id, top = (h) => h.replace(/data-f=/g, 'data-top="1" data-f=');
+  const flow = step('计划操作', vwTxt(txt(t, '计划操作')) + edText(id, '计划操作', txt(t, '计划操作'), x.prev && x.prev['计划操作'] ? `昨日：${x.prev['计划操作']}` : ''), 'w2')
+    + step('预期效果', vwTxt(val('预期效果')) + top(edText(lid, '预期效果', val('预期效果'), '做完希望看到什么，如：3 天内日均回到目标')), 'w2')
+    + step('复盘时间', `<div class="vw${rv ? '' : ' mute'}">${rv ? fmtD(dn(rv)) : '未填'}</div>` + top(edDate(lid, rv)));
+  const hist = runs.filter((u) => !(u.hasToday && u.rows.length === 1 && u.st.k !== 'due'));
+  const reviewCells = (u, r) => (u.st.k === 'wait'
+    ? `<td>${vwTxt('')}<div class="ed mute">到复盘时间再填</div></td><td>${stChip(u.st)}</td>`
+    : `<td>${vwTxt(u['实际效果'])}${edText(r, '实际效果', u['实际效果'], '实际结果如何')}</td><td><div class="vw">${stChip(u.st)}</div>${edVerdict(r, u['效果判断'])}</td>`);
+  const rowsHtml = hist.map((u) => {
+    const r = runRow(u), range = u.from === u.to ? fmtD(u.from) : `${fmtD(u.from)} ~ ${u.hasToday ? '今日' : fmtD(u.to)}`;
+    const rvw = num(u['复盘时间']) != null ? fmtD(dn(u['复盘时间'])) : '';
+    if (u.hasToday) return `<tr class="now"><td class="d">${range}<small>沿用中 · ${u.rows.length}天</small></td><td>${esc(u.text)}</td><td>${esc(u['预期效果']) || '<span class="mute">—</span>'}</td><td>${rvw || '<span class="mute">—</span>'}</td>${reviewCells(u, r)}</tr>`;
+    return `<tr><td class="d">${range}${u.rows.length > 1 ? `<small>${u.rows.length}天</small>` : ''}</td><td>${esc(u.text)}</td>
+      <td>${vwTxt(u['预期效果'])}${edText(r, '预期效果', u['预期效果'])}</td>
+      <td><div class="vw${rvw ? '' : ' mute'}">${rvw || '未填'}</div>${edDate(r, u['复盘时间'])}</td>
+      ${reviewCells(u, r)}</tr>`;
+  }).join('');
+  return `<div class="loop">
+    <div class="loop-h"><b>今日分析 · ${fmtD(state.date)}</b><span class="meta">目标 → 判灯 → 问题 → 归因 → 计划 → 预期 → 复盘时间；到复盘时间在下面 7 日计划里填实际效果和判断</span><span class="acts"><span data-msg></span><button class="btn" data-edit>记动作</button><button class="btn primary" data-save style="display:none">保存</button></span></div>
+    <div class="flow-r"><span class="flow-l">目标</span>${goals}</div>
+    <div class="flow-r"><span class="flow-l">诊断</span><div class="flow diag">${diag}</div></div>
+    <div class="flow-r"><span class="flow-l">行动</span><div class="flow act">${flow}</div></div>
+    <div class="h7-t"><b>7 日计划</b> <span class="meta">过去 7 天的计划记录；连续相同的计划合并成一条</span></div>
+    ${rowsHtml ? `<div class="h7-w"><table class="h7"><thead><tr><th style="width:96px">日期</th><th>计划操作</th><th>预期效果</th><th style="width:110px">复盘时间</th><th>实际效果</th><th style="width:124px">效果判断</th></tr></thead><tbody>${rowsHtml}</tbody></table></div>` : '<div class="meta h7-e">过去 7 天没有计划记录</div>'}
+  </div>`;
+}
+
 // ===== 横向大卡片：左 = 阶段预估 + 库存；中 = 数据（当日指标/原因/近7天）；右 = 目标和计划 =====
 function bigCardHtml(x) {
   const c = x.c, t = x.today || {};
@@ -801,6 +964,9 @@ function bigCardHtml(x) {
   let tags = `<span class="tag">${esc(x.stage || '—')}</span><span class="tag g">${esc(x.season)}</span>${c['销售状态'] ? `<span class="tag g">${esc(c['销售状态'])}</span>` : ''}`;
   if (isTodo(x)) tags += `<span class="tag todo"${carried(x) ? ' title="今日分析和上一日一字不差（系统沿用），改一下再保存才算已分析"' : ''}>${carried(x) ? '未分析 · 沿用昨日' : '未分析'}</span>`;
   else if (carried(x)) tags += '<span class="tag g" title="今日分析和上一日一字不差（系统沿用）">沿用昨日</span>';
+  if (needReview(x)) tags += '<span class="tag todo">待复盘</span>';
+  const ad = archDay(x);
+  if (ad != null) tags += `<span class="tag g">${isArchived(x) ? '已归档 · 不关注' : `${fmtD(ad)} 起归档`}</span>`;
   // 中栏：数据
   let data;
   {
@@ -808,33 +974,29 @@ function bigCardHtml(x) {
     const tgt = x.hasStage ? (x.target != null ? fmtN(x.target, 1) : '<span class="tbd" title="战役行该阶段日均未填">未填</span>') : '—';
     data = `<div class="sec-t">当日数据 <span class="meta">${dateTxt}</span></div><div class="kpis">
         ${kpi('日销量 / 目标', `${fmtN(sale)} <small>/ ${tgt}</small>`)}
-        ${kpi('本周至今', TBD)}
+        ${kpi('销售额', fmtN(num(t['今日销售额']), 0))}
+        ${kpi('广告花费', fmtN(num(t['今日广告花费']), 0))}
         ${kpi('日TACoS', pct(tacos, 1), tacos != null && tacos > 0.25 ? 'bad' : '')}
         ${kpi('利润率', pct(margin, 1), margin != null && margin < 0 ? 'bad' : '')}
         ${kpi('阶段达成率', pct(num(c['阶段达成率'])))}
         ${kpi('应达 / 累计', `${fmtN(num(c['应达销量']))}<small> / ${fmtN(num(c['累计销量']))}</small>`)}
         ${kpi('近7日均量', fmtN(num(c['近7日均量']), 1))}</div>`;
   }
-  data += `<div><div class="sec-t">近 7 天 <span class="meta">柱色 = 当天红绿灯 · 虚线 = 当前阶段日均目标</span></div>${week7(x)}</div>`;
-  // 右栏：目标和计划
-  let plan;
+  const w7h = `<div><div class="sec-t">近 7 天 <span class="meta">柱色 = 当天红绿灯 · 虚线 = 当前阶段日均目标</span></div>${week7(x)}</div>`;
+  // 顶部目标 + 中部分析闭环
+  let loop;
   {
     // 每个字段一个框：看的时候显示文字，点「记动作」后同一个框里变成输入框
-    const box = (f) => {
+    const box = (f, cls = '') => {
       const v = t[f] ? String(t[f]).trim() : '';
       const prevV = x.prev && x.prev[f] ? `昨日：${x.prev[f]}` : '';
-      return `<div class="af${v ? '' : ' blank'}"><div class="af-k">${esc(f)}</div>
+      return `<div class="af ${cls}${v ? '' : ' blank'}"><div class="af-k">${esc(f)}${PICK[f] ? pickHtml(f) : ''}</div>
         <div class="af-v">${v ? esc(v) : '未填'}</div>
-        <textarea data-f="${esc(f)}" placeholder="${esc(prevV)}">${esc(t[f] || '')}</textarea></div>`;
+        <textarea data-f="${esc(f)}" data-row="${esc(t._id || '')}" data-orig="${esc(t[f] || '')}" placeholder="${esc(prevV)}">${esc(t[f] || '')}</textarea></div>`;
     };
-    const yest = x.prev && x.prev['计划操作'] ? esc(String(x.prev['计划操作']).trim()) : '—';
     const cur = x.hasStage && c[x.stage + '目标'] ? `<div class="af goal-cur"><div class="af-k">${esc(x.stage)}目标（阶段）</div><div class="af-v">${esc(c[x.stage + '目标'])}</div></div>` : '';
-    plan = `<div class="ana big-ana">
-        <div class="ana-h"><b>今日分析 · ${dateTxt}</b><span class="acts"><span data-msg></span>${x.today ? `<button class="btn" data-edit>记动作</button><button class="btn primary" data-save style="display:none">保存</button>` : ''}</span></div>
-        <div class="ag"><div class="ag-t">目标</div><div class="ag-b">${box('产品目标')}${box('关键指标')}${cur}</div></div>
-        <div class="ag"><div class="ag-t">问题与动作</div><div class="ag-b">${box('竞品动态')}${box('当前问题+归因')}${box('计划操作')}${box('建议操作')}</div></div>
-        <div class="af yest-box"><div class="af-k">昨日计划</div><div class="af-v">${yest}</div></div>
-      </div>`;
+    const goals = `<div class="flow goalrow${cur ? ' g3' : ''}">${box('产品目标')}${box('关键指标')}${cur}</div>`;
+    loop = loopHtml(x, box, goals);
   }
   const prog = num(t['_当日销售进度值']), w = Math.min(100, Math.max(0, (prog || 0) * 100));
   const sale0 = num(t['今日销量']), tgt0 = x.hasStage && x.target != null ? fmtN(x.target, 1) : '—';
@@ -844,23 +1006,20 @@ function bigCardHtml(x) {
         <div class="pc-img" data-img="${esc(c._id)}">${x.pm && x.pm._imgData ? `<img src="${x.pm._imgData}" alt="">` : '无图'}</div>
         <div class="pc-title"><b title="${esc(c['品名'])}">${esc(c['品名'] || c['领星SKU'])}</b>
           <div class="mono">${esc(c['ASIN'] || '—')} · ${esc(c['国家文本'] || '—')} · ${esc(c['店铺'] || '—')} · ${esc(c['领星SKU'] || '')}</div>
-          <div class="tags">${tags}</div></div>
+          <div class="tags">${tags}</div>${archBtn(x)}</div>
       </div>
       <div class="prog-big" title="表字段 当日销售进度（${dateTxt}）">
         <div class="pg-h"><span>当日销售进度 <small>${dateTxt}</small></span><b class="${prog != null && prog >= 1 ? 'ok' : ''}">${pct(prog)}</b></div>
         <div class="pg-bar"><i style="width:${w}%"></i>${prog > 1 ? '<em>超额</em>' : ''}</div>
         <div class="pg-s">日销量 <b>${fmtN(sale0)}</b> / 当前阶段日均目标 <b>${tgt0}</b>${x.stage ? ` · ${esc(x.stage)}` : ''}</div>
       </div>
-      <div class="judge">
-        <div class="jg-h"><span>判断依据</span><span class="light ${x.light}">${esc(x.lightTxt || '未判灯')}</span></div>
-        <div class="reason ${x.light}">${esc(t['红绿灯原因'] || c['红绿灯原因'] || '（表里无红绿灯原因）')}</div>
-      </div>
     </div>
     <div class="pc-body">
-      <div class="pc-col">${stagePlan(x, { open: true })}${invHtml(x)}</div>
-      <div class="pc-col">${data}</div>
-      <div class="pc-col fill">${plan}</div>
+      <div class="pc-col">${stagePlan(x, { open: true })}</div>
+      <div class="pc-col">${data}${invHtml(x)}</div>
+      <div class="pc-col">${w7h}</div>
     </div>
+    ${loop}
   </div>`;
 }
 
@@ -881,11 +1040,12 @@ function render() {
   const stageKey = (x) => x.hasStage ? x.stage : '其他';
   const inSeason = state.season === 'all' ? mine : mine.filter((x) => x.season === state.season);
   const bySeason = state.stage === 'all' ? inSeason : inSeason.filter((x) => stageKey(x) === state.stage);
-  const shown = state.light === 'all' ? bySeason : state.light === 'todo' ? bySeason.filter(isTodo) : bySeason.filter((x) => x.light === state.light);
+  const shown = state.light === 'all' ? bySeason : state.light === 'todo' ? bySeason.filter(isTodo) : state.light === 'review' ? bySeason.filter(needReview) : bySeason.filter((x) => x.light === state.light);
   const lc = (k) => bySeason.filter((x) => x.light === k).length;
   const chips = [`<div class="lchip${state.light === 'all' ? ' on' : ''}" data-light="all">全部<b>${bySeason.length}</b></div>`]
     .concat(LIGHTS.map((l) => `<div class="lchip${state.light === l.key ? ' on' : ''}${lc(l.key) ? '' : ' zero'}" data-light="${l.key}"><span class="dot" style="background:${l.color};border:1px solid #c9c1b8"></span>${l.label}<b>${lc(l.key)}</b></div>`)).join('')
-    + `<div class="lchip todo${state.light === 'todo' ? ' on' : ''}${bySeason.filter(isTodo).length ? '' : ' zero'}" data-light="todo" title="红灯或黄灯，且今天的 竞品动态/当前问题+归因/计划操作/建议操作 都没填">红/黄未分析<b>${bySeason.filter(isTodo).length}</b></div>`
+    + `<div class="lchip todo${state.light === 'todo' ? ' on' : ''}${bySeason.filter(isTodo).length ? '' : ' zero'}" data-light="todo" title="红灯或黄灯，且今天的 问题/归因/计划操作/建议操作 都没填">红/黄未分析<b>${bySeason.filter(isTodo).length}</b></div>`
+    + `<div class="lchip todo${state.light === 'review' ? ' on' : ''}${bySeason.filter(needReview).length ? '' : ' zero'}" data-light="review" title="操作已到复盘时间，还没判断有效/无效">待复盘<b>${bySeason.filter(needReview).length}</b></div>`
     + `<span class="meta" style="margin-left:auto">今日已分析 ${bySeason.filter(analyzed).length} / ${bySeason.length}</span>`;
   const sChips = seasons.length > 1 ? [`<span class="flab">季节</span>`, `<button class="schip${state.season === 'all' ? ' on' : ''}" data-season="all">全部季节</button>`]
     .concat(seasons.map((s) => `<button class="schip${state.season === s ? ' on' : ''}" data-season="${esc(s)}">${esc(s)}</button>`)).join('') : '';
@@ -908,43 +1068,100 @@ function render() {
   syncTop();
 }
 
+// ===== 归档不关注：写战役行 归档生效日 = 最新数据日的下一天；两步确认（iframe 里 confirm 不可靠）=====
+function bindArch(el, x) {
+  const b = el.querySelector('[data-arch]'), msg = el.querySelector('[data-archmsg]'); if (!b) return;
+  const undo = archDay(x) != null, eff = LATEST + 1;
+  b.onclick = async () => {
+    if (!b.dataset.sure) { b.dataset.sure = '1'; b.textContent = undo ? '确认取消归档' : '确认归档'; msg.textContent = undo ? '恢复显示' : `${fmtD(eff)} 起不再显示，并入售罄`; return; }
+    const ms = undo ? null : eff * DAY - BJ;
+    if (TBLS.track) {
+      const fid = FIDS.track['归档生效日'];
+      if (!fid) { msg.textContent = '表里找不到字段「归档生效日」'; return; }
+      b.disabled = true; msg.textContent = '保存中…';
+      try { await TBLS.track.setRecord(x.c._id, { fields: { [fid]: ms } }); }
+      catch (e) { b.disabled = false; msg.textContent = '保存失败：' + (e && e.message ? e.message : e); return; }
+    }
+    x.c['归档生效日'] = ms;
+    renderOwner(); render();
+    ptoast(TBLS.track ? (undo ? '已取消归档' : `已归档，${fmtD(eff)} 起不显示`) : '预览：只在本页生效，未写回');
+  };
+}
+
 // ===== ⑤ 今日分析写回日行 =====
 function bindCard(el) {
   const x = LIST().find((k) => k.c._id === el.dataset.id);
-  if (x) bindPlan(el, x);
+  if (x) { bindPlan(el, x); bindArch(el, x); }
   if (!x || !x.today) return;
-  const tas = [...el.querySelectorAll('textarea')];
-  const editBtn = el.querySelector('[data-edit]'), saveBtn = el.querySelector('[data-save]'), msg = el.querySelector('[data-msg]');
-  tas.forEach((ta) => ta.oninput = () => ta.classList.toggle('dirty', ta.value !== (x.today[ta.dataset.f] || '')));
-  editBtn.onclick = () => {
+  const inputs = [...el.querySelectorAll('[data-f]')];
+  const editBtn = el.querySelector('[data-edit]'), saveBtns = [...el.querySelectorAll('[data-save]')], editBtns = [...el.querySelectorAll('[data-edit]')], msgs = [...el.querySelectorAll('[data-msg]')];
+  const say = (m) => msgs.forEach((n) => { n.textContent = m; });
+  inputs.forEach((i) => i.oninput = () => i.classList.toggle('dirty', i.value !== i.dataset.orig));
+  // 下拉勾选
+  el.querySelectorAll('[data-pick]').forEach((box) => {
+    const ta = box.closest('.af').querySelector('textarea');
+    const syncPick = () => {
+      const cs = [...box.querySelectorAll('input')];
+      cs.forEach((c) => { c.checked = hasPhrase(ta.value, c.value); });
+      const n = cs.filter((c) => c.checked).length;
+      cs.forEach((c) => { c.disabled = !c.checked && n >= PICK_MAX; c.parentElement.classList.toggle('off', c.disabled); });
+      box.querySelector('[data-pickn]').textContent = `已选 ${n} / 最多 ${PICK_MAX} 项`;
+    };
+    syncPick();
+    box.querySelectorAll('input').forEach((c) => c.onchange = () => { ta.value = togglePhrase(ta.value, c.value, c.checked); ta.oninput(); syncPick(); });
+    ta.addEventListener('input', syncPick);
+  });
+  // 复盘时间快捷：从所选日期算
+  el.querySelectorAll('[data-plus]').forEach((b) => b.onclick = (e) => {
+    e.preventDefault();
+    const inp = b.closest('.ed').querySelector('input');
+    inp.value = ymdTxt(state.date + Number(b.dataset.plus)); inp.oninput();
+  });
+  editBtns.forEach((btn) => btn.onclick = () => {
     const on = !el.classList.contains('editing');
     el.classList.toggle('editing', on);
-    editBtn.textContent = on ? '收起' : '记动作';
-    saveBtn.style.display = on ? '' : 'none';
-    if (on) tas[0].focus();
-  };
-  saveBtn.onclick = async () => {
-    const changed = tas.filter((ta) => ta.value !== (x.today[ta.dataset.f] || ''));
-    if (!changed.length) { msg.textContent = '没有改动'; return; }
-    if (!TBLS.track) { msg.textContent = '预览模式不能写回'; return; }
-    const fields = {};
-    for (const ta of changed) {
-      const fid = FIDS.track[ta.dataset.f];
-      if (!fid) { msg.textContent = `表里找不到字段「${ta.dataset.f}」`; return; }
-      fields[fid] = ta.value.trim() ? [{ type: 'text', text: ta.value }] : null;
+    editBtns.forEach((b2) => { b2.textContent = on ? '收起' : '记动作'; });
+    saveBtns.forEach((b2) => { b2.style.display = on ? '' : 'none'; });
+    if (on && btn === editBtn) { const f0 = el.querySelector('textarea[data-f="问题"]'); if (f0) f0.focus(); }
+  });
+  saveBtns.forEach((saveBtn) => saveBtn.onclick = async () => {
+    const planIn = inputs.find((i) => i.dataset.f === '计划操作'), planNew = !!planIn && planIn.value !== planIn.dataset.orig;
+    const changed = inputs.filter((i) => i.value !== i.dataset.orig || (planNew && i.dataset.top && i.value));
+    if (!changed.length) { say('没有改动'); return; }
+    const byRow = {};
+    for (const i of changed) { const k = planNew && i.dataset.top ? planIn.dataset.row : i.dataset.row; (byRow[k] = byRow[k] || []).push(i); }
+    const toMs = (ymd) => Date.parse(ymd + 'T00:00:00+08:00');
+    if (TBLS.track) {
+      saveBtns.forEach((b2) => { b2.disabled = true; }); say('保存中…');
+      try {
+        for (const [rid, list] of Object.entries(byRow)) {
+          const fields = {};
+          for (const i of list) {
+            const f = i.dataset.f, fid = FIDS.track[f], v = i.value.trim();
+            if (!fid) throw new Error(`表里找不到字段「${f}」`);
+            if (i.dataset.kind === 'date') fields[fid] = v ? toMs(v) : null;
+            else if (i.dataset.kind === 'select') {
+              if (!v) { fields[fid] = null; continue; }
+              const op = (FMETA.track[f].property?.options || []).find((o) => o.name === v);
+              if (!op) throw new Error(`字段「${f}」没有选项「${v}」`);
+              fields[fid] = { id: op.id, text: op.name };
+            } else fields[fid] = v ? [{ type: 'text', text: i.value }] : null;
+          }
+          await TBLS.track.setRecord(rid, { fields });
+        }
+      } catch (e) {
+        say('保存失败：' + (e && e.message ? e.message : e) + '（应用数据权限要对追踪表开「可编辑」）');
+        saveBtns.forEach((b2) => { b2.disabled = false; });
+        return;
+      }
     }
-    saveBtn.disabled = true; msg.textContent = '保存中…';
-    try {
-      await TBLS.track.setRecord(x.today._id, { fields });
-      changed.forEach((ta) => { x.today[ta.dataset.f] = ta.value; });
-      render();
-      const m = document.querySelector(`.pc[data-id="${x.c._id}"] [data-msg]`);
-      if (m) m.textContent = `已保存 ${changed.length} 项 ✔`;
-    } catch (e) {
-      msg.textContent = '保存失败：' + (e && e.message ? e.message : e) + '（应用数据权限要对追踪表开「可编辑」）';
-      saveBtn.disabled = false;
+    for (const [rid, list] of Object.entries(byRow)) {
+      const row = x.ds.find((d) => d._id === rid); if (!row) continue;
+      for (const i of list) row[i.dataset.f] = i.dataset.kind === 'date' ? (i.value ? toMs(i.value) : null) : i.value;
     }
-  };
+    render();
+    document.querySelectorAll(`.pc[data-id="${x.c._id}"] [data-msg]`).forEach((m) => { m.textContent = TBLS.track ? `已保存 ${changed.length} 项 ✔` : `预览：已改 ${changed.length} 项（只在本页，未写回）`; });
+  });
 }
 
 // 图片取产品主表附件的临时地址；取不到保持「无图」
@@ -1021,6 +1238,8 @@ $('main').addEventListener('scroll', () => {
   else if (t < 4 && w.classList.contains('compact')) { w.classList.remove('compact'); syncTop(); }
 }, { passive: true });
 layoutCheck();
+
+document.addEventListener('click', (e) => document.querySelectorAll('details.pick[open]').forEach((d) => { if (!d.contains(e.target)) d.open = false; }));
 
 // ===== 启动 =====
 function finish(track, pm, src) {
