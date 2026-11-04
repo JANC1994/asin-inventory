@@ -218,13 +218,13 @@ const STAGES = ['起量期', '爆发期', '高峰期', '消退期', '清仓期']
 const Y_TEXT = ['产品目标', '经营策略', '关键指标'];        // 四季品 SPU 父行（年级）必填
 const M_TEXT = ['产品目标', '经营策略', '关键指标'];        // 四季品 月度行 必填（月销量目标 = ASIN 预估之和，自动）；年/月/周三层都是 目标+策略+指标
 const DATES = ['起量期开始', '爆发期开始', '高峰期开始', '消退期开始', '清仓期开始', '清仓期结束'];   // 季节品本品时段（空 = 用节奏日历）
-const NUMS = ['当月销量', '预估日均', '预估月销量', '总库存数量', ...STAGES.map((s) => s + '日均'), '预估销量-整季', '库存差额'];
+const NUMS = ['当月销量', '预估日均', '预估月销量', '总库存数量', ...STAGES.map((s) => s + '日均'), '预估销量-整季', '库存差额', '计划备货量'];
 const TABLES = {
   // 第一张 = saveConfig 授权表；其余两张靠应用页「数据授权（勿删）」「数据授权2（勿删）」的列表组件授权
   tg: { id: 'tblE3XbKD8PUEX7Y', name: '产品目标总表-灯', fields: [
     '目标键', '目标类型', 'ASIN', '国家文本', 'SPU', '品名', '负责人', '销售年月', '销售年份', '销售季分类', '销量最高ASIN',
     ...Y_TEXT, '当月销量', '预估日均', '预估月销量', '总库存数量',
-    ...STAGES.map((s) => s + '日均'), ...STAGES.map((s) => s + '目标'), '预估销量-整季', '库存差额', ...DATES] },
+    ...STAGES.map((s) => s + '日均'), ...STAGES.map((s) => s + '目标'), '预估销量-整季', '库存差额', '计划备货量', ...DATES] },
   cal: { id: 'tblxuyiS9rZYiZPW', name: '季节节奏日历', fields: ['对应销售季分类', '销售年份', '国家', '当前阶段', ...DATES, ...STAGES, ...STAGES.map((s) => s + '天数')] },
   pm: { id: 'tblqksywqgYvywOT', name: '产品主表-灯类+精铺', fields: ['ASIN', '国家文本', '图片'] },
 };
@@ -542,9 +542,10 @@ function cardJJ(x) {
         <div class="ids"><span class="asin">${esc(r['ASIN'])}</span><span class="tag or">${esc(x.country)}</span>${x.owners.map((o) => `<span class="tag">${esc(o)}</span>`).join('')}<span class="tag">${esc(short(x.season))}</span>${src}${progHtml(s)}</div>
         ${B ? '' : '<div class="meta" style="color:var(--red);margin-top:4px">⚠ 节奏日历里没有这个分类×年份×国家，也没设本品时段：双击任一阶段日期设置，否则五段都要填</div>'}</div>
       <div class="kv"><div title="领星发货明细按 ASIN+国家 汇总的发货量；时段 = 起量期开始前 180 天 ~ 清仓期结束（改了本品时段，保存后刷新才会重算）"><div class="k">总库存（发货量·自动）</div><div class="v">${fmtN(r['总库存数量'])}</div></div>
+        ${r['计划备货量'] != null ? `<div title="复盘审批通过时写入，只读"><div class="k">计划备货量（复盘审批）</div><div class="v">${fmtN(r['计划备货量'])}</div></div>` : ''}
         <div><div class="k">整季预估销量</div><div class="v" data-calc="est" data-rid="${r._id}">${fmtN(est)}</div></div>
         <div><div class="k">库存差额（＋多备／－不够）</div><div class="v ${diff == null ? '' : diff < 0 ? 'neg' : 'pos'}" data-calc="diff" data-rid="${r._id}">${diff == null ? '—' : (diff > 0 ? '+' : '') + fmtN(diff)}</div></div></div>
-    </div><div class="stg">${stg}</div></div>`;
+    </div>${txt(r['经营策略']) ? `<div class="meta" style="padding:0 14px 8px;white-space:pre-wrap">复盘写的明年策略：${esc(r['经营策略'])}</div>` : ''}<div class="stg">${stg}</div></div>`;
 }
 function rerenderCard(rid) {
   const x = JJ.find((i) => i.r._id === rid), el = $('c-' + rid);

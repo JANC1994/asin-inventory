@@ -61,7 +61,7 @@
   .asel.on { box-shadow: 0 0 0 2px #fff, 0 0 0 4px rgba(201,95,5,.45); color: var(--or-d); font-weight: 700; }
 
   /* 填写进度 */
-  .kpis { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-bottom: 12px; }
+  .kpis { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; margin-bottom: 12px; }
   .kpi { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; }
   .kpi .k { color: var(--sub); font-size: 12px; }
   .kpi .v { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
@@ -262,6 +262,26 @@
     .np-g { grid-template-columns: 1fr; }
     .kpis { grid-template-columns: repeat(2, 1fr); }
   }
+  .ops-all { padding: 7px 14px; border-top: 1px solid var(--line); font-size: 12.5px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .ops { display: flex; flex-direction: column; gap: 5px; font-size: 12px; line-height: 1.5; border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; }
+  .ops-h { font-weight: 700; display: flex; gap: 4px; flex-wrap: wrap; align-items: center; }
+  .op { border-top: 1px dashed var(--line); padding-top: 4px; word-break: break-word; }
+  .vt { display: inline-block; font-size: 11px; font-weight: 400; padding: 0 6px; border-radius: 8px; background: var(--grey-soft); color: var(--sub); white-space: nowrap; }
+  .vt.ok { background: var(--green-soft); color: var(--green); }
+  .vt.no { background: #fdeceb; color: var(--red); }
+  .ap { display: flex; justify-content: space-between; gap: 16px; align-items: center; flex-wrap: wrap; padding: 10px 14px; border-top: 1px solid var(--line); background: #fcfaf7; font-size: 12.5px; }
+  .ap-l { min-width: 0; flex: 1 1 320px; display: flex; flex-direction: column; gap: 3px; }
+  .ap-r { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .apc { display: flex; flex-direction: column; gap: 5px; font-size: 12px; align-items: flex-start; line-height: 1.45; }
+  .apc label { display: flex; flex-direction: column; gap: 1px; width: 100%; color: var(--sub); }
+  .apc .ap-in { width: 100%; }
+  .apc-b { display: flex; gap: 4px; flex-wrap: wrap; }
+  .apc .btn { height: 26px; padding: 0 8px; font-size: 12px; }
+  td.apt { vertical-align: top; }
+  .ap-in { height: 28px; width: 220px; max-width: 100%; border: 1px solid var(--line2); border-radius: 7px; padding: 0 8px; font-size: 12.5px; }
+  .ap-miss { color: var(--red); }
+  .ap-ok { color: var(--green); }
+  .ap-note { color: var(--or-d); }
 </style>
 </head>
 <body>
@@ -298,15 +318,17 @@ async function loadSdk() {
 const BASE_TOKEN = 'JGvebyaAYapWtOslxc9cuKYXnwd';   // 灯具组-全流程
 const STAGES = ['起量期', '爆发期', '高峰期', '消退期', '清仓期'];
 const PCT = ['转化率', 'TACOS', 'ACOS', '广告单占比', '利润率', '退货率'];               // 表里存小数，页面显示 %
-const NUMS = ['销量', '销售均价', '每件利润额', ...PCT, '明年备货量', '生产时间(天)', '首批海运时间(天)'];
+const NUMS = ['销量', '销售均价', '每件利润额', ...PCT, '明年备货量', '生产时间(天)', '首批海运时间(天)', '审批备货量'];
 const TEXT_P = ['竞品状况', '明年策略', '优化建议'];                         // 父行文字（可编辑）
 // 可编辑 = 文字 + 明年备货量 + 明年计划（起售日/生产/海运）；销量和各比率是领星数据，只读（用户 10-13 定）
 const TABLES = {
   review: { id: 'tblItjbd7BUZgoCH', name: '季节品复盘表-灯', fields: [
     '行类型', 'ASIN', '国家文本', 'SPU', '品名', '负责人', '销售季分类', '销售年份', '阶段', '阶段日期', '上级记录', '复盘键',
     '销量', '销售均价', '每件利润额', '转化率', 'TACOS', 'ACOS', '广告单占比', '利润率', '退货率', '阶段情况总结', ...TEXT_P,
-    '明年备货量', '明年备货量合计', '明年起售日期', '生产时间(天)', '首批海运时间(天)', '采购时间(倒推)'] },
+    '明年备货量', '明年备货量合计', '明年起售日期', '生产时间(天)', '首批海运时间(天)', '采购时间(倒推)', '复盘状态', '审批备货量', '审批意见', '审批时间'] },
   pm: { id: 'tblqksywqgYvywOT', name: '产品主表-灯类+精铺', fields: ['ASIN', '国家文本', '图片'] },
+  // 视图「插件-操作效果（复盘页用，勿删）」= 追踪表有复盘时间的日行，一条操作一行
+  ops: { id: 'tblKdwDOmVZxf6DN', name: '季节品追踪表', view: 'vew4Jtzs6j', fields: ['ASIN', '国家文本', '销售年份', '日期', '计划操作', '预期效果', '实际效果', '效果判断', '复盘时间'] },
 };
 
 // ===== ② 通用工具 =====
@@ -353,6 +375,7 @@ function linkIds(v) {
 function norm(name, v) {
   if (name === '上级记录') return linkIds(v);
   if (name === '图片') return Array.isArray(v) ? v.filter((x) => x && typeof x === 'object' && x.token) : [];
+  if (name === '审批时间' || name === '日期' || name === '复盘时间') return typeof v === 'number' ? v : (v ? Date.parse(v) : null);
   if (name === '明年起售日期') return typeof v === 'number' ? v : (v ? Date.parse(v) : null);
   const c = cell(v);
   if (NUMS.includes(name)) return num(c);
@@ -360,18 +383,18 @@ function norm(name, v) {
 }
 
 let SDK = null;
-const TBLS = {}, FIDS = {}, DIAG = { missing: {}, read: {} };
+const FMETA = {}, TBLS = {}, FIDS = {}, DIAG = { missing: {}, read: {} };
 async function readTable(key) {
   const cfg = TABLES[key];
   const table = await SDK.bitable.base.getTableById(cfg.id);
   const fields = await table.getFieldMetaList();
   const idByName = Object.fromEntries(fields.map((f) => [f.name, f.id]));
   DIAG.missing[cfg.name] = cfg.fields.filter((w) => !idByName[w]);
-  TBLS[key] = table; FIDS[key] = idByName;
+  TBLS[key] = table; FIDS[key] = idByName; FMETA[key] = Object.fromEntries(fields.map((f) => [f.name, f]));
   const rows = [];
   let pageToken;
   for (let guard = 0; guard < 500; guard++) {
-    const res = await table.getRecordsByPage({ pageSize: 200, pageToken });
+    const res = await table.getRecordsByPage({ pageSize: 200, pageToken, ...(cfg.view ? { viewId: cfg.view } : {}) });
     for (const r of res.records) {
       const o = { _id: r.recordId };
       for (const w of cfg.fields) if (idByName[w]) o[w] = norm(w, r.fields[idByName[w]]);
@@ -388,10 +411,13 @@ async function readTable(key) {
 // ===== ③ 数据整理 =====
 let ITEMS = [], SNAP = false;
 const state = { year: store.get('rvp.year') || '', mode: store.get('rvp.mode') === 'plan' ? 'plan' : 'cards',
-                season: 'all', country: 'all', owner: store.get('rvp.owner') || 'all', fill: 'all', asin: '', spu: '' };
+                season: 'all', country: 'all', owner: store.get('rvp.owner') || 'all', fill: 'all', asin: '', spu: '', appr: 'all', role: 'approver' };
 const open = new Set(), editing = new Set();
 
-function build(rows, pm) {
+function build(rows, pm, ops = []) {
+  const opsBy = {};
+  for (const o of ops) (opsBy[`${o['ASIN']}|${o['国家文本']}|${o['销售年份']}`] ||= []).push(o);
+  for (const l of Object.values(opsBy)) l.sort((a, b) => a['日期'] - b['日期']);
   const pmBy = {};
   for (const p of pm) if (p['ASIN']) pmBy[`${p['ASIN']}|${p['国家文本']}`] = p;
   const kids = {};
@@ -401,10 +427,10 @@ function build(rows, pm) {
     for (const k of kids[p._id] || []) if (STAGES.includes(k['阶段'])) st[k['阶段']] = k;
     return { p, st, pm: pmBy[`${p['ASIN']}|${p['国家文本']}`] || null,
              spu: p['SPU'] || '（无SPU）', owner: p['负责人'] || '（未填负责人）', season: p['销售季分类'] || '（无分类）',
-             country: p['国家文本'] || '—', year: p['销售年份'] || '' };
+             country: p['国家文本'] || '—', year: p['销售年份'] || '', ops: opsBy[`${p['ASIN']}|${p['国家文本']}|${p['销售年份']}`] || [] };
   });
   const years = [...new Set(ITEMS.map((x) => x.year))].sort();
-  if (!years.includes(state.year)) state.year = years[years.length - 1] || '';
+  if (!years.includes(state.year)) state.year = years.filter((y) => ITEMS.some((x) => x.year === y && hasData(x))).pop() || years[years.length - 1] || '';   // 默认最近一个有数据的赛季
   $('year').innerHTML = years.map((y) => `<option value="${esc(y)}"${y === state.year ? ' selected' : ''}>${esc(y)} 赛季</option>`).join('');
 }
 
@@ -412,6 +438,7 @@ function build(rows, pm) {
 const hasData = (x) => x.p['销量'] != null || STAGES.some((s) => x.st[s] && x.st[s]['销量'] != null);
 const sumCnt = (x) => STAGES.filter((s) => x.st[s] && txt(x.st[s]['阶段情况总结'])).length;
 const stockSum = (x) => { let t = 0, any = false; for (const s of STAGES) { const v = x.st[s] && num(x.st[s]['明年备货量']); if (v != null) { t += v; any = true; } } return any ? t : null; };
+const stockFinal = (x) => num(x.p['审批备货量']) ?? stockSum(x);   // 审批改过数量就以审批的为准
 const hasStrategy = (x) => !!txt(x.p['明年策略']);
 const isDone = (x) => sumCnt(x) > 0 && hasStrategy(x) && stockSum(x) != null;
 const FILLS = [
@@ -421,12 +448,124 @@ const FILLS = [
   { key: 'none', label: '未动笔', f: (x) => !sumCnt(x) && !hasStrategy(x) && !txt(x.p['竞品状况']) && stockSum(x) == null },
 ];
 
+
+// ===== 操作效果 + 审批（2026-11-04 预览）=====
+// 审批人只有林键春（用户 11-04 定）；信息不完整不能提交、不能审批。上线时用 SDK 认人（见 wiki 季节品复盘表口径 §6）
+const APPROVER_ID = 'ou_24e3d484ccc9e17e463774309651251a';   // 林键春
+const ME = { ids: [] };
+const isApprover = () => SNAP ? state.role === 'approver' : ME.ids.includes(APPROVER_ID);
+async function whoAmI() {   // 认不出不影响看数据，只是不显示审批按钮
+  for (const f of ['getUserId', 'getBaseUserId']) {
+    try { const id = await Promise.race([SDK.bitable.bridge[f](), new Promise((_, rej) => setTimeout(() => rej(new Error('超时')), 5000))]); if (id && !ME.ids.includes(id)) ME.ids.push(id); }
+    catch (e) { console.warn(f, e); }
+  }
+}
+const stOf = (x) => x.p['复盘状态'] || '未提交';
+const APPR_TAG = { '待审批': 'or', '已驳回': 'todo', '已通过': 'ok', '不再做': '' };
+function missingItems(x) {
+  const m = [], p = x.p;
+  if (!hasData(x)) m.push('阶段数据');
+  for (const s of STAGES) { const r = x.st[s]; if (r && num(r['销量']) > 0 && !txt(r['阶段情况总结'])) m.push(`${s}总结`); }
+  const noStk = STAGES.filter((s) => !x.st[s] || num(x.st[s]['明年备货量']) == null);
+  if (noStk.length) m.push(`明年备货量（${noStk.join('、')}）`);
+  for (const f of ['竞品状况', '优化建议', '明年策略']) if (!txt(p[f])) m.push(f);
+  if (num(p['明年起售日期']) == null) m.push('明年起售日期');
+  if (num(p['生产时间(天)']) == null) m.push('生产时间');
+  if (num(p['首批海运时间(天)']) == null) m.push('首批海运时间');
+  return m;
+}
+const inStage = (ms, range) => {
+  const m = /(\d+)\.(\d+)-(\d+)\.(\d+)/.exec(range || '');
+  if (!m) return false;
+  const d = new Date(dn(ms) * DAY), v = (d.getUTCMonth() + 1) * 100 + d.getUTCDate(), a = +m[1] * 100 + +m[2], b = +m[3] * 100 + +m[4];
+  return a <= b ? v >= a && v <= b : v >= a || v <= b;
+};
+const verdictOf = (o) => (txt(o['效果判断']).includes('无效') ? 'bad' : txt(o['效果判断']).includes('有效') ? 'good' : 'wait');
+const VLABEL = { good: '有效', bad: '无效', wait: '未判断' };
+function opCount(list) {
+  const n = { good: 0, bad: 0, wait: 0 };
+  for (const o of list) n[verdictOf(o)]++;
+  return [['good', 'ok'], ['bad', 'no'], ['wait', '']].filter(([k]) => n[k]).map(([k, c]) => `<span class="vt ${c}">${VLABEL[k]} ${n[k]}</span>`).join('');
+}
+function stageOps(x, r) {
+  const list = (x.ops || []).filter((o) => inStage(o['日期'], r['阶段日期']));
+  if (!list.length) return '';
+  return `<div class="ops"><div class="ops-h">本阶段操作 ${list.length} 条 ${opCount(list)}</div>${list.map((o) => {
+    const v = verdictOf(o);
+    return `<div class="op"><div><span class="vt ${v === 'good' ? 'ok' : v === 'bad' ? 'no' : ''}">${VLABEL[v]}</span> <span class="meta">${ymd(dn(o['日期'])).slice(5)}</span> ${esc(o['计划操作'])}</div>
+      ${txt(o['预期效果']) ? `<div class="meta">预期：${esc(o['预期效果'])}</div>` : ''}${txt(o['实际效果']) ? `<div class="meta">实际：${esc(o['实际效果'])}</div>` : ''}</div>`;
+  }).join('')}</div>`;
+}
+// 复盘卡：只显示状态、缺什么，运营在这里提交；审批在「明年行动清单」
+function apprBar(x) {
+  const id = x.p._id, st = stOf(x), miss = missingItems(x), note = txt(x.p['审批意见']);
+  const when = num(x.p['审批时间']) != null ? ymd(dn(x.p['审批时间'])) : '';
+  const btn = st === '未提交' || st === '已驳回' ? `<button class="btn pri" data-ap="submit" data-id="${id}" ${miss.length ? 'disabled title="信息不完整，不能提交"' : ''}>提交审批</button>`
+    : st === '待审批' ? `<button class="btn" data-ap="withdraw" data-id="${id}">撤回</button>` : '';
+  const info = st === '待审批' ? '已提交，等林键春在「明年行动清单」审批。'
+    : st === '已通过' ? `已通过${when ? ' ' + when : ''}，明年备货 ${fmtN(stockFinal(x))} 件。`
+    : st === '不再做' ? `不再做${when ? ' ' + when : ''}。` : '';
+  return `<div class="ap"><div class="ap-l"><b>审批</b> <span class="tag ${APPR_TAG[st] ?? ''}">${esc(st)}</span>
+      ${note ? `<div class="ap-note">审批意见：${esc(note)}</div>` : ''}
+      ${info ? `<div class="meta">${esc(info)}</div>` : ''}
+      ${st === '已通过' || st === '不再做' ? '' : (miss.length ? `<div class="ap-miss">信息不完整，还差 ${miss.length} 项：${miss.map(esc).join('、')}</div>` : (st === '待审批' ? '' : '<div class="ap-ok">信息完整，可以提交</div>'))}</div>
+    <div class="ap-r">${btn}</div></div>`;
+}
+// 明年行动清单的审批格
+function apprCell(x) {
+  const id = x.p._id, st = stOf(x), miss = missingItems(x), app = isApprover(), note = txt(x.p['审批意见']), next = Number(x.year) + 1;
+  const tag = `<span class="tag ${APPR_TAG[st] ?? ''}">${esc(st)}</span>`;
+  const noteH = note ? `<div class="ap-note">意见：${esc(note)}</div>` : '';
+  const missH = miss.length ? `<div class="ap-miss" title="${esc(miss.join('、'))}">信息不完整，还差 ${miss.length} 项：${miss.map(esc).join('、')}</div>` : '';
+  if (st === '待审批' && app) {
+    const dis = miss.length ? 'disabled title="信息不完整，不能审批"' : '';
+    return `<div class="apc">${tag}${missH}
+      <label>修正数量<input class="ap-in" id="aq-${id}" inputmode="numeric" placeholder="不改留空（${stockSum(x) != null ? fmtN(stockSum(x)) : '—'}）"></label>
+      <label>审批意见<input class="ap-in" id="ac-${id}" placeholder="驳回时必填"></label>
+      <div class="apc-b"><button class="btn pri" data-ap="pass" data-id="${id}" ${dis}>通过，进 ${next} 目标</button><button class="btn" data-ap="stop" data-id="${id}" ${dis}>不再做</button><button class="btn" data-ap="reject" data-id="${id}">驳回</button></div></div>`;
+  }
+  const back = app && (st === '已通过' || st === '不再做') ? `<div class="apc-b"><button class="btn" data-ap="back" data-id="${id}">退回修改</button></div>` : '';
+  return `<div class="apc">${tag}${noteH}${st === '已通过' || st === '不再做' ? '' : missH}${back}</div>`;
+}
+async function setAppr(id, fs) {
+  const x = ITEMS.find((i) => i.p._id === id);
+  if (!SNAP) {
+    const fields = {};
+    for (const [f, v] of Object.entries(fs)) {
+      const fid = FIDS.review[f];
+      if (!fid) throw new Error(`复盘表缺字段「${f}」`);
+      if (f === '复盘状态') { const op = (FMETA.review[f].property?.options || []).find((o) => o.name === v); if (!op) throw new Error(`没有选项「${v}」`); fields[fid] = { id: op.id, text: op.name }; }
+      else fields[fid] = v;
+    }
+    await TBLS.review.setRecord(id, { fields });
+  }
+  Object.assign(x.p, fs);
+  render();
+}
+async function apprAct(id, act) {
+  const x = ITEMS.find((i) => i.p._id === id), miss = missingItems(x), c = $('ac-' + id), comment = c ? c.value.trim() : '', now = Date.now();
+  const qEl = $('aq-' + id), qRaw = qEl ? qEl.value.trim().replace(/[,，]/g, '') : '', qty = qRaw === '' ? null : Number(qRaw);
+  if (act === 'pass' && qty != null && !(qty > 0)) { toast('修正数量要填大于 0 的数字'); qEl.focus(); return; }
+  if (['submit', 'pass', 'stop'].includes(act) && miss.length) { toast('信息不完整，不能审批'); return; }
+  if (act === 'reject' && !comment) { toast('驳回要写审批意见'); c && c.focus(); return; }
+  const F = {
+    submit: { '复盘状态': '待审批' }, withdraw: { '复盘状态': '未提交' },
+    pass: { '复盘状态': '已通过', '审批时间': now, '审批意见': comment || null, '审批备货量': qty },
+    stop: { '复盘状态': '不再做', '审批时间': now, '审批意见': comment || null },
+    reject: { '复盘状态': '已驳回', '审批时间': now, '审批意见': comment },
+    back: { '复盘状态': '已驳回', '审批意见': '退回修改；已建好的明年目标行不会自动删，要改到目标填写页' },
+  }[act];
+  try { await setAppr(id, F); toast(SNAP ? '本地预览：已改状态（未写回）' : '已保存'); }
+  catch (e) { toast('保存失败：' + (e && e.message ? e.message : e)); }
+}
+
 function scope() { return ITEMS.filter((x) => x.year === state.year); }
 function pass(x, skip) {
   if (skip !== 'season' && state.season !== 'all' && x.season !== state.season) return false;
   if (skip !== 'country' && state.country !== 'all' && x.country !== state.country) return false;
   if (skip !== 'owner' && state.owner !== 'all' && x.owner !== state.owner) return false;
   if (skip !== 'fill' && !FILLS.find((f) => f.key === state.fill).f(x)) return false;
+  if (skip !== 'appr' && state.appr !== 'all' && stOf(x) !== state.appr) return false;
   if (skip !== 'asin' && state.asin && x.p['ASIN'] !== state.asin) return false;
   return true;
 }
@@ -449,7 +588,7 @@ function asinSelect(base) {
 function renderFilters() {
   const base = scope();
   const chips = (key, list, label) => {
-    const cnt = (v) => base.filter((x) => pass(x, key) && (v === 'all' || (key === 'fill' ? FILLS.find((f) => f.key === v).f(x) : x[key] === v))).length;
+    const cnt = (v) => base.filter((x) => pass(x, key) && (v === 'all' || (key === 'fill' ? FILLS.find((f) => f.key === v).f(x) : key === 'appr' ? stOf(x) === v : x[key] === v))).length;
     return `<div class="frow"><span class="lb">${label}</span>${list.map(([v, t]) => {
       const n = cnt(v);
       return `<button class="chip${state[key] === v ? ' on' : ''}${n ? '' : ' zero'}" data-k="${key}" data-v="${esc(v)}">${esc(t)}<i>${n}</i></button>`;
@@ -461,7 +600,8 @@ function renderFilters() {
     chips('season', [['all', '全部'], ...uniq('season').map((s) => [s, short(s)])], '季节') +
     chips('country', [['all', '全部'], ...uniq('country').map((s) => [s, s])], '国家') +
     chips('owner', [['all', '全部'], ...uniq('owner').map((s) => [s, s])], '负责人') +
-    chips('fill', FILLS.map((f) => [f.key, f.label]), '复盘状态');
+    chips('fill', FILLS.map((f) => [f.key, f.label]), '填写') +
+    chips('appr', [['all', '全部'], ...['未提交', '待审批', '已驳回', '已通过', '不再做'].map((v) => [v, v])], '审批');
   $('filters').querySelectorAll('.chip').forEach((b) => b.onclick = () => {
     state[b.dataset.k] = b.dataset.v;
     if (b.dataset.k === 'owner') store.set('rvp.owner', b.dataset.v);
@@ -475,7 +615,7 @@ function progress(list) {
   const n = list.length || 1;
   const kpi = (k, a, b, sub) => `<div class="kpi"><div class="k">${k}</div><div class="v">${a}<small> / ${b}</small></div>${sub != null ? `<div class="bar"><i style="width:${Math.round(sub * 100)}%"></i></div>` : ''}</div>`;
   const dataN = list.filter(hasData).length, sumN = list.filter((x) => sumCnt(x) > 0).length, stN = list.filter(hasStrategy).length, doneN = list.filter(isDone).length;
-  const stock = list.reduce((t, x) => t + (stockSum(x) || 0), 0);
+  const stock = list.reduce((t, x) => t + (stockFinal(x) || 0), 0);
   const byOwner = {};
   for (const x of list) (byOwner[x.owner] = byOwner[x.owner] || []).push(x);
   const row = (lb, a, b) => `<div class="rw"><span>${lb}</span><span class="bar"><i style="width:${b ? Math.round(a / b * 100) : 0}%"></i></span><span class="n">${a}/${b}</span></div>`;
@@ -484,6 +624,7 @@ function progress(list) {
       ${kpi('写了阶段总结', sumN, list.length, sumN / n)}
       ${kpi('写了明年策略', stN, list.length, stN / n)}
       ${kpi('复盘完成', doneN, list.length, doneN / n)}
+      <div class="kpi"><div class="k">待审批 / 已通过</div><div class="v">${list.filter((x) => stOf(x) === '待审批').length}<small> / ${list.filter((x) => stOf(x) === '已通过').length}</small></div><div class="meta" style="margin-top:4px">审批人：林键春</div></div>
       <div class="kpi"><div class="k">明年备货量合计</div><div class="v">${fmtN(stock)}<small> 件</small></div><div class="meta" style="margin-top:4px">当前筛选内，运营按阶段填的</div></div>
     </div>
     <div class="owners">${Object.entries(byOwner).sort((a, b) => b[1].length - a[1].length).map(([o, l]) =>
@@ -570,6 +711,7 @@ function card(x) {
     return `<div class="sg${blank && !ed ? ' empty' : ''}"><div class="sg-h"><b data-i="${i + 1}">${s}</b><span class="dt">${esc(r['阶段日期'] || '')}</span></div>
       <div class="vol"><span class="bar"><i style="width:${v ? Math.max(3, v / maxV * 100) : 0}%"></i></span><b>${fmtN(v)}</b><span class="share">${v && totV ? Math.round(v / totV * 100) + '%' : ''}</span></div>
       <div class="mx">${m('销售均价', money(r['销售均价'], x.country))}${m('每件利润', money(r['每件利润额'], x.country), negc(r['每件利润额']))}${m('利润率', pct(r['利润率']), negc(r['利润率']))}${m('转化率', pct(r['转化率']))}${m('TACOS', pct(r['TACOS']))}${m('ACOS', pct(r['ACOS']))}${m('广告单%', pct(r['广告单占比']))}</div>
+      ${stageOps(x, r)}
       ${ed ? ta(r._id, '阶段情况总结', r['阶段情况总结'], '这个阶段发生了什么、为什么、学到什么')
            : (txt(r['阶段情况总结']) ? `<div class="sum">${esc(r['阶段情况总结'])}</div>` : `<div class="sum nil">${blank ? '未填' : '未写阶段总结'}</div>`)}
       ${ed ? `<div class="stk" style="display:flex;align-items:center;gap:6px;white-space:nowrap">明年备货 ${inp(r._id, '明年备货量', r['明年备货量'], '件')}</div>`
@@ -601,13 +743,15 @@ function card(x) {
     <div class="rc-top">
       <div class="img" data-img="${id}">${img ? `<img src="${esc(img)}" alt="">` : '无图'}</div>
       <div><div class="nm">${esc(p['品名'] || '（品名空）')}</div>
-        <div class="ids"><span class="asin">${esc(p['ASIN'])}</span><span class="tag">${esc(x.country)}</span><span class="tag">${esc(x.owner)}</span><span class="tag">${esc(x.season.replace(/^(季节品|节日品)-/, ''))}</span>${status}</div></div>
+        <div class="ids"><span class="asin">${esc(p['ASIN'])}</span><span class="tag">${esc(x.country)}</span><span class="tag">${esc(x.owner)}</span><span class="tag">${esc(x.season.replace(/^(季节品|节日品)-/, ''))}</span>${status}${stOf(x) !== '未提交' ? `<span class="tag ${APPR_TAG[stOf(x)] ?? ''}">${esc(stOf(x))}</span>` : ''}</div></div>
       ${season}
-      <div class="acts">${ed ? '' : `<button class="btn" data-edit="${id}">✎ 编辑</button>`}</div>
+      <div class="acts">${ed || !['未提交', '已驳回'].includes(stOf(x)) ? '' : `<button class="btn" data-edit="${id}">✎ 编辑</button>`}</div>
     </div>
+    <div class="ops-all">操作效果：${x.ops.length ? `共 ${x.ops.length} 条 ${opCount(x.ops)}` : '<span class="meta">本赛季没有记录操作效果（11-04 起才有）</span>'}</div>
     <div class="stages">${stages}</div>
     <div class="concl">${concl}</div>
     ${np}
+    ${ed ? '' : apprBar(x)}
     ${ed ? `<div class="savebar2"><span class="meta" id="em-${id}">${SNAP ? '本地预览：保存只改页面，不写回多维表' : '改过的格子标黄，保存后写回复盘表'}</span><button class="btn" data-cancel="${id}">取消</button><button class="btn pri" data-save="${id}">保存</button></div>`
          : `<button class="more" data-more="${id}">${op ? '收起 ▴' : '展开全文 ▾'}</button>`}
   </div>`;
@@ -618,7 +762,7 @@ const folded = new Set(JSON.parse(store.get('rvp.fold') || '[]'));
 const saveFold = () => store.set('rvp.fold', JSON.stringify([...folded]));
 function renderPlan(list) {
   if (!list.length) return '<div class="empty">当前筛选下没有产品</div>';
-  const rows = list.map((x) => ({ x, t: timeline(x.p), stock: stockSum(x) }));
+  const rows = list.map((x) => ({ x, t: timeline(x.p), stock: stockFinal(x) }));
   const byBuy = (a, b) => (a.t.buy ? 0 : 1) - (b.t.buy ? 0 : 1) || String(a.t.buy).localeCompare(String(b.t.buy)) || (b.stock || 0) - (a.stock || 0);
   const groups = {};
   for (const r of rows) (groups[r.x.spu] = groups[r.x.spu] || []).push(r);
@@ -636,20 +780,20 @@ function renderPlan(list) {
       <td class="img0"><span class="mini" data-img="${x.p._id}">${img ? `<img src="${esc(img)}" alt="">` : ''}</span></td>
       <td class="pn"><b>${esc(x.p['品名'] || '')}</b><div class="sub"><span class="asin">${esc(x.p['ASIN'])}</span> · ${esc(x.country)} · ${esc(x.owner)}</div></td>
       ${long(x.p['明年策略'])}${long(x.p['优化建议'])}
-      <td class="r stk"><b>${r.stock != null ? fmtN(r.stock) : '—'}</b>${parts.length ? `<div class="sub">${parts.map((a) => `${a[0]} ${fmtN(a[1])}`).join('<br>')}</div>` : ''}</td>
-      ${dcell(r.t.buy, 'buy')}${dcell(r.t.send)}${dcell(r.t.sale)}</tr>`;
+      <td class="r stk">${num(x.p['审批备货量']) != null ? `<s class="meta">${fmtN(stockSum(x))}</s><br>` : ''}<b>${r.stock != null ? fmtN(r.stock) : '—'}</b>${parts.length ? `<div class="sub">${parts.map((a) => `${a[0]} ${fmtN(a[1])}`).join('<br>')}</div>` : ''}</td>
+      ${dcell(r.t.buy, 'buy')}${dcell(r.t.send)}${dcell(r.t.sale)}<td class="apt">${apprCell(x)}</td></tr>`;
   };
   const allFold = G.every((g) => folded.has(g.spu));
   return `<div class="card0 pbar" style="padding:10px 14px"><b>明年行动清单</b>
-      <span class="meta">按 SPU 分组（点 SPU 行折叠），组内按采购日从早到晚。采购日 = 表里公式「采购时间(倒推)」；发货日 = 起售日 − 首批海运（页面推算）。${withDate}/${rows.length} 个已有采购日。</span>
+      <span class="meta">按 SPU 分组（点 SPU 行折叠），组内按采购日从早到晚。采购日 = 表里公式「采购时间(倒推)」；发货日 = 起售日 − 首批海运（页面推算）。${withDate}/${rows.length} 个已有采购日。审批人只有林键春；${isApprover() ? '当前身份：审批人。' : `当前身份不是审批人，看不到审批按钮${SNAP ? '' : `（身份 ${esc(ME.ids.join(' / ') || '未取到')}）`}。`}</span>
       <button class="btn" id="foldAll">${allFold ? '全部展开' : '全部折叠'}</button></div>
-    <table class="atbl"><colgroup><col style="width:58px"><col style="width:22%"><col><col><col style="width:110px"><col style="width:108px"><col style="width:108px"><col style="width:108px"></colgroup>
-    <thead><tr><th></th><th>产品</th><th>明年策略</th><th>优化建议</th><th class="r stk">明年备货量</th><th class="c">采购日</th><th class="c">发货日</th><th class="c">起售日</th></tr></thead>
+    <table class="atbl"><colgroup><col style="width:58px"><col style="width:22%"><col><col><col style="width:110px"><col style="width:92px"><col style="width:92px"><col style="width:92px"><col style="width:250px"></colgroup>
+    <thead><tr><th></th><th>产品</th><th>明年策略</th><th>优化建议</th><th class="r stk">明年备货量</th><th class="c">采购日</th><th class="c">发货日</th><th class="c">起售日</th><th>审批</th></tr></thead>
     <tbody>${G.map((g) => `<tr class="g${folded.has(g.spu) ? ' fold' : ''}" data-g="${esc(g.spu)}"><td colspan="2"><span class="gn">${esc(g.spu)}</span><span class="gm">${g.l.length} 个子ASIN</span></td>
         <td colspan="2" class="meta">${g.l.filter((r) => txt(r.x.p['明年策略'])).length}/${g.l.length} 写了策略</td><td class="r stk"><b>${g.any ? fmtN(g.stock) : '—'}</b></td>
-        <td class="d ${g.buy ? 'buy' : 'nil'}">${esc(g.buy || '—')}</td><td colspan="2" class="meta" style="text-align:center">${g.buy ? '组内最早采购' : ''}</td></tr>
+        <td class="d ${g.buy ? 'buy' : 'nil'}">${esc(g.buy || '—')}</td><td colspan="2" class="meta" style="text-align:center">${g.buy ? '组内最早采购' : ''}</td><td class="meta">待审批 ${g.l.filter((r) => stOf(r.x) === '待审批').length}</td></tr>
       ${g.l.map((r) => tr(r, g.spu)).join('')}`).join('')}
-      <tr class="tot"><td></td><td>合计 · ${G.length} 个 SPU</td><td></td><td></td><td class="r stk">${fmtN(rows.reduce((t, r) => t + (r.stock || 0), 0))}</td><td></td><td></td><td></td></tr></tbody></table>`;
+      <tr class="tot"><td></td><td>合计 · ${G.length} 个 SPU</td><td></td><td></td><td class="r stk">${fmtN(rows.reduce((t, r) => t + (r.stock || 0), 0))}</td><td></td><td></td><td></td><td></td></tr></tbody></table>`;
 }
 function bindPlan() {
   const m = $('main');
@@ -704,6 +848,7 @@ function bindCards() {
   m.querySelectorAll('[data-edit]').forEach((b) => b.onclick = () => { editing.add(b.dataset.edit); rerender(b.dataset.edit); });
   m.querySelectorAll('[data-cancel]').forEach((b) => b.onclick = () => { editing.delete(b.dataset.cancel); rerender(b.dataset.cancel); });
   m.querySelectorAll('[data-save]').forEach((b) => b.onclick = () => saveCard(b.dataset.save, b));
+  m.querySelectorAll('[data-ap]').forEach((b) => b.onclick = () => apprAct(b.dataset.id, b.dataset.ap));
   m.querySelectorAll('.in').forEach((el) => el.oninput = () => {
     let dirty = true;
     try { dirty = !same(parseIn(el), rowById(el.dataset.rid)[el.dataset.f] ?? null); } catch (e) {}
@@ -732,7 +877,7 @@ async function saveCard(id, btn) {
   try {
     if (!SNAP) {
       for (const [rid, fs] of Object.entries(changes)) {
-        const fields = {};
+        const fields = {};   // 普通编辑只写文字和数字
         for (const [f, v] of Object.entries(fs)) {
           const fid = FIDS.review[f];
           if (!fid) throw new Error(`复盘表缺字段「${f}」`);
@@ -792,7 +937,7 @@ function setupSave() {
       try {
         const ok = await dash.saveConfig({
           dataConditions: Object.values(TABLES).map((t) => ({ tableId: t.id, baseToken: BASE_TOKEN, dataRange: { type: 'ALL' }, series: 'COUNTA' })),
-          customConfig: { page: document.title, version: 1 },
+          customConfig: { page: document.title, version: 2 },
         });
         $('saveMsg').textContent = ok === false ? '保存失败，请重试' : '已保存 ✔';
       } catch (e) { $('saveMsg').textContent = '保存失败：' + (e && e.message ? e.message : e); }
@@ -833,8 +978,8 @@ $('year').onchange = () => { state.year = $('year').value; store.set('rvp.year',
 document.querySelectorAll('#mode button').forEach((b) => b.onclick = () => { state.mode = b.dataset.m; store.set('rvp.mode', state.mode); render(); });
 
 // ===== 启动 =====
-function finish(rows, pm, src) {
-  build(rows, pm);
+function finish(rows, pm, src, ops) {
+  build(rows, pm, ops);
   $('meta').textContent = `${scope().length} 个子ASIN×国家 · ${src}`;
   render();
   if (!ITEMS.length) $('main').insertAdjacentHTML('afterbegin', `<div class="card0"><b>没有读到 ASIN 行</b> <span class="meta">读取行数 ${esc(JSON.stringify(DIAG.read))}；缺失字段 ${esc(JSON.stringify(DIAG.missing))}</span></div>`);
@@ -842,14 +987,19 @@ function finish(rows, pm, src) {
 try {
   if (window.__SNAPSHOT__) {
     SNAP = true;
-    finish(window.__SNAPSHOT__.review, window.__SNAPSHOT__.pm, `本地快照 ${window.__SNAPSHOT__.at}（预览，编辑不写回）`);
+    finish(window.__SNAPSHOT__.review, window.__SNAPSHOT__.pm, `本地快照 ${window.__SNAPSHOT__.at}（预览，编辑不写回）`, window.__SNAPSHOT__.ops || []);
+    $('mode').insertAdjacentHTML('afterend', '<select id="role" title="只在预览里有"><option value="approver">预览身份：审批人</option><option value="op">预览身份：运营</option></select>');
+    $('role').onchange = () => { state.role = $('role').value; render(); };
   } else {
     SDK = await loadSdk();
     setupSave();
+    await whoAmI();
     const rows = await readTable('review');
     let pm = [];
     try { pm = await readTable('pm'); } catch (e) { console.warn('产品主表读不到，卡片不显示图片', e); }
-    finish(rows, pm, '取数：季节品复盘表 + 产品主表');
+    let ops = [];
+    try { ops = (await readTable('ops')).filter((o) => num(o['日期']) != null); } catch (e) { console.warn('追踪表操作效果读不到，复盘卡不显示操作', e); }
+    finish(rows, pm, '取数：季节品复盘表 + 产品主表', ops);
   }
 } catch (e) {
   const msg = esc(e && e.message ? e.message : e);
