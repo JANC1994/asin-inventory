@@ -7,7 +7,7 @@
 <!--
   季节品清仓决策（2026-10-16 起草；2026-11-05 接飞书上线，应用页 pge3hx9ottuGADSp）
   读：产品主表（saveConfig 只登记它）/ 产品定价利润表 / ASIN库存概况-灯 / 领星-FBA库存明细表-灯 / 产品目标总表（本季结束日默认值）
-  写：清仓决策-预估存档 tbl1Nxd3GPbRrfcd（一个 SKU×国家×店铺 一行，方案JSON = 12 个月预估 + 本季结束日 + 明年售价/TACOS，全组共用）
+  写：清仓决策-预估存档 tbl1Nxd3GPbRrfcd（一个 SKU×国家×店铺 一行，方案JSON = 这个 SKU 手填过的全部测算，全组共用；填了就存，换 SKU 不丢）
   授权靠「数据授权（勿删）」「数据授权3」「数据授权4」的列表组件；其余测算不写表
   问题：季节品卖不完时，本季推到什么程度？剩下的弃置还是留到明年？
   比较口径（用户 10-16 定）：
@@ -132,6 +132,7 @@
   .fc input { width: 100%; min-width: 0; }
   .savebar { display: none; gap: 10px; align-items: center; background: #fff; border: 2px dashed var(--or); border-radius: 10px; padding: 8px 14px; margin-bottom: 10px; }
   .savebar.show { display: flex; }
+  .tag.ok { background: #e6f4ea; color: #1e7e34; }
 </style>
 </head>
 <body>
@@ -145,7 +146,7 @@
     <div class="hero-f">
       <div class="pick"><input id="pickIn" autocomplete="off" placeholder="选 SKU"><div class="dd" id="dd"></div></div>
       <span id="curInfo"></span>
-      <div class="r"><button class="hbtn" id="btnClear">清空，手动填</button></div>
+      <div class="r"><button class="hbtn" id="btnClear">手动测算（不选 SKU）</button></div>
     </div>
   </div>
   <div id="main">
@@ -400,7 +401,10 @@ function planFlush() { if (planPending) { clearTimeout(planTimer); const f = pla
 function fcSave() {   // 改动后 0.8 秒写一次；切产品前 planFlush 补写
   const r = S.rec, fc = {};
   for (const [m, v] of Object.entries(S.fc)) if (v !== '' && v != null) fc[m] = v;
-  const plan = { fc, end: $('#dEnd').value, nPrice: S.manual.nPrice ? S.val.nPrice : null, nTacos: S.manual.nTacos ? S.val.nTacos : null };
+  const plan = { fc, end: $('#dEnd').value, nPrice: S.manual.nPrice ? S.val.nPrice : null, nTacos: S.manual.nTacos ? S.val.nTacos : null,
+    edits: S.edits || {},                                // ① 里手改过的售价、成本、尺寸
+    tiers: S.tierEdited ? S.tiers : null,                // ② 三档，没动过就不存，默认值继续跟最新日销
+    batches: S.batchEdited ? S.batches : null };         // 库龄批次，没动过就不存，继续跟最新库存
   clearTimeout(planTimer);
   planPending = async () => {
     const say = (t, bad) => { const el = $('#planMsg'); if (el && S.rec === r) { el.textContent = t; el.style.color = bad ? 'var(--red, #c00)' : ''; } };
@@ -471,13 +475,13 @@ function buildInputs() {
   }
   $('#main').addEventListener('input', (e) => {
     const k = e.target.dataset?.k;
-    if (k) { S.val[k] = e.target.value; if (['nPrice', 'nTacos'].includes(k)) { S.manual[k] = e.target.value !== ''; fcSave(); } render(); return; }
+    if (k) { S.val[k] = e.target.value; if (['nPrice', 'nTacos'].includes(k)) S.manual[k] = e.target.value !== ''; else (S.edits ||= {})[k] = e.target.value; fcSave(); render(); return; }
     const fm = e.target.dataset?.fc;
     if (fm) { S.fc[fm] = e.target.value; fcSave(); render(); return; }
     const t = e.target.dataset?.t;
-    if (t) { const [tk, f] = t.split('.'); S.tiers[tk][f] = num(e.target.value) ?? 0; if (f === 'price') S.tiers[tk].auto = false; if (f === 'daily') S.tiers[tk].dAuto = false; render(); return; }
+    if (t) { const [tk, f] = t.split('.'); S.tiers[tk][f] = num(e.target.value) ?? 0; if (f === 'price') S.tiers[tk].auto = false; if (f === 'daily') S.tiers[tk].dAuto = false; S.tierEdited = true; fcSave(); render(); return; }
     const bi = e.target.dataset?.b;
-    if (bi != null) { const [i, f] = bi.split('.'); S.batches[+i][f] = e.target.value; S.batches[+i].src = '手改'; render(); return; }
+    if (bi != null) { const [i, f] = bi.split('.'); S.batches[+i][f] = e.target.value; S.batches[+i].src = '手改'; S.batchEdited = true; fcSave(); render(); return; }
     if (e.target.id === 'dEnd') fcSave();
     if (e.target.type === 'date') render();
   });
@@ -529,7 +533,7 @@ function renderBatches() {
     const tagA = (x) => x == null ? '—' : `<span class="${x >= 271 ? 'neg' : x >= 181 ? 'mid' : ''}">${x} 天</span>`;
     return `<tr><td><input type="date" data-b="${i}.d" value="${esc(b.d)}"></td><td><input type="number" data-b="${i}.q" value="${esc(b.q)}" style="width:90px"></td>
       <td>${tagA(a)}</td><td>${tagA(ae)}</td><td class="meta" style="text-align:left">${esc(b.src || '手填')}</td><td class="c">${S.batches.length > 1 ? `<button class="btn" data-del="${i}" style="height:24px">删</button>` : ''}</td></tr>`;
-  }).join('') + `<tr><td><b>合计</b></td><td><b>${fi(S.batches.reduce((s, b) => s + (num(b.q) || 0), 0))}</b> 件</td><td colspan="4" class="meta" style="text-align:left">库龄按先进先出，卖出时先扣最老的批次</td></tr>` +
+  }).join('') + `<tr><td><b>合计</b></td><td><b>${fi(S.batches.reduce((s, b) => s + (num(b.q) || 0), 0))}</b> 件</td><td colspan="4" class="meta" style="text-align:left">库龄按先进先出，卖出时先扣最老的批次${S.batchEdited && S.invInfo && S.invInfo.batches.length ? ' · 这是你保存的批次，<a href="#" data-relive>↺ 改用最新库存</a>' : ''}</td></tr>` +
     (S.invInfo ? `<tr><td colspan="6" class="meta" style="text-align:left;white-space:normal">${esc(S.invInfo.note)}${S.invInfo.others && S.invInfo.others.length ? `<br><b>同国家其他店铺还有：</b>${esc(S.invInfo.others.join('，'))}（不在本页计算内）` : ''}</td></tr>` : '');
 }
 function renderTiers(R) {
@@ -555,7 +559,7 @@ function renderTiers(R) {
   </div>
   <div class="formula">单件净回款 = 售价 × (1 − 佣金 − TACOS) − FBA 配送费（10.15–1.14 用旺季配送费）。逐日模拟：小数日销累计到整件，卖完或到本季结束日为止；仓储费按当天在库体积计提，超龄附加费每月 15 日按批次库龄收。</div>`;
   if (keepT) { const el = $(`input[data-t="${keepT}"]`); if (el) { el.focus(); try { el.setSelectionRange(...sel); } catch (_) {} } }
-  for (const a of $$('[data-reset]', $('#tiers'))) a.onclick = (e) => { e.preventDefault(); const [tk, f] = a.dataset.reset.split('.'); S.tiers[tk][f] = true; render(); };
+  for (const a of $$('[data-reset]', $('#tiers'))) a.onclick = (e) => { e.preventDefault(); const [tk, f] = a.dataset.reset.split('.'); S.tiers[tk][f] = true; S.tierEdited = true; fcSave(); render(); };
 }
 function renderLeft(R) {
   if (!R || R.err) { $('#leftRes').innerHTML = `<div class="meta" style="margin-top:10px">${R ? R.err : ''}</div>`; $('#chart').innerHTML = ''; return; }
@@ -733,6 +737,7 @@ function loadRow(r) {
   const plan = planLoad(r);
   S.fc = (plan && plan.fc) || {};
   if (r) S.manual = {};
+  S.edits = {}; S.tierEdited = false; S.batchEdited = false;
   const today = todayBJ(), ends = r ? (S.tgtEnd && S.tgtEnd[clean(r['ASIN']) + '|' + clean(r['国家文本'])] || []).filter((d) => d > today).sort((a, b) => a - b) : [];
   if (plan && plan.end) $('#dEnd').value = plan.end; else if (ends.length) $('#dEnd').value = toStr(ends[0]); else if (r) $('#dEnd').value = `${dOf(today).getUTCFullYear()}-12-20`;   // 不沿用上一个产品的日期
   if (r) {
@@ -747,10 +752,15 @@ function loadRow(r) {
   if (r) {
     const b = batchesFor(r);
     S.invInfo = b;
-    S.batches = b.batches.length ? b.batches : [{ d: toStr(todayBJ() - 30), q: '' }];
+    S.batches = b.batches.length ? b.batches.map((x) => ({ ...x })) : [{ d: toStr(todayBJ() - 30), q: '' }];
     if (b.daily > 0) S.tiers.base.daily = r2(b.daily);
   }
   for (const k of ['nPrice', 'nTacos']) if (plan && plan[k] != null && plan[k] !== '') { S.val[k] = String(plan[k]); S.manual[k] = true; }
+  // 还原上次手填的：① 字段、② 三档、库龄批次
+  if (plan && plan.edits) { S.edits = { ...plan.edits }; Object.assign(S.val, plan.edits); }
+  if (plan && plan.tiers) { S.tiers = plan.tiers; S.tierEdited = true; }
+  if (plan && plan.batches && plan.batches.length) { S.batches = plan.batches; S.batchEdited = true; }
+  const msg = $('#planMsg'); if (msg) { msg.textContent = plan ? '已载入上次保存的测算，改动自动保存' : '填了自动保存，换 SKU 不丢'; msg.style.color = ''; }
   fillInputs(); render(); renderTop();
 }
 function renderTop() {
@@ -766,7 +776,7 @@ function openDD() {
   const list = S.rows.filter((r) => r._c === S.ctry && (!q || [r._sku, r['ASIN'], r['品名'], r['SPU'], storeOf(r)].some((x) => String(x || '').toLowerCase().includes(q))));
   const g = new Map(); for (const r of list) { const k = clean(r['SPU']) || '（未填 SPU）'; if (!g.has(k)) g.set(k, []); g.get(k).push(r); }
   $('#dd').innerHTML = [...g.entries()].sort((a, b) => a[0].localeCompare(b[0], 'zh')).map(([spu, rs]) => `<div class="g">${esc(spu)}</div>` + rs.map((r) => { const q2 = invQty(r);
-    return `<div class="it" data-id="${esc(r._id)}"><span class="s">${esc(r._sku)}</span><span class="tag ${r._c.toLowerCase()}">${r._c}</span><span class="n">${esc(r['品名'] || '')} <span class="meta">· ${esc(storeOf(r))}</span></span><span class="tag ${q2 ? 'or' : ''}">${q2 == null ? '无库存记录' : q2 + ' 件'}</span></div>`; }).join('')).join('')
+    return `<div class="it" data-id="${esc(r._id)}"><span class="s">${esc(r._sku)}</span><span class="tag ${r._c.toLowerCase()}">${r._c}</span><span class="n">${esc(r['品名'] || '')} <span class="meta">· ${esc(storeOf(r))}</span></span>${planLoad(r) ? '<span class="tag ok">已存测算</span>' : ''}<span class="tag ${q2 ? 'or' : ''}">${q2 == null ? '无库存记录' : q2 + ' 件'}</span></div>`; }).join('')).join('')
     || `<div class="meta" style="padding:14px">${S.ctry === 'CA' ? '加拿大' : '美国'}没有匹配的行</div>`;
   $('#dd').classList.add('open');
 }
@@ -780,8 +790,12 @@ function pick(id) {
 function bind() {
   $('#segCtry').onclick = (e) => { const b = e.target.closest('button'); if (!b || b.dataset.c === S.ctry) return; planFlush(); S.ctry = b.dataset.c; S.sku = null; loadRow(null); };   // 美国、加拿大是不同的行，切国家后重新选
   $('#btnClear').onclick = () => { planFlush(); S.sku = null; S.manual = {}; loadRow(null); };
-  $('#addBatch').onclick = () => { S.batches.push({ d: toStr(todayBJ() - 30), q: '', src: '手填' }); renderBatches(); };
-  $('#batchTbl').addEventListener('click', (e) => { const i = e.target.dataset?.del; if (i != null) { S.batches.splice(+i, 1); render(); } });
+  $('#addBatch').onclick = () => { S.batches.push({ d: toStr(todayBJ() - 30), q: '', src: '手填' }); S.batchEdited = true; fcSave(); renderBatches(); };
+  $('#batchTbl').addEventListener('click', (e) => {
+    const i = e.target.dataset?.del;
+    if (i != null) { S.batches.splice(+i, 1); S.batchEdited = true; fcSave(); render(); }
+    if (e.target.dataset?.relive != null) { e.preventDefault(); S.batchEdited = false; if (S.invInfo && S.invInfo.batches.length) S.batches = S.invInfo.batches.map((x) => ({ ...x })); fcSave(); render(); }
+  });
   $('#batchTbl').addEventListener('focusout', () => setTimeout(() => { if (!$('#batchTbl').contains(document.activeElement)) render(); }, 0));
   const pin = $('#pickIn'); pin.onfocus = openDD; pin.oninput = openDD;
   pin.onkeydown = (e) => { if (e.key === 'Enter') { const it = $('#dd .it'); if (it) pick(it.dataset.id); } else if (e.key === 'Escape') $('#dd').classList.remove('open'); };
