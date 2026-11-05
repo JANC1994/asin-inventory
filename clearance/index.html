@@ -1,0 +1,948 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>季节品清仓决策</title>
+<!--
+  季节品清仓决策（2026-10-16 起草；2026-11-05 接飞书上线，应用页 pge3hx9ottuGADSp）
+  读：产品主表（saveConfig 只登记它）/ 产品定价利润表 / ASIN库存概况-灯 / 领星-FBA库存明细表-灯 / 产品目标总表（本季结束日默认值）
+  写：清仓决策-预估存档 tbl1Nxd3GPbRrfcd（一个 SKU×国家×店铺 一行，方案JSON = 12 个月预估 + 本季结束日 + 明年售价/TACOS，全组共用）
+  授权靠「数据授权（勿删）」「数据授权3」「数据授权4」的列表组件；其余测算不写表
+  问题：季节品卖不完时，本季推到什么程度？剩下的弃置还是留到明年？
+  比较口径（用户 10-16 定）：
+    · 货本是沉没成本，方案比较看「从今天起的现金」；另显示含货本的会计盈亏
+    · 本季三档：保本档 / 轻推 / 重推（售价、日销、TACOS 可改）
+    · 剩余处置两种：A 季末全部弃置；B 按本季结束后 12 个月的销量预估留货（用户 11-04 定，取代明年日销/能卖比例/明年开售日），预估卖不掉的今年就弃置（先弃库龄最老的）
+    · 移除到海外仓明年再发：不算（用户：通常更亏）
+    · 库龄手填入库批次（FIFO），月销量预估手填（每月平摊到天），其余自动算
+  逐日模拟：月度仓储费按日计提（10–12 月旺季费率）；超龄附加费每月 15 日按批次库龄收；先进先出扣减
+  费率（2026）：美国 帮助页 G3EDYEF6KUCFQTNM / GJQNPA23YWVA4SBD / 移除·弃置页；加拿大 用户 10-16 从后台复制 + sell.amazon.ca/pricing
+  原文存 raw/平台政策/亚马逊政策文档2026-持续更新/
+-->
+<style>
+  :root {
+    --bg: #faf6f1; --card: #ffffff; --ink: #2b2118; --sub: #7a6d61; --line: #f0e4d7; --line2: #e8d9c8;
+    --or: #f07a12; --or-d: #c95f05; --or-soft: #fff1e2; --or-soft2: #ffe3c4;
+    --red: #d9363e; --red-soft: #fdeced; --yel: #b7791f; --yel-soft: #fff7e0; --green: #2a9d4b; --green-soft: #e6f6eb;
+    --grey: #9a9089; --grey-soft: #f3efea; --blue: #2f6fd0; --blue-soft: #eaf1fc;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.5 -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; }
+  html, body { height: 100%; overflow: hidden; }
+  .wrap { padding: 14px 16px 0; max-width: 1500px; margin: 0 auto; height: 100vh; display: flex; flex-direction: column; }
+  #main { flex: 1; min-height: 0; overflow: auto; margin: 0 -16px; padding: 0 16px 60px; }
+  .meta { color: var(--sub); font-size: 12px; }
+  .mono { font-family: Consolas, monospace; }
+  .top { flex: none; }
+  .hero { background: linear-gradient(120deg, #f07a12 0%, #f59a3c 60%, #f8b35f 100%); color: #fff; border-radius: 12px 12px 0 0; padding: 12px 18px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .hero h2 { margin: 0; font-size: 18px; letter-spacing: .5px; }
+  .hero .meta { color: rgba(255,255,255,.92); margin-left: auto; }
+  .seg { display: inline-flex; background: rgba(255,255,255,.22); border-radius: 9px; padding: 3px; gap: 2px; }
+  .seg button { height: 28px; padding: 0 14px; border: 0; border-radius: 7px; background: transparent; color: #fff; font-size: 13px; cursor: pointer; }
+  .seg button.on { background: #fff; color: var(--or-d); font-weight: 700; }
+  .seg button:disabled { opacity: .45; cursor: not-allowed; }
+  .hero-f { background: linear-gradient(120deg, #f38a2a 0%, #f7a650 100%); border-radius: 0 0 12px 12px; padding: 8px 18px 10px; margin-bottom: 12px; border-top: 1px solid rgba(255,255,255,.3); display: flex; gap: 10px; flex-wrap: wrap; align-items: center; color: #fff; }
+  .pick { position: relative; }
+  .pick input { height: 30px; width: 380px; max-width: 70vw; border: 0; border-radius: 15px; padding: 0 14px; font-size: 13px; color: var(--ink); background: #fff; }
+  .dd { position: absolute; top: 34px; left: 0; width: 520px; max-width: 90vw; max-height: 420px; overflow: auto; background: #fff; border-radius: 10px; box-shadow: 0 10px 30px rgba(60,30,0,.25); z-index: 50; padding: 6px; display: none; color: var(--ink); }
+  .dd.open { display: block; }
+  .dd .g { font-size: 11.5px; color: var(--sub); padding: 6px 8px 2px; font-weight: 700; }
+  .dd .it { display: flex; gap: 8px; align-items: center; padding: 6px 8px; border-radius: 7px; cursor: pointer; }
+  .dd .it:hover, .dd .it.hl { background: var(--or-soft); }
+  .dd .it .s { font-family: Consolas, monospace; font-weight: 700; color: var(--or-d); flex: none; }
+  .dd .it .n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; }
+  .hbtn { height: 28px; padding: 0 12px; border-radius: 14px; border: 1px solid rgba(255,255,255,.7); background: rgba(255,255,255,.15); color: #fff; font-size: 12.5px; cursor: pointer; }
+  .hbtn:hover { background: #fff; color: var(--or-d); }
+  .hero-f .r { margin-left: auto; }
+  .tag { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 9px; background: var(--grey-soft); color: var(--sub); white-space: nowrap; }
+  .tag.us { background: var(--blue-soft); color: var(--blue); } .tag.ca { background: var(--red-soft); color: var(--red); }
+  .tag.or { background: var(--or-soft); color: var(--or-d); } .tag.ok { background: var(--green-soft); color: var(--green); }
+  .tag.bad { background: var(--red-soft); color: var(--red); } .tag.warn { background: var(--yel-soft); color: var(--yel); }
+  .btn { height: 28px; padding: 0 11px; border-radius: 7px; border: 1px solid var(--line2); background: #fff; color: var(--ink); font-size: 12.5px; cursor: pointer; white-space: nowrap; }
+  .btn:hover { border-color: var(--or); color: var(--or-d); }
+  .banner { background: var(--yel-soft); color: var(--yel); border-radius: 8px; padding: 7px 12px; font-size: 12.5px; margin-bottom: 10px; }
+  .banner.blue { background: var(--blue-soft); color: var(--blue); }
+
+  .prod { background: #fff; border: 1px solid var(--or-soft2); border-radius: 14px; margin-bottom: 14px; padding: 14px 18px; display: grid; grid-template-columns: 76px minmax(0, 1fr) auto; gap: 16px; align-items: center; }
+  .prod .pimg { width: 76px; height: 76px; border-radius: 10px; background: var(--or-soft); display: flex; align-items: center; justify-content: center; font-size: 30px; }
+  .prod .pn { font-size: 20px; font-weight: 800; line-height: 1.3; }
+  .prod .pids { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; align-items: center; }
+  .prod .pids .big { font-family: Consolas, monospace; font-size: 15px; font-weight: 800; color: var(--or-d); }
+  .prod .pkpi { display: flex; gap: 10px; flex-wrap: wrap; }
+  .prod .pk { text-align: center; padding: 6px 14px; border-radius: 10px; background: var(--bg); min-width: 96px; }
+  .prod .pk .k { font-size: 11.5px; color: var(--sub); } .prod .pk .v { font-size: 20px; font-weight: 800; font-variant-numeric: tabular-nums; }
+  .prod .pk.hi { background: var(--or-soft); }
+  @media (max-width: 900px) { .prod { grid-template-columns: 1fr; } .prod .pimg { display: none; } }
+
+  .card { background: #fff; border: 1px solid var(--line); border-radius: 12px; margin-bottom: 14px; overflow: hidden; }
+  .card-h { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--line); background: #fffaf4; flex-wrap: wrap; cursor: pointer; }
+  .card-h b { font-size: 14.5px; padding-left: 8px; border-left: 4px solid var(--or); }
+  .card-h .r { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+  .card-h .sum { font-size: 12.5px; display: none; } .card.closed .card-h .sum { display: inline; }
+  .fold { width: 24px; height: 24px; border: 1px solid var(--line2); border-radius: 6px; background: #fff; color: var(--sub); cursor: pointer; font-size: 12px; }
+  .card.closed .fold { transform: rotate(-90deg); } .card.closed .card-b { display: none; } .card.closed .card-h { border-bottom: 0; }
+  .card-b { padding: 12px 16px 14px; }
+  .split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; align-items: start; }
+  @media (max-width: 1100px) { .split { grid-template-columns: 1fr; } }
+  .sub-h { font-size: 12px; font-weight: 700; color: var(--sub); margin: 12px 0 6px; letter-spacing: .5px; }
+  .sub-h:first-child { margin-top: 0; }
+  .fg { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px 10px; }
+  .fg.c3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  @media (max-width: 640px) { .fg, .fg.c3 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  .f label { display: flex; justify-content: space-between; gap: 4px; font-size: 11.5px; color: var(--sub); margin-bottom: 2px; white-space: nowrap; }
+  .f label .u { color: var(--grey); }
+  input[type=number], input[type=date] { width: 100%; height: 32px; border: 1px solid var(--line2); border-radius: 7px; padding: 0 8px; font: inherit; font-size: 13.5px; font-variant-numeric: tabular-nums; background: #fff; color: var(--ink); outline: none; }
+  input:focus { border-color: var(--or); box-shadow: 0 0 0 3px rgba(240,122,18,.15); }
+  input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  .f .src { font-size: 11px; color: var(--grey); height: 15px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .facts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+
+  .tbl { border-collapse: collapse; width: 100%; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+  .tbl th, .tbl td { padding: 6px 8px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
+  .tbl th { color: var(--sub); font-weight: 600; background: #fffaf4; }
+  .tbl td:first-child, .tbl th:first-child { text-align: left; }
+  .tbl input { height: 28px; }
+  .tbl td.c, .tbl th.c { text-align: center; }
+  .tiers { display: grid; grid-template-columns: 150px repeat(3, minmax(0, 1fr)); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .tiers > div { padding: 6px 10px; border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+  .tiers .lab { color: var(--sub); font-size: 12px; background: #fffaf4; display: flex; align-items: center; }
+  .tiers .hd { font-weight: 800; text-align: center; background: #fffaf4; }
+  .tiers .hd small { display: block; font-weight: 400; color: var(--sub); font-size: 11px; }
+  .tiers .v { text-align: right; }
+  .tiers .v.big { font-size: 15px; font-weight: 800; }
+  .tiers .sep { grid-column: 1 / -1; padding: 0; height: 6px; background: var(--grey-soft); border: 0; }
+  .pos { color: var(--green); } .neg { color: var(--red); } .mid { color: var(--yel); }
+  .formula { font-size: 11.5px; color: var(--sub); margin-top: 8px; line-height: 1.7; }
+
+  .chart { margin-top: 10px; }
+  .chart .rows { display: flex; flex-direction: column; gap: 3px; }
+  .chart .row { display: grid; grid-template-columns: 70px 1fr 150px; gap: 8px; align-items: center; font-size: 12px; }
+  .chart .bar { height: 16px; display: flex; background: var(--grey-soft); border-radius: 4px; overflow: hidden; position: relative; }
+  .chart .bar span { height: 100%; }
+  .chart .lg { display: flex; gap: 14px; font-size: 12px; color: var(--sub); margin-top: 6px; flex-wrap: wrap; }
+  .chart .lg i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 4px; }
+  .cmp td.best { background: var(--green-soft); font-weight: 800; }
+  .cmp td.big { font-size: 14px; font-weight: 800; }
+  .verdict { margin-top: 12px; background: var(--green-soft); border: 1px solid #bfe5c9; border-radius: 10px; padding: 12px 14px; font-size: 13px; line-height: 1.7; }
+  .verdict b.t { font-size: 15px; }
+  .why { margin-top: 10px; background: var(--grey-soft); border-radius: 10px; padding: 10px 14px; font-size: 12.5px; line-height: 1.8; }
+  .fc { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px 8px; }
+  .fc label { display: flex; flex-direction: column; gap: 2px; font-size: 12px; min-width: 0; }
+  .fc input { width: 100%; min-width: 0; }
+  .savebar { display: none; gap: 10px; align-items: center; background: #fff; border: 2px dashed var(--or); border-radius: 10px; padding: 8px 14px; margin-bottom: 10px; }
+  .savebar.show { display: flex; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div class="hero">
+      <h2>季节品清仓决策</h2>
+      <div class="seg" id="segCtry"><button data-c="US" class="on">🇺🇸 美国</button><button data-c="CA">🇨🇦 加拿大</button></div>
+      <div class="meta" id="heroMeta"></div>
+    </div>
+    <div class="hero-f">
+      <div class="pick"><input id="pickIn" autocomplete="off" placeholder="选 SKU"><div class="dd" id="dd"></div></div>
+      <span id="curInfo"></span>
+      <div class="r"><button class="hbtn" id="btnClear">清空，手动填</button></div>
+    </div>
+  </div>
+  <div id="main">
+    <div class="savebar" id="savebar"><b>插件配置</b><span class="meta">读产品主表等 5 张表，预估存到 清仓决策-预估存档</span><button class="btn pri" id="saveBtn">保存到页面</button><span class="meta" id="saveMsg"></span></div>
+    <div class="banner" id="tallTip" style="display:none">插件框比屏幕还高，往下滑时顶栏会被滚走。请在应用编辑模式里把这个插件组件的高度拖到一屏以内。</div>
+    <div id="banners"></div>
+    <div class="prod" id="prod"></div>
+
+    <div class="card" data-card="base">
+      <div class="card-h"><button class="fold">▾</button><b>① 产品与库存</b><span class="meta">尺寸成本从主表带入；库龄批次、本季结束日手填</span><span class="sum" id="sumBase"></span></div>
+      <div class="card-b split">
+        <div>
+          <div class="sub-h">售价与成本</div>
+          <div class="fg">
+            <div class="f" data-k="price"></div><div class="f" data-k="comm"></div><div class="f" data-k="rate"></div><div class="f" data-k="fbaNp"></div>
+            <div class="f" data-k="buy"></div><div class="f" data-k="head"></div><div class="f" data-k="fbaPk"></div><div class="f" data-k="kg"></div>
+          </div>
+          <div class="sub-h">包装尺寸（cm）</div>
+          <div class="fg c3"><div class="f" data-k="L"></div><div class="f" data-k="W"></div><div class="f" data-k="H"></div></div>
+          <div class="facts" id="facts"></div>
+        </div>
+        <div>
+          <div class="sub-h">日期</div>
+          <div class="fg c3">
+            <div class="f"><label><span>今天（北京）</span></label><input type="date" id="dToday" disabled></div>
+            <div class="f"><label><span>本季结束日</span><span class="u">季末截单/停卖</span></label><input type="date" id="dEnd"></div>
+          </div>
+          <div class="sub-h">库龄批次（入库日期 × 件数，先进先出）<button class="btn" id="addBatch" style="height:24px;margin-left:8px">+ 加一批</button></div>
+          <table class="tbl" id="batchTbl"></table>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" data-card="season">
+      <div class="card-h"><button class="fold">▾</button><b>② 本季剩余销售：三档</b><span class="meta">到本季结束日为止；每档的售价、日销、TACOS 可改</span><span class="sum" id="sumSeason"></span></div>
+      <div class="card-b"><div id="tiers"></div></div>
+    </div>
+
+    <div class="card" data-card="left">
+      <div class="card-h"><button class="fold">▾</button><b>③ 剩余库存：弃置 vs 留到明年</b><span class="meta">按未来 12 个月预估留货，预估卖不掉的今年就弃置（先弃库龄最老的）</span><span class="sum" id="sumLeft"></span></div>
+      <div class="card-b split">
+        <div>
+          <div class="fg">
+            <div class="f" data-k="nPrice"></div><div class="f" data-k="nTacos"></div>
+          </div>
+          <div class="sub-h">本季结束后 12 个月销量预估（件/月，不卖的月份留空）</div>
+          <div class="fc" id="fcGrid"></div>
+          <div class="meta" id="fcSum" style="margin-top:6px"></div>
+          <div class="meta" id="planMsg"></div>
+          <div id="leftRes"></div>
+        </div>
+        <div id="chart"></div>
+      </div>
+    </div>
+
+    <div class="card" data-card="cmp">
+      <div class="card-h"><button class="fold">▾</button><b>④ 方案对比</b><span class="meta">现金口径 = 从今天起还能收回/还要付出的钱（货本已沉没，不影响排名）</span><span class="sum" id="sumCmp"></span></div>
+      <div class="card-b"><div id="cmp"></div></div>
+    </div>
+
+    <div class="card closed" data-card="fees">
+      <div class="card-h"><button class="fold">▾</button><b>⑤ 2026 费率表（本页用到的）</b><span class="meta">美国：亚马逊帮助页 10-16 抓取；加拿大：后台帮助页（10-16 复制）+ sell.amazon.ca</span></div>
+      <div class="card-b" id="feeTbl"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+// ====================================================================
+// 2026 费率
+// ====================================================================
+const FEES = {
+  US: {
+    cur: '$', volUnit: 'cuft',
+    // 月度仓储费 $/立方英尺：[1–9 月, 10–12 月]
+    storage: { std: [0.78, 2.40], over: [0.56, 1.40] },
+    // 超龄附加费（每月 15 日快照）：[库龄下限, 上限, $/立方英尺, 每件最低]
+    aged: [[181, 210, 0.50, 0], [211, 240, 1.00, 0], [241, 270, 1.50, 0], [271, 300, 5.45, 0], [301, 330, 5.70, 0], [331, 365, 5.90, 0], [366, 455, 6.90, 0.30], [456, 1e9, 7.90, 0.35]],
+  },
+  CA: {
+    cur: 'C$', volUnit: 'm³',
+    storage: { std: [40, 77], over: [28, 49] },
+    aged: [[181, 210, 24, 0], [211, 240, 48, 0], [241, 270, 72, 0], [271, 300, 156, 0], [301, 330, 172, 0], [331, 365, 189, 0], [366, 1e9, 330, 0.15]],
+  },
+};
+// 移除费 = 弃置费（两国都是同一张价目）
+function disposeFee(ctry, std, w) {   // w：美国 = 发货重量 lb，加拿大 = 发货重量 g
+  if (ctry === 'US') {
+    if (std) {
+      const x = w < 1 ? Math.ceil(w * 10 - 1e-9) / 10 : Math.ceil(w - 1e-9);
+      if (x <= 0.5) return 0.84; if (x <= 1) return 1.53; if (x <= 2) return 2.27;
+      return r2(2.89 + 1.06 * (x - 2));
+    }
+    const x = Math.ceil(w - 1e-9);
+    if (x <= 1) return 3.12; if (x <= 2) return 4.30; if (x <= 4) return 6.36; if (x <= 10) return 10.04;
+    return r2(14.32 + 1.06 * (x - 10));
+  }
+  const kg = w / 1000;
+  if (std) {
+    if (w <= 200) return 0.36; if (w <= 500) return 0.82; if (w <= 1000) return 1.62;
+    return r2(2.31 + 1.54 * Math.ceil(kg - 1 - 1e-9));
+  }
+  if (w <= 200) return 0.93; if (w <= 500) return 1.33; if (w <= 1000) return 1.69; if (w <= 2000) return 2.83; if (w <= 5000) return 5.02;
+  return r2(5.70 + 0.97 * Math.ceil(kg - 5 - 1e-9));
+}
+// 尺寸分段 + 发货重量（只区分 标准 / 大件，够算仓储和弃置）
+const IN = 2.54, G_LB = 453.59237;
+function sizeInfo(ctry, cm, kg) {
+  const [L, W, H] = [...cm].sort((a, b) => b - a);
+  const vCm3 = L * W * H;
+  if (ctry === 'US') {
+    const [l, w, h] = [L, W, H].map((x) => x / IN), lb = kg * 1000 / G_LB;
+    const small = lb <= 1 && l <= 15 && w <= 12 && h <= 0.75;
+    const std = small || (lb <= 20 && l <= 18 && w <= 14 && h <= 8);
+    const dim = l * Math.max(w, 2) * Math.max(h, 2) / 139;
+    const ship = small ? lb : Math.max(lb, dim);
+    return { std, tier: small ? '小号标准' : std ? '大号标准' : '大件', vol: vCm3 / 28316.846592, ship, shipTxt: `${ship.toFixed(2)} lb`, fee: disposeFee('US', std, ship) };
+  }
+  const g = kg * 1000, lg = L + 2 * (W + H);
+  const std = g <= 9000 && L <= 45 && W <= 35 && H <= 20;
+  const env = g <= 500 && L <= 38 && W <= 27 && H <= 2;
+  const ship = Math.max(g, vCm3 / 5);
+  return { std, tier: env ? '信封' : std ? '标准' : '大件', vol: vCm3 / 1e6, ship, shipTxt: `${ship.toFixed(0)} g`, fee: disposeFee('CA', std, ship), lg };
+}
+
+// ====================================================================
+// 日期：一律用 UTC 天序号（北京日期），避免本机时区差一天
+// ====================================================================
+const DAY = 86400e3;
+const todayBJ = () => { const d = new Date(Date.now() + 8 * 3600e3); return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) / DAY; };
+const toDay = (s) => { if (!s) return null; const [y, m, d] = s.split('-').map(Number); return Date.UTC(y, m - 1, d) / DAY; };
+const toStr = (n) => new Date(n * DAY).toISOString().slice(0, 10);
+const dOf = (n) => new Date(n * DAY);
+const daysInMonth = (n) => { const d = dOf(n); return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate(); };
+const isPeakStorage = (n) => dOf(n).getUTCMonth() >= 9;                    // 10–12 月
+const isPeakFba = (n) => { const d = dOf(n), md = (d.getUTCMonth() + 1) * 100 + d.getUTCDate(); return md >= 1015 || md <= 114; };
+
+// ====================================================================
+// 逐日模拟：卖货（FIFO）+ 月度仓储费（按日计提）+ 超龄附加费（每月 15 日按批次库龄）
+// batches: [{in: 天序号, q: 件数}]（按入库日期升序）；unitNet(day) = 当天卖 1 件的净回款（本币）
+// ====================================================================
+// daily：固定日销，或 (天序号) => 当天日销
+function simulate({ ctry, si, batches, from, to, daily, unitNet, stopWhenEmpty }) {
+  const F = FEES[ctry], b = batches.map((x) => ({ ...x }));
+  const rateS = F.storage[si.std ? 'std' : 'over'];
+  let sold = 0, rev = 0, stor = 0, aged = 0, carry = 0;
+  const months = [];   // 每月汇总：{m, stor, aged, units, band}
+  let cur = null;
+  for (let d = from; d < to; d++) {
+    const left = b.reduce((s, x) => s + x.q, 0);
+    if (left <= 0 && stopWhenEmpty) break;
+    const mk = toStr(d).slice(0, 7);
+    if (!cur || cur.m !== mk) { cur = { m: mk, stor: 0, aged: 0, units: left, band: '' }; months.push(cur); }
+    // 月度仓储费：当天在库体积 × 当月费率 ÷ 当月天数
+    const s = left * si.vol * rateS[isPeakStorage(d) ? 1 : 0] / daysInMonth(d);
+    stor += s; cur.stor += s;
+    // 超龄附加费：每月 15 日快照
+    if (dOf(d).getUTCDate() === 15) {
+      let a = 0, oldest = 0;
+      for (const x of b) {
+        if (x.q <= 0) continue;
+        const age = d - x.in;
+        oldest = Math.max(oldest, age);
+        const band = F.aged.find(([lo, hi]) => age >= lo && age <= hi);
+        if (band) a += x.q * Math.max(band[2] * si.vol, band[3]);
+      }
+      aged += a; cur.aged += a; cur.band = oldest ? `最老 ${oldest} 天` : '';
+    }
+    // 卖货：小数日销累计到整件
+    carry += typeof daily === 'function' ? daily(d) : daily;
+    let n = Math.min(Math.floor(carry + 1e-9), left);
+    carry -= n;
+    if (n > 0) {
+      sold += n; rev += n * unitNet(d);
+      for (const x of b) { if (!n) break; const t = Math.min(x.q, n); x.q -= t; n -= t; }
+    }
+  }
+  return { sold, rev, stor, aged, left: b.filter((x) => x.q > 0), leftQ: b.reduce((s, x) => s + x.q, 0), months };
+}
+// 先弃最老的 k 件，返回剩下的批次
+function dropOldest(batches, k) {
+  const b = batches.map((x) => ({ ...x }));
+  for (const x of b) { if (k <= 0) break; const t = Math.min(x.q, k); x.q -= t; k -= t; }
+  return b.filter((x) => x.q > 0);
+}
+
+// ====================================================================
+// 状态 / 输入
+// ====================================================================
+const FIELDS = {
+  price: ['当前售价', '本币'], comm: ['佣金', '%'], rate: ['汇率', '¥/本币'], fbaNp: ['FBA 配送费·淡季', '本币'], fbaPk: ['FBA 配送费·旺季', '本币'],
+  buy: ['采购（不含税）', '¥'], head: ['头程', '¥/件'], kg: ['重量', 'kg'], L: ['长', 'cm'], W: ['宽', 'cm'], H: ['高', 'cm'],
+  nPrice: ['明年售价', '本币'], nTacos: ['明年 TACOS', '%'],
+};
+const SRC = { price: '利润表 原价×(1−折扣)', comm: '主表', rate: '主表', fbaNp: '主表', fbaPk: '主表', buy: '主表', head: '主表', kg: '主表', L: '主表', W: '主表', H: '主表',
+  nPrice: '默认 = 当前售价', nTacos: '默认 = 保本档 TACOS' };
+const S = { rows: [], ctry: 'US', sku: null, rec: null, val: {}, batches: [], tiers: null, manual: {}, fc: {} };
+const $ = (s, el = document) => el.querySelector(s);
+const $$ = (s, el = document) => [...el.querySelectorAll(s)];
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const num = (v) => { if (v === '' || v == null) return null; const n = +v; return Number.isFinite(n) ? n : null; };
+const r2 = (n) => Math.round(n * 100) / 100;
+const f2 = (n, d = 2) => n == null || !Number.isFinite(n) ? '—' : n.toFixed(d);
+const fi = (n) => n == null || !Number.isFinite(n) ? '—' : Math.round(n).toLocaleString('en-US');
+const pct = (n, d = 0) => n == null || !Number.isFinite(n) ? '—' : (n * 100).toFixed(d) + '%';
+const V = (k) => num(S.val[k]);
+const cur = () => FEES[S.ctry].cur;
+const money = (n, d = 0) => n == null || !Number.isFinite(n) ? '—' : `${n < 0 ? '−' : ''}${cur()}${Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d })}`;
+const yuan = (n) => n == null || !Number.isFinite(n) ? '—' : `${n < 0 ? '−' : ''}¥${fi(Math.abs(n))}`;
+const first = (v) => Array.isArray(v) ? v[0] : v;
+const clean = (s) => String(s ?? '').replace(/[\s​-‍﻿]+/g, ' ').trim();
+
+// 三档：保本档 = 保本价（含货本不亏）；轻推 / 重推 = 低于保本价、每卖一件都亏，换更多销量
+// 默认售价 = 保本价 ×1 / ×0.85 / ×0.7，日销 = 保本档日销 ×1 / ×1.5 / ×2.2；手改哪格哪格就不再跟
+const TIER_DEF = [
+  { k: 'base', n: '保本档', d: '不硬推：按保本价卖（含货本不亏）', pm: 1, dm: 1 },
+  { k: 'mid', n: '轻推', d: '低于保本价 + 加广告', pm: 0.85, dm: 1.5 },
+  { k: 'hard', n: '重推', d: '大幅低于保本价 + 重广告', pm: 0.7, dm: 2.2 },
+];
+function defaultTiers() {
+  return { base: { price: 0, daily: 3, tacos: 10, auto: true, dAuto: false }, mid: { price: 0, daily: 0, tacos: 15, auto: true, dAuto: true }, hard: { price: 0, daily: 0, tacos: 25, auto: true, dAuto: true } };
+}
+const unitCostLocal = () => ((V('buy') || 0) + (V('head') || 0)) / (V('rate') || 1);
+const fbaOn = (d) => isPeakFba(d) ? (V('fbaPk') ?? V('fbaNp') ?? 0) : (V('fbaNp') ?? 0);
+const unitNetFn = (price, tacos) => (d) => price * (1 - (V('comm') || 0) / 100 - tacos / 100) - fbaOn(d);
+// 保本价（含货本）：price×(1−佣金−TACOS) − FBA − 货本 = 0
+function breakEvenPrice(tacos) {
+  const k = 1 - (V('comm') || 0) / 100 - tacos / 100;
+  const fba = fbaOn(todayBJ());
+  return k > 0 ? (fba + unitCostLocal()) / k : null;
+}
+
+// 销量预估：本季结束日的下一个自然月起 12 个月；每月销量平摊到当月每一天（本季结束日到月底不卖）
+function fcMonths(end) {
+  const d = dOf(end), out = [];
+  for (let i = 1; i <= 12; i++) {
+    const x = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + i, 1)), m = x.toISOString().slice(0, 7), from = toDay(m + '-01');
+    out.push({ m, from, to: from + daysInMonth(from), q: Math.max(0, num(S.fc[m]) || 0) });
+  }
+  return out;
+}
+const fcKey = () => S.rec ? `cl-fc|${S.rec._sku}|${S.rec._c}|${storeOf(S.rec)}` : 'cl-fc|manual';
+// 方案存档：飞书里存 清仓决策-预估存档（全组共用）；预览和手动模式只存本浏览器
+const planKey = (r) => `${r._sku}|${r._c}|${storeOf(r)}`;
+function planLoad(r) {
+  if (r && S.arch && S.arch[planKey(r)]) return S.arch[planKey(r)].plan;
+  try { return JSON.parse(localStorage.getItem(r ? `cl-plan|${planKey(r)}` : 'cl-plan|manual') || 'null'); } catch (_) { return null; }
+}
+let planTimer = null, planPending = null;
+function planFlush() { if (planPending) { clearTimeout(planTimer); const f = planPending; planPending = null; return f(); } }
+function fcSave() {   // 改动后 0.8 秒写一次；切产品前 planFlush 补写
+  const r = S.rec, fc = {};
+  for (const [m, v] of Object.entries(S.fc)) if (v !== '' && v != null) fc[m] = v;
+  const plan = { fc, end: $('#dEnd').value, nPrice: S.manual.nPrice ? S.val.nPrice : null, nTacos: S.manual.nTacos ? S.val.nTacos : null };
+  clearTimeout(planTimer);
+  planPending = async () => {
+    const say = (t, bad) => { const el = $('#planMsg'); if (el && S.rec === r) { el.textContent = t; el.style.color = bad ? 'var(--red, #c00)' : ''; } };
+    if (!r || !API.savePlan) { try { localStorage.setItem(r ? `cl-plan|${planKey(r)}` : 'cl-plan|manual', JSON.stringify(plan)); } catch (_) {} say('已存在本浏览器'); return; }
+    try { say('保存中…'); await API.savePlan(planKey(r), plan); say('已保存，全组可见'); }
+    catch (e) { say('保存失败：' + (e && e.message ? e.message : e) + '（应用数据权限要对 清仓决策-预估存档 开可编辑）', true); }
+  };
+  planTimer = setTimeout(planFlush, 800);
+}
+
+// ====================================================================
+// 主计算
+// ====================================================================
+function compute() {
+  const ctry = S.ctry, cm = [V('L'), V('W'), V('H')], kg = V('kg');
+  if (!(cm.every((x) => x > 0) && kg > 0)) return { err: '缺尺寸或重量（① 里填长宽高、重量）' };
+  const si = sizeInfo(ctry, cm, kg);
+  const today = todayBJ(), end = toDay($('#dEnd').value);
+  if (end == null) return { err: '填本季结束日', si };
+  if (end <= today) return { err: '本季结束日要晚于今天', si };
+  const batches = S.batches.map((b) => ({ in: toDay(b.d), q: Math.max(0, Math.round(num(b.q) || 0)) })).filter((b) => b.in != null && b.q > 0).sort((a, b) => a.in - b.in);
+  const total = batches.reduce((s, x) => s + x.q, 0);
+  if (!total) return { err: '填库龄批次（入库日期 + 件数）', si };
+  if ([V('price'), V('comm'), V('rate'), V('buy'), V('head'), V('fbaNp')].some((x) => x == null)) return { err: '售价、佣金、汇率、采购、头程、配送费要填全', si };
+  const T = S.tiers;
+  const nPrice = V('nPrice') ?? V('price'), nTacos = V('nTacos') ?? T.base.tacos;
+  const FM = fcMonths(end), fcTotal = FM.reduce((a, m) => a + m.q, 0), firstSale = FM.find((m) => m.q > 0), winEnd = FM[11].to;
+  const dailyOn = (d) => { const m = FM.find((x) => d >= x.from && d < x.to); return m ? m.q / (m.to - m.from) : 0; };
+  const fee = si.fee;
+  const res = {};
+  // 基准：不卖，今天全部弃置
+  res.now = { sold: 0, leftQ: total, seasonCash: 0, A: { cash: -fee * total, disposed: total }, B: null };
+  for (const t of TIER_DEF) {
+    const p = T[t.k];
+    const s = simulate({ ctry, si, batches, from: today, to: end, daily: p.daily, unitNet: unitNetFn(p.price, p.tacos) });
+    const seasonCash = s.rev - s.stor - s.aged;
+    const R = s.leftQ;
+    // A：季末全部弃置
+    const A = { cash: seasonCash - fee * R, disposed: R };
+    // B：留下预估 12 个月卖得掉的量，其余（最老的）今年弃置；没填预估就没有这个方案
+    let B = null;
+    if (firstSale) {
+      const K = Math.min(R, fcTotal), D = R - K;
+      const kept = dropOldest(s.left, D);
+      const hold = simulate({ ctry, si, batches: kept, from: end, to: firstSale.from, daily: 0, unitNet: () => 0 });
+      const sell = simulate({ ctry, si, batches: hold.left, from: firstSale.from, to: winEnd, daily: dailyOn, unitNet: unitNetFn(nPrice, nTacos), stopWhenEmpty: true });
+      B = { cash: seasonCash - fee * D + sell.rev - hold.stor - hold.aged - sell.stor - sell.aged, disposed: D, kept: K,
+        holdStor: hold.stor, holdAged: hold.aged, sellStor: sell.stor, sellAged: sell.aged, nextRev: sell.rev, nextSold: sell.sold, sellMonths: sell.months.filter((m) => m.units > 0).length,
+        months: hold.months.concat(sell.months), unsold: sell.leftQ };
+    }
+    res[t.k] = { ...s, seasonCash, A, B, R, p };
+  }
+  // 最优
+  const opts = [['now', 'A', '不卖，今天全部弃置']];
+  for (const t of TIER_DEF) { opts.push([t.k, 'A', `${t.n} + 季末全部弃置`]); if (res[t.k].B) opts.push([t.k, 'B', `${t.n} + 留 ${fi(res[t.k].B.kept)} 件到明年`]); }
+  let best = null;
+  for (const [k, w, n] of opts) { const c = res[k][w]?.cash; if (c != null && (!best || c > best.cash)) best = { k, w, n, cash: c }; }
+  return { si, today, end, next: firstSale ? firstSale.from : null, total, fcTotal, hasFc: !!firstSale, fee, res, best, nPrice, nTacos, costAll: unitCostLocal() * total };
+}
+
+// ====================================================================
+// 渲染
+// ====================================================================
+function buildInputs() {
+  for (const box of $$('.f[data-k]')) {
+    const k = box.dataset.k, [lab, u] = FIELDS[k];
+    box.innerHTML = `<label><span>${lab}</span><span class="u" data-u="${k}">${u}</span></label><input type="number" step="any" data-k="${k}"><div class="src" data-s="${k}">${SRC[k] || ''}</div>`;
+  }
+  $('#main').addEventListener('input', (e) => {
+    const k = e.target.dataset?.k;
+    if (k) { S.val[k] = e.target.value; if (['nPrice', 'nTacos'].includes(k)) { S.manual[k] = e.target.value !== ''; fcSave(); } render(); return; }
+    const fm = e.target.dataset?.fc;
+    if (fm) { S.fc[fm] = e.target.value; fcSave(); render(); return; }
+    const t = e.target.dataset?.t;
+    if (t) { const [tk, f] = t.split('.'); S.tiers[tk][f] = num(e.target.value) ?? 0; if (f === 'price') S.tiers[tk].auto = false; if (f === 'daily') S.tiers[tk].dAuto = false; render(); return; }
+    const bi = e.target.dataset?.b;
+    if (bi != null) { const [i, f] = bi.split('.'); S.batches[+i][f] = e.target.value; S.batches[+i].src = '手改'; render(); return; }
+    if (e.target.id === 'dEnd') fcSave();
+    if (e.target.type === 'date') render();
+  });
+}
+function fillInputs() {
+  for (const inp of $$('input[data-k]')) inp.value = S.val[inp.dataset.k] ?? '';
+  for (const k of ['price', 'fbaNp', 'fbaPk', 'nPrice']) { const u = $(`[data-u="${k}"]`); if (u) u.textContent = cur(); }
+}
+function applyAuto() {
+  // 保本档售价默认 = 保本价（含货本），手改后不再跟
+  const T = S.tiers;
+  const be = breakEvenPrice(T.base.tacos);
+  if (T.base.auto && be != null) T.base.price = r2(Math.max(be, 0));
+  for (const t of TIER_DEF.slice(1)) {
+    if (T[t.k].auto) T[t.k].price = r2(T.base.price * t.pm);
+    if (T[t.k].dAuto) T[t.k].daily = r2(T.base.daily * t.dm);
+  }
+  for (const t of TIER_DEF) for (const f of ['price', 'daily']) {   // 同步到输入框（正在输入的那格不动）
+    const inp = $(`input[data-t="${t.k}.${f}"]`); if (inp && document.activeElement !== inp) inp.value = T[t.k][f];
+  }
+  const auto = { nPrice: V('price'), nTacos: T.base.tacos };
+  for (const [k, v] of Object.entries(auto)) {
+    if (S.manual[k]) continue;
+    S.val[k] = v == null ? '' : String(v);
+    const inp = $(`input[data-k="${k}"]`); if (inp && document.activeElement !== inp) inp.value = S.val[k];
+  }
+}
+function renderForecast(R) {
+  const end = toDay($('#dEnd').value), host = $('#fcGrid');
+  if (end == null) { host.innerHTML = ''; host.dataset.k = ''; $('#fcSum').textContent = '先填本季结束日'; return; }
+  const FM = fcMonths(end), k = FM[0].m;
+  if (host.dataset.k !== k || host.dataset.sku !== fcKey()) {   // 只在月份或产品变了才重建，输入时光标不跳
+    host.dataset.k = k; host.dataset.sku = fcKey();
+    host.innerHTML = FM.map((m) => `<label><span class="mono">${m.m}</span><input type="number" min="0" step="1" data-fc="${m.m}" value="${esc(S.fc[m.m] ?? '')}"></label>`).join('');
+  }
+  if (!R || R.err) { $('#fcSum').textContent = ''; return; }
+  const b = R.res.base;
+  $('#fcSum').innerHTML = R.hasFc
+    ? `12 个月合计 <b>${fi(R.fcTotal)}</b> 件。保本档季末剩余 ${fi(b.R)} 件 → 留 <b>${fi(b.B.kept)}</b> 件，今年弃置 <b>${fi(b.B.disposed)}</b> 件。`
+    : '还没填预估，下面只比较弃置方案。';
+}
+function renderBatches() {
+  const today = todayBJ();
+  const host = $('#batchTbl');
+  if (host.contains(document.activeElement)) return;   // 正在输入时不重建，免得光标跳
+  host.innerHTML = `<tr><th>入库日期</th><th>件数</th><th>今天库龄</th><th>季末库龄</th><th>来源</th><th class="c"></th></tr>` + S.batches.map((b, i) => {
+    const d = toDay(b.d), end = toDay($('#dEnd').value);
+    const a = d == null ? null : today - d, ae = d == null || end == null ? null : end - d;
+    const tagA = (x) => x == null ? '—' : `<span class="${x >= 271 ? 'neg' : x >= 181 ? 'mid' : ''}">${x} 天</span>`;
+    return `<tr><td><input type="date" data-b="${i}.d" value="${esc(b.d)}"></td><td><input type="number" data-b="${i}.q" value="${esc(b.q)}" style="width:90px"></td>
+      <td>${tagA(a)}</td><td>${tagA(ae)}</td><td class="meta" style="text-align:left">${esc(b.src || '手填')}</td><td class="c">${S.batches.length > 1 ? `<button class="btn" data-del="${i}" style="height:24px">删</button>` : ''}</td></tr>`;
+  }).join('') + `<tr><td><b>合计</b></td><td><b>${fi(S.batches.reduce((s, b) => s + (num(b.q) || 0), 0))}</b> 件</td><td colspan="4" class="meta" style="text-align:left">库龄按先进先出，卖出时先扣最老的批次</td></tr>` +
+    (S.invInfo ? `<tr><td colspan="6" class="meta" style="text-align:left;white-space:normal">${esc(S.invInfo.note)}${S.invInfo.others && S.invInfo.others.length ? `<br><b>同国家其他店铺还有：</b>${esc(S.invInfo.others.join('，'))}（不在本页计算内）` : ''}</td></tr>` : '');
+}
+function renderTiers(R) {
+  const T = S.tiers, c = cur();
+  const fa = document.activeElement, keepT = fa && fa.dataset && fa.dataset.t, sel = keepT ? [fa.selectionStart, fa.selectionEnd] : null;   // 重建后把光标放回原格
+  const col = (fn) => TIER_DEF.map((t) => `<div class="v">${fn(t, R && R.res ? R.res[t.k] : null)}</div>`).join('');
+  const inp = (t, f, step) => `<input type="number" step="${step}" data-t="${t.k}.${f}" value="${T[t.k][f]}">`;
+  const be = breakEvenPrice(T.base.tacos);
+  $('#tiers').innerHTML = `<div class="tiers">
+    <div class="lab"></div>${TIER_DEF.map((t) => `<div class="hd">${t.n}<small>${t.d}</small></div>`).join('')}
+    <div class="lab">售价（${c}）</div>${col((t) => inp(t, 'price', '0.01') + `<div class="meta">${t.k === 'base' ? `保本价 ${be == null ? '—' : c + f2(be)}` : `保本价 ×${t.pm}`}${T[t.k].auto ? '（自动）' : ` <a href="#" data-reset="${t.k}.auto">↺ 恢复自动</a>`} · 当前价 ${c}${f2(V('price'))}</div>`)}
+    <div class="lab">日销（件/天）</div>${col((t) => inp(t, 'daily', '0.1') + `<div class="meta">${t.k === 'base' ? (S.invInfo && S.invInfo.daily != null ? `默认近7天日均 ${f2(S.invInfo.daily, 2)}（近30天 ${f2(S.invInfo.daily30, 2)}），按保本价能卖多少请改` : '按保本价能卖多少（手填）') : `保本档 ×${t.dm}${T[t.k].dAuto ? '（自动）' : ` <a href="#" data-reset="${t.k}.dAuto">↺ 恢复自动</a>`}`}</div>`)}
+    <div class="lab">TACOS（%）</div>${col((t) => inp(t, 'tacos', '1'))}
+    <div class="sep"></div>
+    <div class="lab">单件净回款（淡季配送费）</div>${col((t) => { const u = unitNetFn(T[t.k].price, T[t.k].tacos)(toDay('2026-06-01')); return `<span class="${u < unitCostLocal() ? (u < 0 ? 'neg' : 'mid') : 'pos'}">${c}${f2(u)}</span><div class="meta">货本 ${c}${f2(unitCostLocal())}</div>`; })}
+    ${R && !R.err ? `
+    <div class="lab">本季卖出</div>${col((t, r) => `<b>${fi(r.sold)}</b> 件`)}
+    <div class="lab">季末剩余</div>${col((t, r) => `<span class="${r.R ? 'neg' : 'pos'}">${fi(r.R)}</span> 件`)}
+    <div class="lab">本季销售回款</div>${col((t, r) => money(r.rev))}
+    <div class="lab">本季仓储 + 超龄</div>${col((t, r) => `−${money(r.stor + r.aged).replace('−', '')}<div class="meta">仓储 ${money(r.stor)} · 超龄 ${money(r.aged)}</div>`)}
+    <div class="lab">本季现金</div>${col((t, r) => `<span class="big ${r.seasonCash < 0 ? 'neg' : 'pos'}">${money(r.seasonCash)}</span>`)}
+    <div class="lab">本季盈亏（含卖出件货本）</div>${col((t, r) => { const x = r.seasonCash - r.sold * unitCostLocal(); return `<span class="${x < 0 ? 'neg' : 'pos'}">${money(x)}</span>`; })}` : ''}
+  </div>
+  <div class="formula">单件净回款 = 售价 × (1 − 佣金 − TACOS) − FBA 配送费（10.15–1.14 用旺季配送费）。逐日模拟：小数日销累计到整件，卖完或到本季结束日为止；仓储费按当天在库体积计提，超龄附加费每月 15 日按批次库龄收。</div>`;
+  if (keepT) { const el = $(`input[data-t="${keepT}"]`); if (el) { el.focus(); try { el.setSelectionRange(...sel); } catch (_) {} } }
+  for (const a of $$('[data-reset]', $('#tiers'))) a.onclick = (e) => { e.preventDefault(); const [tk, f] = a.dataset.reset.split('.'); S.tiers[tk][f] = true; render(); };
+}
+function renderLeft(R) {
+  if (!R || R.err) { $('#leftRes').innerHTML = `<div class="meta" style="margin-top:10px">${R ? R.err : ''}</div>`; $('#chart').innerHTML = ''; return; }
+  const b = R.res.base, B = b.B, c = cur(), uc = unitCostLocal();
+  if (!B) { $('#leftRes').innerHTML = `<div class="meta" style="margin-top:10px">弃置费 ${c}${f2(R.fee)}/件。填销量预估后，这里显示留货每件的净值。</div>`; $('#chart').innerHTML = ''; return; }
+  const holdPer = B.kept ? (B.holdStor + B.holdAged + B.sellStor + B.sellAged) / B.kept : 0;
+  const nextUnit = B.nextSold ? B.nextRev / B.nextSold : unitNetFn(R.nPrice, R.nTacos)(R.next);
+  const keepVal = b.R ? (B.cash - b.seasonCash) / b.R : 0, dispVal = -R.fee;
+  $('#leftRes').innerHTML = `<div class="sub-h" style="margin-top:12px">以「保本档」季末剩余 ${fi(b.R)} 件为例（每件）</div>
+    <table class="tbl">
+      <tr><td>弃置费（= 移除费）</td><td><b>${c}${f2(R.fee)}</b></td><td class="meta" style="text-align:left">${R.si.tier} · 发货重量 ${R.si.shipTxt}</td></tr>
+      <tr><td>留到明年：仓储 + 超龄（到卖完）</td><td><b class="neg">${c}${f2(holdPer)}</b></td><td class="meta" style="text-align:left">开售前 ${c}${f2(B.kept ? (B.holdStor + B.holdAged) / B.kept : 0)} · 开售后 ${c}${f2(B.kept ? (B.sellStor + B.sellAged) / B.kept : 0)}</td></tr>
+      <tr><td>明年每件净回款</td><td><b class="pos">${c}${f2(nextUnit)}</b></td><td class="meta" style="text-align:left">${c}${f2(R.nPrice)} × (1 − 佣金 − ${R.nTacos}%) − 配送费；按预估 ${fi(B.sellMonths)} 个月卖完 ${fi(B.kept)} 件</td></tr>
+      <tr><td>留明年每件净值</td><td><b class="${nextUnit - holdPer > dispVal ? 'pos' : 'neg'}">${c}${f2(nextUnit - holdPer)}</b></td><td class="meta" style="text-align:left">vs 弃置每件 ${c}${f2(dispVal)}；货本 ${c}${f2(uc)} 已沉没</td></tr>
+      <tr><td>剩余库存平均每件（留 ${fi(B.kept)} + 弃 ${fi(B.disposed)}）</td><td><b class="${keepVal > dispVal ? 'pos' : 'neg'}">${c}${f2(keepVal)}</b></td><td class="meta" style="text-align:left">今年弃置 ${fi(B.disposed)} 件（库龄最老的），留 ${fi(B.kept)} 件</td></tr>
+    </table>
+    ${b.R > R.fcTotal ? `<div class="banner" style="margin-top:8px">12 个月预估合计 ${fi(R.fcTotal)} 件，少于季末剩余 ${fi(b.R)} 件，多出的 ${fi(B.disposed)} 件今年弃置。</div>` : ''}`;
+  // 逐月持有成本图（每件）
+  const ms = B.months.filter((m) => m.units > 0);
+  if (!ms.length) { $('#chart').innerHTML = '<div class="meta">保本档季末没有剩余，不需要留货。</div>'; return; }
+  // 当月实际费用 = 每天在库件数逐日累计（开卖后件数在减少），不是每件成本
+  const per = ms.map((m) => ({ m: m.m, s: m.stor, a: m.aged, band: m.band, units: m.units }));
+  const mx = Math.max(...per.map((x) => x.s + x.a), 0.01);
+  let cum = 0;
+  $('#chart').innerHTML = `<div class="sub-h">留在 FBA 的逐月持有成本（保本档留 ${fi(B.kept)} 件的总金额，按每天在库件数算；${R.si.tier}，单件体积 ${f2(R.si.vol, 4)} ${FEES[S.ctry].volUnit}）</div>
+    <div class="chart"><div class="rows">${per.map((x) => { cum += x.s + x.a; return `<div class="row"><span class="mono">${x.m}</span>
+      <div class="bar"><span style="width:${(x.s / mx * 100).toFixed(1)}%;background:#2f6fd0" title="仓储 ${c}${fi(x.s)}"></span><span style="width:${(x.a / mx * 100).toFixed(1)}%;background:#d9363e" title="超龄 ${c}${fi(x.a)}"></span></div>
+      <span class="meta">${c}${fi(x.s + x.a)} · 累计 <b>${c}${fi(cum)}</b> · 月初在库 ${fi(x.units)} 件${x.band ? ` · ${x.band}` : ''}</span></div>`; }).join('')}</div>
+    <div class="lg"><span><i style="background:#2f6fd0"></i>月度仓储费（10–12 月旺季费率）</span><span><i style="background:#d9363e"></i>超龄附加费（每月 15 日）</span>
+      <span>参照：这 ${fi(B.kept)} 件今年弃置要 ${c}${fi(R.fee * B.kept)}，明年净回款 ${c}${fi(B.nextRev)}</span></div></div>`;
+}
+function renderCmp(R) {
+  if (!R || R.err) { $('#cmp').innerHTML = `<div class="meta">${R ? R.err : ''}</div>`; return; }
+  const c = cur(), costAll = R.costAll, rate = V('rate') || 1;
+  const cell = (x, isBest) => x == null ? '<td class="meta">—</td>' : `<td class="${isBest ? 'best' : ''} big"><span class="${x.cash < 0 ? 'neg' : 'pos'}">${money(x.cash)}</span><div class="meta" style="font-weight:400">含货本 ${money(x.cash - costAll)} · ${yuan((x.cash - costAll) * rate)}</div></td>`;
+  const rows = [['now', '不卖，今天全部弃置', R.res.now]].concat(TIER_DEF.map((t) => [t.k, t.n, R.res[t.k]]));
+  const bt = R.best;
+  $('#cmp').innerHTML = `<div style="overflow-x:auto"><table class="tbl cmp">
+    <tr><th>本季策略</th><th>本季卖出 / 季末剩余</th><th>A 季末全部弃置</th><th>B 按预估留货，其余弃置</th><th>B 的明细</th></tr>
+    ${rows.map(([k, n, r]) => `<tr><td><b>${n}</b>${k !== 'now' ? `<div class="meta">${c}${f2(r.p.price)} · ${r.p.daily}/天 · TACOS ${r.p.tacos}%</div>` : ''}</td>
+      <td>${fi(r.sold)} / <span class="${r.leftQ || r.R ? 'neg' : ''}">${fi(r.R ?? r.leftQ)}</span></td>
+      ${cell(r.A, bt.k === k && bt.w === 'A')}${cell(r.B, bt.k === k && bt.w === 'B')}
+      <td class="meta" style="text-align:left;white-space:normal;min-width:220px">${r.B ? `今年弃 ${fi(r.B.disposed)}、留 ${fi(r.B.kept)}；持有 ${money(r.B.holdStor + r.B.holdAged + r.B.sellStor + r.B.sellAged)}；明年回款 ${money(r.B.nextRev)}` : '—'}</td></tr>`).join('')}
+  </table></div>
+  <div class="verdict"><b class="t">建议：${esc(bt.n)}</b>　现金 <b>${money(bt.cash)}</b>，含货本 <b>${money(bt.cash - costAll)}</b>（${yuan((bt.cash - costAll) * rate)}）。${verdictWhy(R)}</div>
+  ${marginal(R)}
+  <div class="formula">现金 = 本季销售净回款 − 本季仓储/超龄 − 弃置费 + 明年净回款 − 留货期间仓储/超龄。含货本 = 现金 − 全部 ${fi(R.total)} 件货本（${c}${f2(unitCostLocal())}/件，排名不变）。不含退货、仓储利用率附加费、资金成本。</div>`;
+}
+function verdictWhy(R) {
+  const b = R.res[R.best.k];
+  if (!R.hasFc) return '还没填未来 12 个月销量预估，这里只比较了弃置方案。';
+  if (R.best.k === 'now') return '本季每卖一件都比直接弃置更亏，越早弃越省仓储和超龄费。';
+  if (R.best.w === 'B') return `剩下的 ${fi(b.B.kept)} 件留到明年，每件净值高于弃置；${fi(b.B.disposed)} 件（库龄最老）今年弃置，避免明年卖不掉再付一整年仓储和超龄费。`;
+  return `留到明年的持有成本（含 271/366 天超龄跳档）吃掉了明年的回款，季末剩余直接弃置更省。`;
+}
+// 边际判断：推多卖的那几件，值不值
+function marginal(R) {
+  const base = R.res.base, c = cur();
+  const leftVal = Math.max(base.R && base.B ? (base.B.cash - base.seasonCash) / base.R : -R.fee, -R.fee);
+  const lines = ['mid', 'hard'].map((k) => {
+    const r = R.res[k], dSold = r.sold - base.sold, dCash = r.seasonCash - base.seasonCash;
+    if (dSold <= 0) return `<div>· ${k === 'mid' ? '轻推' : '重推'}：没有比保本档多卖。</div>`;
+    const per = dCash / dSold;
+    return `<div>· ${k === 'mid' ? '轻推' : '重推'}比保本档多卖 <b>${fi(dSold)}</b> 件，本季现金 ${dCash >= 0 ? '多' : '少'} <b>${money(Math.abs(dCash))}</b>，相当于多卖的每件 <b class="${per >= leftVal ? 'pos' : 'neg'}">${c}${f2(per)}</b>；
+      这些货不推的话，季末每件最多值 <b>${c}${f2(leftVal)}</b>（弃置或留明年取较好者）→ <b>${per >= leftVal ? '推划算' : '不该推'}</b></div>`;
+  });
+  return `<div class="why"><b>硬推值不值（边际）</b>：多卖的每件换来的现金，要高于这件货留到季末的处置价值。<br>${lines.join('')}</div>`;
+}
+function renderFees() {
+  const row = (F) => F.aged.map(([lo, hi, r, m]) => `<tr><td>${lo}–${hi > 1e8 ? '' : hi} 天${hi > 1e8 ? ' 以上' : ''}</td><td>${F.cur}${r}/${F.volUnit}${m ? ` 或 ${F.cur}${m}/件（取大）` : ''}</td></tr>`).join('');
+  $('#feeTbl').innerHTML = `<div class="split">
+    <div><div class="sub-h">美国</div><table class="tbl">
+      <tr><th>月度仓储费</th><th>1–9 月 / 10–12 月（$/立方英尺）</th></tr><tr><td>标准尺寸</td><td>$0.78 / $2.40</td></tr><tr><td>大件</td><td>$0.56 / $1.40</td></tr>
+      <tr><th>超龄附加费（每月 15 日）</th><th>2026-01-16 起</th></tr>${row(FEES.US)}
+      <tr><th>移除费 = 弃置费</th><th>每件，按发货重量</th></tr>
+      <tr><td>标准尺寸</td><td>≤0.5 lb $0.84 · ≤1 $1.53 · ≤2 $2.27 · >2 $2.89 + $1.06/lb</td></tr>
+      <tr><td>大件 / 特殊处理</td><td>≤1 lb $3.12 · ≤2 $4.30 · ≤4 $6.36 · ≤10 $10.04 · >10 $14.32 + $1.06/lb</td></tr></table>
+      <div class="meta">仓储利用率附加费（超过 22 周且日均体积 ≥ 25 立方英尺才收）未计入。</div></div>
+    <div><div class="sub-h">加拿大</div><table class="tbl">
+      <tr><th>月度仓储费</th><th>1–9 月 / 10–12 月（C$/立方米）</th></tr><tr><td>标准尺寸（含信封）</td><td>C$40 / C$77</td></tr><tr><td>大件</td><td>C$28 / C$49</td></tr>
+      <tr><th>超龄附加费（每月 15 日）</th><th>2025-05-15 起</th></tr>${row(FEES.CA)}
+      <tr><th>移除费 = 弃置费</th><th>每件，按发货重量</th></tr>
+      <tr><td>标准</td><td>≤200 g C$0.36 · ≤500 g C$0.82 · ≤1 kg C$1.62 · >1 kg C$2.31 + C$1.54/kg</td></tr>
+      <tr><td>大件</td><td>≤200 g C$0.93 · ≤500 g C$1.33 · ≤1 kg C$1.69 · ≤2 kg C$2.83 · ≤5 kg C$5.02 · >5 kg C$5.70 + C$0.97/kg</td></tr></table>
+      <div class="meta">费用不含 GST/HST。</div></div></div>`;
+}
+function renderProd(R) {
+  const r = S.rec, c = cur();
+  const id = r ? `<div class="pn">${esc(r['品名'] || '')}</div><div class="pids"><span class="big">${esc(r._sku)}</span><span class="tag ${r._c.toLowerCase()}">${r._c === 'CA' ? '🇨🇦 加拿大' : '🇺🇸 美国'}</span><span class="tag or mono">${esc(r['ASIN'] || '')}</span><span class="tag">${esc(first(r['店铺']) || '')}</span><span class="tag">SPU：${esc(clean(r['SPU']) || '未填')}</span></div>`
+    : `<div class="pn">手动测算</div><div class="pids"><span class="tag ${S.ctry.toLowerCase()}">${S.ctry === 'CA' ? '🇨🇦 加拿大' : '🇺🇸 美国'}</span><span class="meta">未选 SKU</span></div>`;
+  const ok = R && !R.err;
+  const pk = (k, v, hi) => `<div class="pk ${hi ? 'hi' : ''}"><div class="k">${k}</div><div class="v">${v}</div></div>`;
+  $('#prod').innerHTML = `<div class="pimg">🎃</div><div style="min-width:0">${id}</div><div class="pkpi">
+    ${pk('剩余库存', ok ? fi(R.total) + '<small style="font-size:12px"> 件</small>' : '—')}
+    ${pk('货值（货本）', ok ? `¥${fi(R.costAll * (V('rate') || 1))}` : '—')}
+    ${pk('建议', ok ? `<span style="font-size:14px">${esc(R.best.n)}</span>` : '—', 1)}
+    ${pk('现金 / 含货本', ok ? `<span class="${R.best.cash < 0 ? 'neg' : 'pos'}">${money(R.best.cash)}</span><div style="font-size:12px" class="${R.best.cash - R.costAll < 0 ? 'neg' : 'pos'}">${money(R.best.cash - R.costAll)}</div>` : '—', 1)}
+  </div>`;
+}
+function render() {
+  applyAuto();
+  renderBatches();
+  const R = compute();
+  renderForecast(R);
+  renderTiers(R);
+  renderLeft(R);
+  renderCmp(R);
+  renderProd(R);
+  const si = R && R.si;
+  $('#facts').innerHTML = si ? `<span class="tag or">${si.tier}</span><span class="tag">单件体积 ${f2(si.vol, 4)} ${FEES[S.ctry].volUnit}</span><span class="tag">发货重量 ${si.shipTxt}</span><span class="tag">弃置/移除费 ${cur()}${f2(si.fee)}/件</span><span class="tag">货本 ${cur()}${f2(unitCostLocal())}/件</span>` : '<span class="meta">填尺寸和重量后显示分段、体积、弃置费</span>';
+  $('#sumBase').innerHTML = R && !R.err ? `${fi(R.total)} 件 · ${si.tier} · 弃置 ${cur()}${f2(si.fee)}/件` : '';
+  $('#sumSeason').innerHTML = R && !R.err ? TIER_DEF.map((t) => `${t.n} 卖 ${fi(R.res[t.k].sold)} 剩 ${fi(R.res[t.k].R)}`).join(' · ') : '';
+  $('#sumCmp').innerHTML = R && !R.err ? `建议 <b>${esc(R.best.n)}</b> · 现金 ${money(R.best.cash)}` : '';
+  $('#heroMeta').textContent = `北京时间 ${toStr(todayBJ())} · ${S.ctry === 'US' ? '美元' : '加元'}`;
+}
+
+// ====================================================================
+// 数据：主表 + 利润表（预览用 PRELOAD；插件版接 SDK）
+// ====================================================================
+const ctryOf = (r) => { const c = (r['国家'] || []).join('/') || r['国家文本'] || ''; return c.includes('加拿大') ? 'CA' : c.includes('美国') ? 'US' : ''; };
+// 库存件数取「ASIN库存概况-灯」（X25 每日同步，按 本地SKU × 店铺）；库龄分布取「领星-FBA库存明细表-灯」（按 SKU × 店铺 的库龄段）
+// 在库（可售+预留）按库龄段比例拆成批次，库龄 = 段中位 + 明细表更新至今的天数；入库中 + 在途 当作今天入库的一批
+const AGE_BUCKETS = [['库龄0-30天', 15], ['库龄31-60天', 45], ['库龄61-90天', 75], ['库龄91-180天', 135], ['库龄181-270天', 225], ['库龄271-330天', 300], ['库龄331-365天', 348], ['库龄365天以上', 400]];
+const storeOf = (r) => clean(first(r['店铺']));
+// 日期：SDK 给毫秒数（北京 0 点），导出给 ISO 文本；统一成北京天序号
+const dayAny = (v) => { v = first(v); if (v == null || v === '') return null; if (typeof v === 'number') return Math.floor((v + 8 * 3600e3) / DAY); return toDay(String(v).slice(0, 10)); };
+function ingest(pm, pl, inv, fba, tgt, arch) {
+  S.inv = {}; S.age = {}; S.tgtEnd = {}; S.arch = {};
+  for (const t of tgt || []) {
+    if (first(t['目标类型']) !== '季节品' || !t['ASIN']) continue;
+    const e = dayAny(t['清仓期结束']);
+    if (e != null) (S.tgtEnd[clean(t['ASIN']) + '|' + clean(t['国家文本'])] ||= []).push(e);
+  }
+  for (const a of arch || []) { try { if (a['存档键']) S.arch[a['存档键']] = { _id: a._id, plan: JSON.parse(a['方案JSON'] || '{}') }; } catch (_) {} }
+  for (const x of inv || []) S.inv[clean(x['本地SKU']) + '|' + clean(first(x['店铺']))] = x;
+  for (const x of fba || []) S.age[clean(x['SKU']) + '|' + clean(first(x['店铺']))] = x;
+  const idx = {};
+  for (const p of pl || []) { const c = (first(p['国家']) || '').includes('加拿大') ? 'CA' : 'US'; idx[clean(p['ASIN']) + '|' + clean(p['匹配SKU'] || p['产品SKU']) + '|' + c] = p; }
+  S.rows = pm.map((r) => ({ ...r, _c: ctryOf(r), _sku: clean(r['领星SKU']) })).filter((r) => r._sku && r._c);
+  for (const r of S.rows) r._pl = idx[clean(r['ASIN']) + '|' + r._sku + '|' + r._c] || null;
+}
+const rowFor = (sku, c) => S.rows.find((r) => r._sku === sku && r._c === c) || null;
+function batchesFor(r) {
+  const today = todayBJ(), key = r._sku + '|' + storeOf(r);
+  const iv = S.inv[key], ag = S.age[key];
+  if (!iv) return { batches: [], note: `ASIN库存概况里没有 ${r._sku} · ${storeOf(r) || '无店铺'} 这一行，请手填批次`, daily: null };
+  const n = (v) => Math.max(0, Math.round(num(v) || 0));
+  const inWh = n(iv['FBA可售']) + n(iv['FBA预留']), inbound = n(iv['FBA入库中']) + n(iv['FBA在途']);
+  const upd = ag && ag['更新时间'] ? dayAny(ag['更新时间']) : null;
+  const shift = upd != null ? Math.max(0, today - upd) : 0;
+  const counts = AGE_BUCKETS.map(([f]) => n(ag && ag[f]));
+  const sum = counts.reduce((a, b) => a + b, 0);
+  const out = [];
+  if (inWh > 0) {
+    if (sum > 0) {   // 按比例分配，最大余数法取整
+      const raw = counts.map((c) => c / sum * inWh), base = raw.map(Math.floor);
+      let rest = inWh - base.reduce((a, b) => a + b, 0);
+      raw.map((x, i) => [x - base[i], i]).sort((a, b) => b[0] - a[0]).forEach(([, i]) => { if (rest > 0) { base[i]++; rest--; } });
+      AGE_BUCKETS.forEach(([f, mid], i) => { if (base[i] > 0) out.push({ d: toStr(today - mid - shift), q: base[i], src: f.replace('库龄', '') }); });
+    } else out.push({ d: toStr(today - 30), q: inWh, src: '无库龄数据，按 30 天估' });
+  }
+  if (inbound > 0) out.push({ d: toStr(today), q: inbound, src: '入库中 + 在途（按今天入库）' });
+  const upInv = iv['数据更新日'] ? toStr(dayAny(iv['数据更新日'])) : '?';
+  const note = `库存：ASIN库存概况 ${upInv}（可售 ${n(iv['FBA可售'])} + 预留 ${n(iv['FBA预留'])} + 入库中 ${n(iv['FBA入库中'])} + 在途 ${n(iv['FBA在途'])}）` +
+    (ag ? `；库龄分布：领星 FBA 库存明细 ${upd != null ? toStr(upd) : '?'}（已顺延 ${shift} 天）` : '；领星库龄明细没有这一行');
+  const others = Object.entries(S.inv).filter(([k, x]) => k.startsWith(r._sku + '|') && k !== key && clean(x['国家']) === (r._c === 'CA' ? '加拿大' : '美国'))
+    .map(([k, x]) => `${k.split('|')[1]} ${n(x['FBA可售']) + n(x['FBA预留']) + n(x['FBA入库中']) + n(x['FBA在途'])} 件`).filter((t) => !/ 0 件$/.test(t));
+  return { batches: out, note, others, daily: num(iv['近7天日均']), daily30: num(iv['近30天日均']) };
+}
+function loadRow(r) {
+  S.rec = r;
+  const keep = {}; for (const k of ['nPrice', 'nTacos']) if (S.manual[k]) keep[k] = S.val[k];
+  S.val = { ...keep };
+  // 本季结束日和预估：先取存档，没有就取目标总表这个品还没结束的清仓期结束日
+  const plan = planLoad(r);
+  S.fc = (plan && plan.fc) || {};
+  if (r) S.manual = {};
+  const today = todayBJ(), ends = r ? (S.tgtEnd && S.tgtEnd[clean(r['ASIN']) + '|' + clean(r['国家文本'])] || []).filter((d) => d > today).sort((a, b) => a - b) : [];
+  if (plan && plan.end) $('#dEnd').value = plan.end; else if (ends.length) $('#dEnd').value = toStr(ends[0]); else if (r) $('#dEnd').value = `${dOf(today).getUTCFullYear()}-12-20`;   // 不沿用上一个产品的日期
+  if (r) {
+    const put = (k, v, mul = 1) => { const n = num(v); S.val[k] = n == null ? '' : String(+(n * mul).toFixed(6)); };
+    const p = r._pl || {};
+    put('price', p['原价'] != null ? p['原价'] * (1 - (p['折扣'] || 0)) : null);
+    put('comm', r['佣金比例'], 100); put('rate', r['汇率']); put('fbaNp', r['FBA配送费']); put('fbaPk', r['FBA配送费（旺季）']);
+    put('buy', r['采购成本不含税']); put('head', r['头程费用']); put('kg', r['重量kg']); put('L', r['长CM']); put('W', r['宽CM']); put('H', r['高CM']);
+  }
+  S.tiers = defaultTiers();
+  S.invInfo = null;
+  if (r) {
+    const b = batchesFor(r);
+    S.invInfo = b;
+    S.batches = b.batches.length ? b.batches : [{ d: toStr(todayBJ() - 30), q: '' }];
+    if (b.daily > 0) S.tiers.base.daily = r2(b.daily);
+  }
+  for (const k of ['nPrice', 'nTacos']) if (plan && plan[k] != null && plan[k] !== '') { S.val[k] = String(plan[k]); S.manual[k] = true; }
+  fillInputs(); render(); renderTop();
+}
+function renderTop() {
+  for (const b of $$('#segCtry button')) b.classList.toggle('on', b.dataset.c === S.ctry);
+  $('#curInfo').innerHTML = S.rec ? `当前：<b class="mono">${esc(S.rec._sku)}</b> · ${esc(storeOf(S.rec))}` : (S.rows.length ? `未选 SKU：手动填（选择器只列${S.ctry === 'CA' ? '加拿大' : '美国'}的行）` : '');
+  $('#pickIn').disabled = !S.rows.length;
+  $('#pickIn').placeholder = S.rows.length ? `选${S.ctry === 'CA' ? '加拿大' : '美国'}的 SKU（${S.rows.filter((x) => x._c === S.ctry).length} 行）：搜 SKU / ASIN / 品名 / SPU / 店铺` : '离线版：直接在下面手填';
+}
+// 一行主表一个选项（美国、加拿大、不同店铺分开）；只列当前国家，顶部切国家
+const invQty = (r) => { const iv = S.inv[r._sku + '|' + storeOf(r)]; if (!iv) return null; return ['FBA可售', 'FBA预留', 'FBA入库中', 'FBA在途'].reduce((s, f) => s + Math.max(0, Math.round(num(iv[f]) || 0)), 0); };
+function openDD() {
+  const q = $('#pickIn').value.trim().toLowerCase();
+  const list = S.rows.filter((r) => r._c === S.ctry && (!q || [r._sku, r['ASIN'], r['品名'], r['SPU'], storeOf(r)].some((x) => String(x || '').toLowerCase().includes(q))));
+  const g = new Map(); for (const r of list) { const k = clean(r['SPU']) || '（未填 SPU）'; if (!g.has(k)) g.set(k, []); g.get(k).push(r); }
+  $('#dd').innerHTML = [...g.entries()].sort((a, b) => a[0].localeCompare(b[0], 'zh')).map(([spu, rs]) => `<div class="g">${esc(spu)}</div>` + rs.map((r) => { const q2 = invQty(r);
+    return `<div class="it" data-id="${esc(r._id)}"><span class="s">${esc(r._sku)}</span><span class="tag ${r._c.toLowerCase()}">${r._c}</span><span class="n">${esc(r['品名'] || '')} <span class="meta">· ${esc(storeOf(r))}</span></span><span class="tag ${q2 ? 'or' : ''}">${q2 == null ? '无库存记录' : q2 + ' 件'}</span></div>`; }).join('')).join('')
+    || `<div class="meta" style="padding:14px">${S.ctry === 'CA' ? '加拿大' : '美国'}没有匹配的行</div>`;
+  $('#dd').classList.add('open');
+}
+function pick(id) {
+  const r = S.rows.find((x) => x._id === id); if (!r) return;
+  planFlush();
+  S.sku = r._sku; S.ctry = r._c; $('#dd').classList.remove('open'); $('#pickIn').value = '';
+  loadRow(r);
+}
+
+function bind() {
+  $('#segCtry').onclick = (e) => { const b = e.target.closest('button'); if (!b || b.dataset.c === S.ctry) return; planFlush(); S.ctry = b.dataset.c; S.sku = null; loadRow(null); };   // 美国、加拿大是不同的行，切国家后重新选
+  $('#btnClear').onclick = () => { planFlush(); S.sku = null; S.manual = {}; loadRow(null); };
+  $('#addBatch').onclick = () => { S.batches.push({ d: toStr(todayBJ() - 30), q: '', src: '手填' }); renderBatches(); };
+  $('#batchTbl').addEventListener('click', (e) => { const i = e.target.dataset?.del; if (i != null) { S.batches.splice(+i, 1); render(); } });
+  $('#batchTbl').addEventListener('focusout', () => setTimeout(() => { if (!$('#batchTbl').contains(document.activeElement)) render(); }, 0));
+  const pin = $('#pickIn'); pin.onfocus = openDD; pin.oninput = openDD;
+  pin.onkeydown = (e) => { if (e.key === 'Enter') { const it = $('#dd .it'); if (it) pick(it.dataset.id); } else if (e.key === 'Escape') $('#dd').classList.remove('open'); };
+  $('#dd').onmousedown = (e) => { const it = e.target.closest('.it'); if (it) { e.preventDefault(); pick(it.dataset.id); } };
+  document.addEventListener('mousedown', (e) => { if (!e.target.closest('.pick')) $('#dd').classList.remove('open'); });
+  for (const card of $$('.card[data-card]')) {
+    const key = 'cl-fold-' + card.dataset.card;
+    try { const v = localStorage.getItem(key); if (v === '1') card.classList.add('closed'); if (v === '0') card.classList.remove('closed'); } catch (_) {}
+    card.querySelector('.card-h').addEventListener('click', (e) => { if (e.target.closest('input, a, .r button')) return; card.classList.toggle('closed'); try { localStorage.setItem(key, card.classList.contains('closed') ? '1' : '0'); } catch (_) {} });
+  }
+}
+// ====================================================================
+// 飞书 SDK（读法同 profit-calc）
+// ====================================================================
+const BASE_TOKEN = 'JGvebyaAYapWtOslxc9cuKYXnwd';
+const TABLES = {
+  pm: { id: 'tblqksywqgYvywOT', name: '产品主表-灯类+精铺', fields: ['领星SKU', 'ASIN', 'MSKU', '品名', 'SPU', '店铺', '国家', '国家文本', '带电情况', '长CM', '宽CM', '高CM', '重量kg', '外箱长CM', '外箱宽CM', '外箱高CM', '单箱毛重kg', '单箱数量', '采购成本不含税', '头程费用', 'FBA配送费', 'FBA配送费（旺季）', '佣金比例', '汇率'] },
+  pl: { id: 'tblliOUMJk5nnJXv', name: '产品定价利润表', fields: ['ASIN', '产品SKU', '匹配SKU', '国家', '原价', '折扣', '广告占比-手填', '退货率预估'] },
+  inv: { id: 'tbl23j9fj1autV9a', name: 'ASIN库存概况-灯', fields: ['本地SKU', 'ASIN', '国家', '店铺', 'FBA可售', 'FBA预留', 'FBA入库中', 'FBA在途', '近7天日均', '近30天日均', '数据更新日'] },
+  fba: { id: 'tblpjg6QoozUa3r8', name: '领星-FBA库存明细表-灯', fields: ['SKU', 'ASIN', '店铺', '更新时间', '库龄0-30天', '库龄31-60天', '库龄61-90天', '库龄91-180天', '库龄181-270天', '库龄271-330天', '库龄331-365天', '库龄365天以上'] },
+  tgt: { id: 'tblE3XbKD8PUEX7Y', name: '产品目标总表', fields: ['目标类型', 'ASIN', '国家文本', '清仓期结束'] },
+  arch: { id: 'tbl1Nxd3GPbRrfcd', name: '清仓决策-预估存档', fields: ['存档键', '方案JSON'] },
+};
+const SDK_URLS = [(() => { try { return new URL('./sdk/index.mjs', location.href).href; } catch (e) { return './sdk/index.mjs'; } })(),
+  'https://cdn.jsdelivr.net/npm/@lark-base-open/js-sdk@1.0.2/dist/index.mjs',
+  'https://unpkg.com/@lark-base-open/js-sdk@1.0.2/dist/index.mjs'];
+let SDK = null;
+const TB = {}, META = {}, API = {};
+async function loadSdk() {
+  const errs = [];
+  for (const u of SDK_URLS) {
+    try {
+      $('#heroMeta').textContent = '正在加载飞书 SDK… ' + (u.startsWith('http') ? new URL(u).host : '自带副本');
+      return await Promise.race([import(u), new Promise((_, rej) => setTimeout(() => rej(new Error('超时 12s')), 12000))]);
+    } catch (e) { errs.push(`${u}\n   → ${e && e.message ? e.message : e}`); }
+  }
+  throw Object.assign(new Error('飞书 SDK 三个来源都没加载上：\n' + errs.join('\n')), { sdk: true });
+}
+const FT = { 1: 'text', 2: 'number', 3: 'select', 4: 'multi', 7: 'checkbox', 17: 'attachment', 19: 'formula', 20: 'formula', 13: 'text', 15: 'text' };
+function cell(v) {
+  if (v == null) return null;
+  if (typeof v === 'number' || typeof v === 'string' || typeof v === 'boolean') return v;
+  if (Array.isArray(v)) {
+    if (!v.length) return null;
+    if (v.every((x) => x && typeof x === 'object' && 'text' in x && !('id' in x))) return v.map((x) => x.text ?? '').join('');
+    if (v.length === 1) return cell(v[0]);
+    return v.map(cell).join('、');
+  }
+  if (typeof v === 'object') { if ('text' in v) return v.text; if ('name' in v) return v.name; if ('value' in v) return cell(v.value); }
+  return String(v);
+}
+// SDK 单元格 → 与导出 ndjson 同形（单选/多选一律数组）
+function fromSdk(tk, name, v) {
+  const t = (META[tk][name] || {}).type;
+  if (t === 'multi') return (v || []).map((x) => x.text ?? x.name ?? String(x));
+  if (t === 'select') return v ? [v.text ?? v.name ?? cell(v)] : [];
+  if (t === 'number') return num(cell(v));
+  if (t === 'formula') { const c = cell(v); return c != null && c !== '' && Number.isFinite(+c) && /^-?[\d.]+(e-?\d+)?$/i.test(String(c)) ? +c : c; }
+  return cell(v);
+}
+async function readTable(tk) {
+  const cfg = TABLES[tk], t = await SDK.bitable.base.getTableById(cfg.id);
+  TB[tk] = t; META[tk] = {};
+  for (const f of await t.getFieldMetaList()) META[tk][f.name] = { id: f.id, type: FT[f.type] || 'text' };
+  const missing = cfg.fields.filter((w) => !META[tk][w]), rows = [];
+  let pageToken;
+  for (let guard = 0; guard < 100; guard++) {
+    const res = await t.getRecordsByPage({ pageSize: 200, pageToken });
+    for (const r of res.records) {
+      const o = { _id: r.recordId };
+      for (const w of cfg.fields) if (META[tk][w]) o[w] = fromSdk(tk, w, r.fields[META[tk][w].id]);
+      rows.push(o);
+    }
+    $('#heroMeta').textContent = `正在读取${cfg.name}… 已读 ${rows.length} 行`;
+    if (!res.hasMore) break;
+    pageToken = res.pageToken;
+  }
+  return { rows, missing };
+}
+async function savePlanToBase(key, plan) {
+  const t = TB.arch, seg = (x) => [{ type: 'text', text: x }], fJ = META.arch['方案JSON'].id, fK = META.arch['存档键'].id, text = JSON.stringify(plan), old = S.arch[key];
+  if (old && old._id) await t.setRecord(old._id, { fields: { [fJ]: seg(text) } });
+  else { const id = await t.addRecord({ fields: { [fK]: seg(key), [fJ]: seg(text) } }); S.arch[key] = { _id: id, plan }; }
+  S.arch[key].plan = plan;
+}
+function setupSave() {
+  const dash = SDK && SDK.dashboard;
+  let st = '';
+  try { st = dash && dash.state; } catch (e) { st = '读取失败'; }
+  if (dash && typeof dash.saveConfig === 'function' && st !== 'View' && st !== 'FullScreen') {
+    $('#savebar').classList.add('show');
+    $('#saveMsg').textContent = `（插件状态：${st || '未知'}）`;
+    $('#saveBtn').onclick = async () => {
+      $('#saveBtn').disabled = true; $('#saveMsg').textContent = '保存中…';
+      try {
+        const ok = await dash.saveConfig({   // 只登记产品主表；其余表靠数据授权页（登记多了保存后会报配置变更）
+          dataConditions: [{ tableId: TABLES.pm.id, baseToken: BASE_TOKEN, dataRange: { type: 'ALL' }, series: 'COUNTA' }],
+          customConfig: { page: 'clearance', version: 1 },
+        });
+        $('#saveMsg').textContent = ok === false ? '保存失败，请重试' : '已保存 ✔';
+      } catch (e) { $('#saveMsg').textContent = '保存失败：' + (e && e.message ? e.message : e); }
+      finally { $('#saveBtn').disabled = false; }
+    };
+  } else if (dash && dash.setRendered) dash.setRendered().catch(() => {});
+}
+async function diagnose() {
+  const res = [];
+  const t = async (name, fn) => {
+    try {
+      const v = await Promise.race([fn(), new Promise((_, rej) => setTimeout(() => rej(new Error('超时 8s')), 8000))]);
+      let shown; try { shown = typeof v === 'string' ? v : JSON.stringify(v); } catch (x) { shown = String(v); }
+      res.push(['✔', name, String(shown).slice(0, 300)]); return v;
+    } catch (e) { res.push(['✘', name, e && e.message ? e.message : String(e)]); return undefined; }
+  };
+  const { bitable, dashboard } = SDK;
+  await t('dashboard.state', async () => dashboard.state);
+  for (const tk of Object.keys(TABLES)) {
+    const tb = await t(`getTableById ${TABLES[tk].name}`, () => bitable.base.getTableById(TABLES[tk].id));
+    if (tb) await t(`getRecordsByPage ${TABLES[tk].name}`, () => tb.getRecordsByPage({ pageSize: 2 }));
+  }
+  return `<div class="banner"><b>接口诊断</b>（请把这块整体截图发回）<table class="tbl" style="margin-top:6px">${res.map((r) => `<tr><td style="width:24px">${r[0]}</td><td style="text-align:left">${esc(r[1])}</td><td class="meta" style="text-align:left;white-space:normal">${esc(r[2])}</td></tr>`).join('')}</table></div>`;
+}
+function layoutCheck() { $('#tallTip').style.display = S.mode === 'plugin' && innerHeight > (screen.availHeight || screen.height || 1080) + 40 ? '' : 'none'; }
+window.addEventListener('resize', layoutCheck);
+
+async function boot() {
+  buildInputs(); bind(); renderFees();
+  const t = todayBJ(), y = dOf(t).getUTCFullYear();
+  $('#dToday').value = toStr(t);
+  // 默认：季末 = 今年 12-20（圣诞截单）；一批 8 月中入库。选了 SKU 后取存档或目标总表
+  $('#dEnd').value = `${y}-12-20`;
+  S.batches = [{ d: `${y}-08-15`, q: 500 }];
+  const P = window.PRELOAD, inFeishu = window.parent !== window;
+  let ban = '<div class="banner">离线版：没有连飞书，所有数字手填。</div>';
+  try {
+    if (P && P.pm) {
+      ingest(P.pm, P.pl, P.inv, P.fba, P.tgt, []); S.mode = 'preview';
+      ban = `<div class="banner blue">本地预览版：产品主表 ${S.rows.length} 行 + 利润表 + ASIN库存概况 + 领星 FBA 库存明细（库龄）+ 目标总表快照（${esc(P.at || '')}）。本季结束日默认取目标总表，可改；销量预估存在本浏览器。</div>`;
+    } else if (inFeishu) {
+      SDK = await loadSdk();
+      setupSave();
+      const pm = await readTable('pm'), warn = [], got = {};
+      for (const tk of ['pl', 'inv', 'fba', 'tgt', 'arch']) {   // 这几张读不到不影响手填测算，降级提示
+        try { got[tk] = await readTable(tk); if (got[tk].missing.length) warn.push(`${TABLES[tk].name} 缺字段：${got[tk].missing.join('、')}`); }
+        catch (e) { got[tk] = { rows: [] }; warn.push(`${TABLES[tk].name} 读取失败：${e && e.message ? e.message : e}`); }
+      }
+      if (pm.missing.length) warn.push(`产品主表缺字段：${pm.missing.join('、')}`);
+      ingest(pm.rows, got.pl.rows, got.inv.rows, got.fba.rows, got.tgt.rows, got.arch.rows);
+      S.mode = 'plugin';
+      if (TB.arch && META.arch && META.arch['方案JSON']) API.savePlan = savePlanToBase; else warn.push('预估存档读不到，销量预估只存本浏览器');
+      ban = warn.length ? `<div class="banner">${warn.map(esc).join('<br>')}<br>应用数据权限新表默认无权限，组员要到应用权限配置里开通。</div>` : '';
+    }
+  } catch (e) {
+    const msg = esc(e && e.message ? e.message : e);
+    ban = `<div class="banner err">加载失败：${msg}</div>` + (SDK ? await diagnose().catch(() => '') : '<div class="banner">没拿到飞书 SDK，所以也没有「保存到页面」按钮。请截图发回；可以先试：插件 ⋮ → 刷新，或把网址末尾的 ?v=数字 加 1 再保存。</div>');
+  }
+  $('#banners').innerHTML = ban;
+  loadRow(null);
+  layoutCheck();
+}
+boot();
+</script>
+</body>
+</html>
