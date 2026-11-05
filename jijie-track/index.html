@@ -263,6 +263,9 @@
   .ptbl th:first-child, .ptbl td:first-child, .ptbl th:nth-child(2), .ptbl td:nth-child(2) { text-align: left; }
   .ptbl th { color: var(--sub); font-weight: normal; }
   .ptbl tr.cur td { background: var(--or-soft); color: var(--or-d); font-weight: 600; }
+  .ptbl tr.done td { background: #eef7f0; color: #1f7a3d; }
+  .actag { display: inline-block; font-size: 10px; line-height: 14px; padding: 0 3px; margin-right: 3px; border-radius: 3px; background: #1f9d4d; color: #fff; font-weight: 600; vertical-align: 1px; }
+  .pleg { padding: 0 8px 4px; font-size: 11px; color: var(--sub); }
   .ptbl tfoot td { color: var(--sub); }
   .ptbl .pin { width: 100%; max-width: 58px; box-sizing: border-box; text-align: right; font: inherit; font-variant-numeric: tabular-nums; color: inherit; background: transparent;
                border: 1px dashed transparent; border-radius: 4px; padding: 1px 4px; cursor: text; }
@@ -413,7 +416,7 @@ const TABLES = {
     '今日销量', '今日TACOS', '今日利润率', '今日销售额', '今日广告花费', '剩余可售天数', 'FBA可售', 'FBA在途入库',
     '近7日均量', '阶段达成率', '正价段目标销量', '应达销量',
     '采购数量', '国内仓可用-SKU级共享', '售罄率', '预计冗余数量', '库存快照',
-    ...STAGES.map((s) => s + '日均'), ...STAGES, ...STAGES.map((s) => s + '天数'), ...STAGES.map((s) => s + '目标'), '预估销量-整季', '累计销量', '销售进度',
+    ...STAGES.map((s) => s + '日均'), ...STAGES, ...STAGES.map((s) => s + '天数'), ...STAGES.map((s) => s + '目标'), '预估销量-整季', '累计销量', '销售进度', ...STAGES.map((s) => s + '实际销量'),
     ...ANA_FIELDS, ...LOOP_FIELDS, '归档生效日'] },
   pm: { id: 'tblqksywqgYvywOT', name: '产品主表-灯类+精铺', fields: ['领星SKU', '国家文本', '图片'] },
   // 目标在「目标填写」页填，存这里；追踪表战役行的同名字段是 X21 每晚抄过去的副本（授权靠「目标总览」页插件）
@@ -760,32 +763,45 @@ function planVals(c) {
   const avg = (st) => (d.avg && st in d.avg ? d.avg[st] : num(c[st + '日均']));
   return { B, avg, dirty: !!(d.B || (d.avg && Object.keys(d.avg).length)) };
 }
-function stagePlan(x, opt = {}) {
-  const c = x.c, v = planVals(c), can = !!c._tgtRow;
-  const rows = STAGES.map((s, i) => {
+// 已过阶段（阶段最后一天 ≤ 日表最新一天）：val = 实际销量；其余 val = 日均 × 天数
+function planRows(x) {
+  const c = x.c, v = planVals(c), si = STAGES.indexOf(x.stage);
+  return STAGES.map((s, i) => {
     const days = v.B ? bDays(v.B, i) : num(c[s + '天数']);
     const range = v.B ? (days ? `${mdTxt(v.B[i])}-${mdTxt(i < 4 ? v.B[i + 1] - 1 : v.B[5])}` : '—') : (c[s] || '');
-    const avg = v.avg(s);
-    return { s, i, range, days, avg, est: days != null && avg != null ? Math.round(days * avg) : null };
+    const avg = v.avg(s), est = days != null && avg != null ? Math.round(days * avg) : null;
+    const ended = v.B ? (i < 4 ? v.B[i + 1] - 1 : v.B[5]) <= LATEST : (x.stage === '已结束' || (si >= 0 && i < si));
+    const actual = num(c[s + '实际销量']), passed = !!days && ended && actual != null;
+    return { s, i, range, days, avg, est, actual, passed, val: passed ? actual : est };
   });
-  const total = rows.reduce((t, r) => t + (r.est || 0), 0), sold = num(c['累计销量']), prog = total ? (sold || 0) / total : null;
+}
+function stagePlan(x, opt = {}) {
+  const c = x.c, v = planVals(c), can = !!c._tgtRow;
+  const rows = planRows(x);
+  const total = rows.reduce((t, r) => t + (r.val || 0), 0), sold = num(c['累计销量']), prog = total ? (sold || 0) / total : null;
+  const actTot = rows.reduce((t, r) => t + (r.passed ? r.actual : 0), 0), anyPassed = rows.some((r) => r.passed);
   const dAvg = (PDRAFT[c._id] && PDRAFT[c._id].avg) || {};
   const tr = rows.map((r) => {
     const ed = PEDIT && PEDIT.id === c._id && PEDIT.i === r.i && v.B;
     const dcell = ed ? `<td colspan="2" class="ded"><input type="date" data-ds value="${ymdTxt(v.B[r.i])}"><input type="date" data-de value="${ymdTxt(r.i < 4 ? v.B[r.i + 1] - 1 : v.B[5])}"></td>`
       : `<td class="dcell${can ? ' can' : ''}" ${can ? `data-dedit="${r.i}" title="双击修改本品这个阶段的起止日期（相邻阶段跟着动）"` : ''}>${esc(r.range || '—')}</td><td>${r.days != null ? fmtN(r.days) : '—'}</td>`;
-    const ac = can ? `<input class="pin${r.s in dAvg ? ' dirty' : ''}" data-avg="${r.s}" inputmode="decimal" value="${r.avg ?? ''}" placeholder="未填">`
+    const ac = r.passed ? fmtN(r.actual / r.days, 1)
+      : can ? `<input class="pin${r.s in dAvg ? ' dirty' : ''}" data-avg="${r.s}" inputmode="decimal" value="${r.avg ?? ''}" placeholder="未填">`
       : (r.avg != null ? fmtN(r.avg, 2) : '<span class="tbd">未填</span>');
-    return `<tr class="${r.s === x.stage ? 'cur' : ''}"><td>${r.s}</td>${dcell}<td>${ac}</td><td data-pest="${r.s}">${r.est != null ? fmtN(r.est) : '—'}</td><td>${r.est != null && total ? pct(r.est / total) : '—'}</td></tr>`
+    const tip = r.passed ? ` title="已结束：实际销量 ${fmtN(r.actual)}，实际日均 ${fmtN(r.actual / r.days, 1)}；原预估 ${r.est != null ? fmtN(r.est) : '未填'}，原日均 ${r.avg != null ? fmtN(r.avg, 2) : '未填'}"` : '';
+    const sale = r.passed ? `<span class="actag">实际</span><b>${fmtN(r.actual)}</b>` : (r.est != null ? fmtN(r.est) : '—');
+    const cls = r.passed ? 'done' : (r.s === x.stage ? 'cur' : '');
+    return `<tr class="${cls}"${tip}><td>${r.s}</td>${dcell}<td>${ac}</td><td${r.passed ? '' : ` data-pest="${r.s}"`}>${sale}</td><td>${r.val != null && total ? pct(r.val / total) : '—'}</td></tr>`
       + (ed ? `<tr class="dedr"><td colspan="6"><button class="btn primary" data-dok>确定时段</button> <button class="btn ghost" data-dno>取消</button> <span class="meta" data-derr style="color:var(--red)"></span></td></tr>` : '');
   }).join('');
   const foot = !can ? '<span>目标总表没有这个产品的行（每天自动补行）</span>'
     : v.dirty ? `<span class="meta" style="color:#8a6500">改动未保存（写入产品目标总表，「目标填写」页同步可见）</span> <button class="btn ghost" data-pundo>撤销</button> <button class="btn primary" data-psave>保存</button>`
     : '<span>日均点数字改 · 日期双击改 · 保存写入产品目标总表；红绿灯/应达当晚按新值重算</span>';
+  const legend = anyPassed ? `<div class="pleg"><span class="actag">实际</span>阶段已结束：销量、日均都是实际数，不再用预估（原预估见鼠标悬停）</div>` : '';
   return `<details class="plan"${opt.open ? ' open' : ''} data-plan="${c._id}"><summary>${opt.title || '阶段预估销量'} <span class="meta">整季预估 <b data-ptot>${fmtN(total)}</b> · 已售 ${fmtN(sold)} · 进度 ${pct(prog)}</span></summary>
-    <table class="ptbl"><thead><tr><th>阶段</th><th>日期</th><th>天数</th><th>日均</th><th>预估</th><th>占比</th></tr></thead>
-    <tbody>${tr}</tbody><tfoot><tr><td colspan="4">整季预估</td><td><b data-ptot2>${fmtN(total)}</b></td><td></td></tr></tfoot></table>
-    <div class="pfoot">${foot}</div></details>`;
+    <table class="ptbl"><thead><tr><th>阶段</th><th>日期</th><th>天数</th><th>日均</th><th>${anyPassed ? '销量' : '预估'}</th><th>占比</th></tr></thead>
+    <tbody>${tr}</tbody><tfoot><tr><td colspan="4">${anyPassed ? `整季预估（已过实际 ${fmtN(actTot)} + 未过预估 <span data-prest>${fmtN(total - actTot)}</span>）` : '整季预估'}</td><td><b data-ptot2>${fmtN(total)}</b></td><td></td></tr></tfoot></table>
+    ${legend}<div class="pfoot">${foot}</div></details>`;
 }
 // 改第 i 段起止：只动它和相邻段的边界；压成负天数就拒绝
 function moveStage(B0, i, start, end) {
@@ -811,13 +827,14 @@ function bindPlan(el, x) {
       const d = (PDRAFT[c._id] ??= {}); d.avg ??= {};
       if (val === num(c[st + '日均'])) delete d.avg[st]; else d.avg[st] = val;
       inp.classList.toggle('dirty', st in d.avg);
-      const v = planVals(c); let tot = 0;
-      STAGES.forEach((s2, i) => {
-        const days = v.B ? bDays(v.B, i) : num(c[s2 + '天数']), a = v.avg(s2);
-        const e = days != null && a != null ? Math.round(days * a) : null; tot += e || 0;
-        const cellE = box.querySelector(`[data-pest="${s2}"]`); if (cellE) cellE.textContent = e != null ? fmtN(e) : '—';
+      let tot = 0, rest = 0;
+      planRows(x).forEach((r) => {
+        tot += r.val || 0; if (r.passed) return;
+        rest += r.est || 0;
+        const cellE = box.querySelector(`[data-pest="${r.s}"]`); if (cellE) cellE.textContent = r.est != null ? fmtN(r.est) : '—';
       });
       box.querySelector('[data-ptot]').textContent = fmtN(tot); box.querySelector('[data-ptot2]').textContent = fmtN(tot);
+      const pr = box.querySelector('[data-prest]'); if (pr) pr.textContent = fmtN(rest);
     };
     inp.onchange = rer;   // 离开输入框再重画（出现保存/撤销按钮），打字时不重画免得丢光标
   });
