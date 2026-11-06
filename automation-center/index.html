@@ -5,9 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>自动化中心</title>
 <!--
-  飞书应用插件页：自动化中心（第 1 期，只读）。规矩见 wiki/页面设计/概念/飞书应用自定义插件页.md
-  数据来自 X40（sync_automation_center.py）每小时写的 3 张表；页面不写任何表，也不能启动或暂停任务。
-  授权：saveConfig 只登记产品主表，3 张表的授权组件在「数据授权4（勿删）」。
+  飞书应用插件页：自动化中心（第 2 期：可新建任务）。规矩见 wiki/页面设计/概念/飞书应用自定义插件页.md
+  状态来自 X40（sync_automation_center.py）；页面新建的任务写进 自动化任务 表，由本机 X39（automation_scheduler.py）审批后执行。
+  页面上的权限只是界面，X39 会再查一遍：动作必须在清单里，审批只认林键春写的行，内容变了不跑。改 ACTIONS 要同步改 X39。
+  授权：saveConfig 只登记产品主表，4 张表的授权组件在「数据授权4（勿删）」。
   本地预览：build_preview.py 注入 window.__SNAPSHOT__；地址加 ?as=member 看组员视角。
 -->
 <style>
@@ -76,6 +77,31 @@
   .bots dt { color: var(--sub); } .bots dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
   .empty { padding: 36px; text-align: center; color: var(--sub); }
   .err { color: var(--red); white-space: pre-wrap; }
+  .btn.pri { background: var(--blue); border-color: var(--blue); color: #fff; }
+  .btn.pri:hover { background: var(--blue); opacity: .9; }
+  .btn.sm { height: 24px; padding: 0 8px; font-size: 12px; }
+  .btn.danger { color: var(--red); }
+  .ops { display: flex; flex-wrap: wrap; gap: 4px; min-width: 130px; }
+  .steps { display: flex; flex-wrap: wrap; gap: 6px; }
+  .steps button { border: 1px solid var(--line-2); background: var(--card); border-radius: 14px; padding: 3px 11px; }
+  .steps button.on { border-color: var(--blue); color: var(--blue); background: var(--blue-soft); }
+  .opt { display: flex; gap: 8px; align-items: flex-start; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; margin-bottom: 6px; cursor: pointer; background: var(--card); }
+  .opt.off { opacity: .55; cursor: not-allowed; background: #fafbfc; }
+  .opt input { margin-top: 3px; flex: none; }
+  .field { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
+  .field > label { color: var(--sub); }
+  .field select, .field input[type=time], .field input[type=text], .field input[type=number], textarea { border: 1px solid var(--line-2); border-radius: 6px; background: var(--card); padding: 4px 8px; }
+  .field input[type=text] { width: min(320px, 100%); }
+  textarea { width: 100%; min-height: 90px; resize: vertical; font: inherit; }
+  .sum dl { display: grid; grid-template-columns: 62px minmax(0, 1fr); gap: 5px 8px; margin: 0; }
+  .sum dt { color: var(--sub); } .sum dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+  .msg { padding: 8px 12px; border-radius: 6px; background: var(--blue-soft); color: #173d99; }
+  .msg.bad { background: var(--red-soft); color: var(--red); }
+  .bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .diff { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; margin: 8px 0; }
+  .diff > div { padding: 8px 10px; border-radius: 6px; background: #fafbfc; border: 1px solid var(--line); overflow-wrap: anywhere; }
+  .diff del { color: var(--red); } .diff ins { color: var(--green); text-decoration: none; font-weight: 600; }
+  @media (max-width: 800px) { .diff { grid-template-columns: minmax(0, 1fr); } }
   /* 24 小时时间轴 */
   .tl { min-width: 840px; }
   .tlbox { overflow-x: auto; }
@@ -112,6 +138,7 @@
     <span class="spacer"></span>
     <span class="meta" id="meta">读取中…</span>
     <button class="btn" id="refresh">刷新</button>
+    <button class="btn pri" id="newTask">+ 新建任务</button>
   </div>
   <div id="main"><div class="empty">正在读取…</div></div>
 </div>
@@ -129,11 +156,25 @@ const TABLES = {
   task: { id: 'tblNjjwfZZiclbMj', name: '自动化任务', required: true },
   bot: { id: 'tblQ6XzTLo0P8b9N', name: '机器人登记' },
   run: { id: 'tbl91rzNkcJrawjC', name: '运行记录' },
+  appr: { id: 'tblFKwFE4KPIgy0L', name: '任务审批' },
 };
 const MANAGER_NAME = '林键春';   // 看全部；其他人按 可见范围 过滤。ID 从表里 相关人 取：SDK 给的 ID 和 CLI 的 open_id 不是一套，不能写死（11-06 踩过）
-// getFieldMetaList 读不了时的退路（由 CLI 查出，只有字段 ID 和字段名）
-const FIELD_NAMES = {"task": {"fldN6w8Z5k": "下次运行", "fld59g1sLV": "模块", "fldo66O56g": "输出到", "fldRLvydkg": "来源", "fldI6QbZU7": "时钟", "fldl2gKmb1": "可见范围", "fldki50e9w": "上次结果", "fldLGMyP7S": "状态", "fldURPiWKb": "时间", "fldkSYPSzN": "机器人", "fldsIARleU": "说明", "fldwT976oZ": "类型", "fldQgaSK3K": "任务键", "fldnY3sFkB": "结果说明", "fldOcTz1zR": "上次运行", "fldRdqRhcZ": "相关人", "fldgcyAPjW": "任务名称"}, "bot": {"fldnzOu2P0": "状态", "fld7DrKHX3": "负责模块", "fldSm3jXrj": "可读", "fldgU0ieiW": "可写", "fldGu8yWmE": "可发给", "fldjYdafy8": "机器人"}, "run": {"fld0XVMl2L": "开始时间", "fldv6s2Xri": "任务键", "fldyoK18fF": "结果", "fld48RNUyv": "机器人", "fldVnQAG1p": "输出到", "fldlhSJsIo": "任务名称", "flddnhRJ4C": "记录键", "fldmOBFS0M": "说明", "fldieb6xZn": "结果码"}};
+// 字段 ID、类型、选项 ID（setup_phase2.py 查出）。读写都不依赖 getFieldMetaList：它在飞书里可能报无权限
+const FIELD_META = {"task":{"动作参数":{"id":"fldVCqQR3M","type":"text","options":{}},"频率":{"id":"fld1qrRstD","type":"select","options":{"每天":"optHya2KVV","工作日":"optv8fhcgu","每周":"optd9Xq1Yd","每月":"optjrwn7Mo"}},"周几或几号":{"id":"fldXJ6xO1W","type":"number","options":{}},"时刻":{"id":"fldSDiqyPn","type":"text","options":{}},"试运行请求":{"id":"fldn1saBAt","type":"datetime","options":{}},"接收人":{"id":"fldv5iCXUE","type":"select","options":{"林键春":"optc9UwCaP","曾舒婷":"optiLTGQ4C","林谆强":"optYVgpp9C","张宇彬":"optysq4WWC","王雅婷":"optoExjJ9J"}},"创建人":{"id":"fldlC37YvP","type":"created_by","options":{}},"类型":{"id":"fldwT976oZ","type":"select","options":{"数据同步":"optYevAfbF","通知":"optKZ31n1V","巡检":"optZasGbXT","常驻服务":"opttHUdDG4","流程":"optUd6P2ut"}},"时间":{"id":"fldURPiWKb","type":"text","options":{}},"输出":{"id":"fld57pCb12","type":"select","options":{"私聊相关人":"optokHwnOY","私聊指定人":"opt7XQaacD","灯具组群":"opt6Mf8cRT"}},"说明":{"id":"fldsIARleU","type":"text","options":{}},"动作键":{"id":"fldKNQKhdC","type":"text","options":{}},"错过时":{"id":"fld7UWxn3F","type":"select","options":{"跳过":"opthri380D","补跑":"opt1M1JJTh"}},"结果说明":{"id":"fldnY3sFkB","type":"text","options":{}},"相关人":{"id":"fldRdqRhcZ","type":"user","options":{}},"可见范围":{"id":"fldl2gKmb1","type":"select","options":{"全员":"opt4hTt497","相关人":"opthwfP6A2","仅林键春":"optv0tcRoZ"}},"下次运行":{"id":"fldN6w8Z5k","type":"datetime","options":{}},"上次运行":{"id":"fldOcTz1zR","type":"datetime","options":{}},"上次结果":{"id":"fldki50e9w","type":"select","options":{"成功":"optQNZc9ef","失败":"opt5TwmTK5","运行中":"optcecxDkb","未运行":"optmzJ0WVt","无记录":"opt3w8vHh4"}},"机器人":{"id":"fldkSYPSzN","type":"select","options":{"小灯":"optrRtnWbr","后勤大管家":"optt47cMiM","运营分析专家":"optAiIbCJr","飞书自动化":"optduFBWfW"}},"时钟":{"id":"fldI6QbZU7","type":"select","options":{"北京固定":"opt9CcfrOM","跟美西走":"optEUamEOy","事件触发":"optB3tKmxM","常驻":"optNktykce"}},"审批状态":{"id":"fld31pyVsY","type":"select","options":{"待审批":"optUY35bUk","已通过":"optPLTEcLJ","已退回":"optZNDR9Cf"}},"失败通知":{"id":"fldw2DtLv9","type":"select","options":{"林键春":"opt5lcycsF","创建人":"opttSUOaOW"}},"输出到":{"id":"fldo66O56g","type":"text","options":{}},"任务键":{"id":"fldQgaSK3K","type":"text","options":{}},"模块":{"id":"fld59g1sLV","type":"select","options":{"数据":"optd7zAYiu","运营":"optADA49c2","采购":"opthI5uhIw","库存":"optOjsZzKI","物流":"optZ2pHaKD","产品":"optJUoMIfr","任务":"optumCYeXW","出口":"opt7v3HQ7E","管理":"opt5z16hfj","系统":"optdRhi520","待分类":"optlV9xDfH"}},"试运行结果":{"id":"fldjEDGj8s","type":"text","options":{}},"来源":{"id":"fldRLvydkg","type":"select","options":{"Windows任务":"opt8sKgQtW","多维表自动化":"optMKsfDoK","页面新建":"optefZipDl"}},"任务名称":{"id":"fldgcyAPjW","type":"text","options":{}},"退回意见":{"id":"fldehRKn81","type":"text","options":{}},"状态":{"id":"fldLGMyP7S","type":"select","options":{"启用":"opt9j4RxtG","运行中":"optzhPIhAK","停用":"optLpdfOwN","已移除":"optNxWgB8L"}}},"bot":{"可读":{"id":"fldSm3jXrj","type":"text","options":{}},"可写":{"id":"fldgU0ieiW","type":"text","options":{}},"可发给":{"id":"fldGu8yWmE","type":"text","options":{}},"机器人":{"id":"fldjYdafy8","type":"text","options":{}},"状态":{"id":"fldnzOu2P0","type":"select","options":{"在线":null,"异常":null,"待建应用":null}},"负责模块":{"id":"fld7DrKHX3","type":"text","options":{}}},"run":{"任务键":{"id":"fldv6s2Xri","type":"text","options":{}},"结果码":{"id":"fldieb6xZn","type":"number","options":{}},"说明":{"id":"fldmOBFS0M","type":"text","options":{}},"输出到":{"id":"fldVnQAG1p","type":"text","options":{}},"机器人":{"id":"fld48RNUyv","type":"select","options":{"小灯":"optclsYJl1","后勤大管家":"optBha5FVq","运营分析专家":"optcBitH5M","飞书自动化":"optjdknfj5"}},"开始时间":{"id":"fld0XVMl2L","type":"datetime","options":{}},"记录键":{"id":"flddnhRJ4C","type":"text","options":{}},"任务名称":{"id":"fldlhSJsIo","type":"text","options":{}},"结果":{"id":"fldyoK18fF","type":"select","options":{"成功":"optLN7Ayyk","失败":"optT7e78q3","运行中":"optpDhvLnh","错过":"optsbmcQ6I","拒绝":"optgzA88La"}}},"appr":{"内容快照":{"id":"fldAkzFRTH","type":"text","options":{}},"结果":{"id":"flddBEAjVn","type":"select","options":{"通过":"optxS67Ehl","退回":"opt54xATCO"}},"意见":{"id":"fldRfHLZae","type":"text","options":{}},"创建人":{"id":"fld3SudllQ","type":"created_by","options":{}},"修改人":{"id":"fld43Siosa","type":"updated_by","options":{}},"创建时间":{"id":"fldYqkCs4y","type":"created_at","options":{}},"任务键":{"id":"fldzQ9bZM3","type":"text","options":{}}}};
+const FIELD_NAMES = Object.fromEntries(Object.entries(FIELD_META).map(([k, v]) => [k, Object.fromEntries(Object.entries(v).map(([n, f]) => [f.id, n]))]));
 const SYNC_KEY = 'X40';
+const PAGE_SRC = '页面新建';
+const PEOPLE = ['林键春', '曾舒婷', '林谆强', '张宇彬', '王雅婷'];
+const BOT_OPTIONS = { 小灯: '可用', 后勤大管家: '还没上线（第 3 期）', 运营分析专家: '还没上线（第 3 期）' };
+// 动作清单：和 tools/claude-workspace/automation_scheduler.py 的 ACTIONS 一一对应，页面只能选这里的
+const ACTIONS = {
+  todo_overdue: { t: '任务逾期提醒', k: '条件提醒', d: '查任务待办表，截止时间已过且没完成的任务发提醒。私聊相关人＝负责人和创建人各收自己相关的。', outs: ['私聊相关人', '私聊指定人', '灯具组群'], out: ['私聊相关人'] },
+  todo_due_digest: { t: '每日到期汇总', k: '汇总日报', d: '汇总今天到期、没完成的任务。私聊相关人＝每位负责人收自己的。', outs: ['私聊相关人', '私聊指定人', '灯具组群'], out: ['私聊相关人'] },
+  run_failure_notice: { t: '运行失败通知', k: '条件提醒', d: '查自动化中心里上次运行失败的任务，有才发。', outs: ['私聊指定人', '灯具组群'], out: ['私聊指定人'], to: ['林键春'] },
+  fixed_text: { t: '固定文字提醒', k: '条件提醒', d: '到点把你写好的一段话发出去。', outs: ['私聊指定人', '灯具组群'], out: ['私聊指定人'] },
+};
+const WEEK = ['', '周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+const SNAP_FIELDS = ['任务名称', '动作键', '动作参数', '机器人', '频率', '时刻', '周几或几号', '输出', '接收人', '错过时', '失败通知'];
 const STALE_HOURS = 3;
 
 // ===== ② 工具 =====
@@ -146,7 +187,7 @@ const bj = (ms) => new Date(Number(ms) + BJ);   // 之后都用 getUTC*，避开
 const dayNo = (ms) => Math.floor((Number(ms) + BJ) / 86400000);
 const fmtDT = (ms) => { if (!ms) return '—'; const d = bj(ms); return `${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`; };
 const fmtHM = (ms) => { const d = bj(ms); return `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`; };
-const PILL = { 启用: 'ok', 成功: 'ok', 在线: 'ok', 运行中: 'blue', 失败: 'bad', 异常: 'bad', 待建应用: 'warn', 未运行: 'warn', 跟美西走: 'warn', 停用: 'gray', 已移除: 'gray', 无记录: 'gray' };
+const PILL = { 已通过: 'ok', 待审批: 'warn', 已退回: 'bad', 草稿: 'gray', 错过: 'warn', 拒绝: 'bad', 启用: 'ok', 成功: 'ok', 在线: 'ok', 运行中: 'blue', 失败: 'bad', 异常: 'bad', 待建应用: 'warn', 未运行: 'warn', 跟美西走: 'warn', 停用: 'gray', 已移除: 'gray', 无记录: 'gray' };
 const pill = (s) => s ? `<span class="p p-${PILL[s] || 'gray'}">${esc(s)}</span>` : '<span class="sub">—</span>';
 
 function cell(v) {
@@ -160,10 +201,13 @@ const users = (v) => (Array.isArray(v) ? v : v ? [v] : []).filter((u) => u && u.
 
 // ===== ③ 读数据 =====
 let SDK = null;
-const S = { tab: '总览', task: [], bot: [], run: [], warn: [], me: null, identified: false, f: { src: '全部', bot: '全部', mod: '全部', st: '全部', q: '', rr: '全部', rq: '' } };
+const S = { tab: '总览', task: [], bot: [], run: [], appr: [], warn: [], me: null, identified: false, msg: '', form: null, busy: false, confirmDel: '', trialing: '', f: { src: '全部', bot: '全部', mod: '全部', st: '全部', q: '', rr: '全部', rq: '' } };
 const managerIds = () => [...new Set(S.task.flatMap((t) => (t['相关人'] || []).filter((u) => u.name === MANAGER_NAME).map((u) => u.id)))];
 const isManager = () => !!S.me && managerIds().includes(S.me);
 
+const USER_FIELDS = new Set(['相关人', '创建人', '修改人']);
+const MULTI_FIELDS = new Set(['输出', '接收人']);
+const multi = (v) => (Array.isArray(v) ? v : v ? [v] : []).map((x) => (x && typeof x === 'object' ? x.text ?? x.name ?? '' : String(x))).filter(Boolean);
 // 字段清单读不了就用内置清单；整表读失败隔一下再试一次。每一步记下来，出错时诊断里能看到卡在哪
 const STEPS = [];
 async function readRows(table, cfg, names) {
@@ -173,7 +217,7 @@ async function readRows(table, cfg, names) {
     const res = await withTimeout(table.getRecordsByPage({ pageSize: 200, pageToken }), 20000, `读 ${cfg.name} 记录`);
     for (const r of res.records) {
       const o = { _id: r.recordId };
-      for (const [fid, v] of Object.entries(r.fields)) { const n = names[fid]; if (n) o[n] = n === '相关人' ? users(v) : cell(v); }
+      for (const [fid, v] of Object.entries(r.fields)) { const n = names[fid]; if (n) o[n] = USER_FIELDS.has(n) ? users(v) : MULTI_FIELDS.has(n) ? multi(v) : cell(v); }
       rows.push(o);
     }
     if (!res.hasMore) break;
@@ -207,7 +251,9 @@ async function load() {
 }
 
 // ===== ④ 权限：组员只看全员可见和跟自己相关的 =====
-const visibleTasks = () => isManager() ? S.task : S.task.filter((t) => t['可见范围'] === '全员' || (S.me && (t['相关人'] || []).some((u) => u.id === S.me)));
+const isCreator = (t) => !!S.me && (t['创建人'] || []).some((u) => u.id === S.me);
+const canEdit = (t) => t['来源'] === PAGE_SRC && (isManager() || isCreator(t));
+const visibleTasks = () => isManager() ? S.task : S.task.filter((t) => t['可见范围'] === '全员' || isCreator(t) || (S.me && (t['相关人'] || []).some((u) => u.id === S.me)));
 const visibleRuns = () => { if (isManager()) return S.run; const keys = new Set(visibleTasks().map((t) => t['任务键'])); return S.run.filter((r) => keys.has(r['任务键'])); };
 
 // ===== ⑤ 各页签 =====
@@ -237,12 +283,15 @@ function timeline(tasks) {
 function viewHome() {
   const tasks = visibleTasks();
   const win = tasks.filter((t) => t['来源'] === 'Windows任务');
+  const mine = tasks.filter((t) => t['来源'] === PAGE_SRC);
   const wf = tasks.filter((t) => t['来源'] === '多维表自动化');
   const on = (x) => x.filter((t) => t['状态'] === '启用' || t['状态'] === '运行中').length;
   const failed = tasks.filter((t) => t['上次结果'] === '失败' && t['状态'] !== '停用' && t['状态'] !== '已移除');
   const botOn = S.bot.filter((b) => b['状态'] === '在线').length;
   const next = tasks.filter((t) => t['下次运行'] && t['时钟'] !== '常驻' && t['任务键'] !== SYNC_KEY && Number(t['下次运行']) > Date.now()).sort((a, b) => a['下次运行'] - b['下次运行']).slice(0, 6);
   const todo = [];
+  const pendings = pendingTasks();
+  if (pendings.length) todo.push(['待审批', isManager() ? `${pendings.length} 个任务等你审批，到「待审批」页签处理` : `${pendings.length} 个任务等林键春审批`]);
   for (const t of failed) todo.push(['失败', `<b>${esc(t['任务名称'])}</b>：${esc(t['结果说明'] || '运行失败')}`]);
   if (isManager()) {
     const sync = S.task.find((t) => t['任务键'] === SYNC_KEY);
@@ -261,6 +310,7 @@ function viewHome() {
       <div class="card kpi"><b>${on(win)}</b><span>计划任务在跑，另 ${win.length - on(win)} 个停用</span></div>
       <div class="card kpi"><b class="${failed.length ? 'hot' : ''}">${failed.length}</b><span>上次运行失败</span></div>
       <div class="card kpi"><b>${on(wf)}</b><span>多维表自动化启用，另 ${wf.length - on(wf)} 条停用</span></div>
+      <div class="card kpi"><b>${mine.length}</b><span>页面新建任务，其中 ${mine.filter((t) => t['审批状态'] === '已通过' && t['状态'] === '启用').length} 个已生效</span></div>
       <div class="card kpi"><b>${botOn} / ${S.bot.length}</b><span>机器人在线</span></div>
     </div>
     ${timeline(tasks)}
@@ -286,17 +336,18 @@ function viewTasks() {
 }
 function taskList() {
   const f = S.f, q = f.q.trim().toLowerCase();
-  const ORDER = { Windows任务: 0, 页面新建: 1, 多维表自动化: 2 };
+  const ORDER = { 页面新建: 0, Windows任务: 1, 多维表自动化: 2 };
   const list = visibleTasks().filter((t) => (f.src === '全部' || t['来源'] === f.src) && (f.bot === '全部' || t['机器人'] === f.bot) && (f.mod === '全部' || t['模块'] === f.mod) && (f.st === '全部' || t['状态'] === f.st)
     && (!q || String(t['任务名称']).toLowerCase().includes(q) || String(t['任务键']).toLowerCase().includes(q)))
     .sort((a, b) => (ORDER[a['来源']] ?? 9) - (ORDER[b['来源']] ?? 9) || String(a['任务键']).localeCompare(String(b['任务键'])));
   $('count').textContent = `共 ${list.length} 条`;
-  $('list').innerHTML = list.length ? `<div class="tablecard"><table class="tbl"><thead><tr><th>任务</th><th>来源</th><th>机器人</th><th>时间（北京）</th><th>输出到</th><th>模块</th><th>状态</th><th>上次运行</th><th>上次结果</th><th>下次运行</th></tr></thead><tbody>
+  $('list').innerHTML = list.length ? `<div class="tablecard"><table class="tbl"><thead><tr><th>任务</th><th>审批</th><th>操作</th><th>来源</th><th>机器人</th><th>时间（北京）</th><th>输出到</th><th>模块</th><th>状态</th><th>上次运行</th><th>上次结果</th><th>下次运行</th></tr></thead><tbody>
     ${list.map((t) => `<tr><td class="why"><b>${esc(t['任务名称'])}</b>${/^X\d/.test(t['任务键']) ? ` <span class="sub">${esc(t['任务键'])}</span>` : ''}${t['说明'] ? `<br><span class="sub">${esc(t['说明'])}</span>` : ''}</td>
+      <td class="nw">${t['来源'] === PAGE_SRC ? pill(t['审批状态'] || '草稿') : '<span class="sub">—</span>'}</td><td>${rowOps(t)}</td>
       <td class="nw">${esc(t['来源'] === 'Windows任务' ? '计划任务' : t['来源'])}</td><td class="nw">${esc(t['机器人'])}</td>
       <td class="nw">${esc(t['时间'])}${t['时钟'] === '跟美西走' ? ' <span class="p p-warn" title="跟美西时间走，换夏令时北京时间偏 1 小时">会偏</span>' : ''}</td>
       <td class="out">${esc(t['输出到'] || '—')}</td><td class="nw">${esc(t['模块'])}</td><td class="nw">${pill(t['状态'])}</td><td class="nw">${t['上次运行'] ? fmtDT(t['上次运行']) : '<span class="sub">—</span>'}</td>
-      <td>${pill(t['上次结果'])}${t['结果说明'] ? `<br><span class="sub">${esc(t['结果说明'])}</span>` : ''}</td><td class="nw">${t['状态'] === '运行中' ? '<span class="sub">常驻</span>' : t['下次运行'] ? fmtDT(t['下次运行']) : '<span class="sub">—</span>'}</td></tr>`).join('')}
+      <td>${pill(t['上次结果'])}${t['结果说明'] ? `<br><span class="sub">${esc(t['结果说明'])}</span>` : ''}${t['来源'] === PAGE_SRC && t['试运行结果'] ? `<br><span class="sub">试运行：${esc(t['试运行结果'])}</span>` : ''}</td><td class="nw">${t['状态'] === '运行中' ? '<span class="sub">常驻</span>' : t['下次运行'] ? fmtDT(t['下次运行']) : '<span class="sub">—</span>'}</td></tr>`).join('')}
     </tbody></table></div>` : '<div class="empty">没有符合条件的任务。</div>';
 }
 
@@ -325,10 +376,171 @@ function runList() {
     </tbody></table></div>` : '<div class="empty">没有运行记录。</div>';
 }
 
+// ===== ⑤b 新建、试运行、审批 =====
+const whenText = (x) => x['频率'] === '每周' ? `每${WEEK[x['周几或几号']] || ''} ${x['时刻']}` : x['频率'] === '每月' ? `每月 ${x['周几或几号']} 日 ${x['时刻']}` : `${x['频率']} ${x['时刻']}`;
+const outText = (x) => (x['输出'] || []).map((o) => o === '私聊指定人' ? `私聊 ${(x['接收人'] || []).join('、') || '（未选）'}` : o).join('、');
+// 审批快照：和 automation_scheduler.py 的 snapshot() 算同样的字段
+function snapshot(x) {
+  const o = {};
+  for (const k of [...SNAP_FIELDS].sort()) {
+    const v = x[k];
+    if (k === '输出' || k === '接收人') o[k] = [...(v || [])].sort();
+    else if (k === '周几或几号') o[k] = v === '' || v == null ? null : Number(v);
+    else o[k] = String(v ?? '').trim();
+  }
+  return o;
+}
+const paramsOf = (x) => { try { return JSON.parse(x['动作参数'] || '{}'); } catch (e) { return {}; } };
+const pendingTasks = () => visibleTasks().filter((t) => t['来源'] === PAGE_SRC && t['审批状态'] === '待审批');
+const lastApproved = (key) => S.appr.filter((a) => a['任务键'] === key && a['结果'] === '通过').sort((a, b) => Number(b['创建时间']) - Number(a['创建时间']))[0];
+const blankForm = () => ({ action: 'todo_overdue', name: ACTIONS.todo_overdue.t, text: '', bot: '小灯', freq: '每天', time: '09:30', n: 1, outs: [...ACTIONS.todo_overdue.out], to: [], miss: '跳过', fail: '林键春', step: 0, rec: '', key: '' });
+const formFromTask = (t) => ({ action: t['动作键'], name: t['任务名称'], text: paramsOf(t).text || '', bot: t['机器人'] || '小灯', freq: t['频率'], time: t['时刻'], n: t['周几或几号'] === '' || t['周几或几号'] == null ? 1 : Number(t['周几或几号']), outs: [...(t['输出'] || [])], to: [...(t['接收人'] || [])], miss: t['错过时'] || '跳过', fail: t['失败通知'] || '林键春', step: 0, rec: t._id, key: t['任务键'] });
+const formRow = (f) => ({ 任务名称: f.name.trim(), 动作键: f.action, 动作参数: f.action === 'fixed_text' ? JSON.stringify({ text: f.text.trim() }) : '', 机器人: f.bot, 频率: f.freq, 时刻: f.time, 周几或几号: f.freq === '每周' || f.freq === '每月' ? Number(f.n) : null, 输出: f.outs, 接收人: f.outs.includes('私聊指定人') ? f.to : [], 错过时: f.miss, 失败通知: f.fail });
+function formError(f) {
+  if (!f.name.trim()) return '还没填任务名称';
+  if (!/^\d\d:\d\d$/.test(f.time)) return '时间没填对';
+  if (f.action === 'fixed_text' && !f.text.trim()) return '还没写提醒内容';
+  if (!f.outs.length) return '还没选输出到哪';
+  if (f.outs.includes('私聊指定人') && !f.to.length) return '选了私聊指定人，但没选接收人';
+  if (f.freq === '每周' && !(f.n >= 1 && f.n <= 7)) return '没选周几';
+  if (f.freq === '每月' && !(f.n >= 1 && f.n <= 31)) return '几号要在 1 到 31 之间';
+  return '';
+}
+const rowOps = (t) => {
+  if (!canEdit(t)) return '<span class="sub">—</span>';
+  const k = esc(t._id), st = t['审批状态'], busy = S.trialing === t._id;
+  if (S.confirmDel === t._id) return `<div class="ops"><button class="btn sm danger" data-do="del" data-id="${k}">确认删除</button><button class="btn sm" data-do="undel">取消</button></div>`;
+  return `<div class="ops"><button class="btn sm" data-do="edit" data-id="${k}">编辑</button><button class="btn sm" data-do="trial" data-id="${k}"${busy ? ' disabled' : ''}>${busy ? '试运行中…' : '试运行'}</button>
+    ${st !== '已通过' && st !== '待审批' ? `<button class="btn sm" data-do="submit" data-id="${k}"${t['试运行结果'] ? '' : ' disabled title="先试运行一次"'}>提交审批</button>` : ''}
+    ${st === '已通过' ? `<button class="btn sm" data-do="toggle" data-id="${k}">${t['状态'] === '启用' ? '暂停' : '启用'}</button>` : ''}
+    <button class="btn sm danger" data-do="askdel" data-id="${k}">删除</button></div>`;
+};
+
+function viewNew() {
+  const f = S.form, act = ACTIONS[f.action], names = ['做什么', '谁来做', '什么时候', '输出到哪', '失败怎么办'];
+  const opt = (type, name, val, on, title, desc, off) => `<label class="opt${off ? ' off' : ''}"><input type="${type}" name="${name}" value="${esc(val)}"${on ? ' checked' : ''}${off ? ' disabled' : ''}><span><b>${esc(title)}</b>${desc ? `<br><span class="sub">${esc(desc)}</span>` : ''}</span></label>`;
+  const body = [
+    () => Object.entries(ACTIONS).map(([k, a]) => opt('radio', 'action', k, k === f.action, a.t, `${a.k}。${a.d}`)).join('') + `<div class="field" style="margin-top:10px"><label for="fName">任务名称</label><input type="text" id="fName" data-form="name" value="${esc(f.name)}"></div>${f.action === 'fixed_text' ? `<label class="sub" for="fText">提醒内容（最多 1000 字）</label><textarea id="fText" data-form="text" maxlength="1000">${esc(f.text)}</textarea>` : ''}<p class="sub">要查别的表或别的条件，告诉林键春加进动作清单。</p>`,
+    () => Object.entries(BOT_OPTIONS).map(([n, d]) => opt('radio', 'bot', n, n === f.bot, n, d, n !== '小灯')).join(''),
+    () => `<div class="field"><label for="fFreq">频率</label><select id="fFreq" data-form="freq">${['每天', '工作日', '每周', '每月'].map((o) => `<option${o === f.freq ? ' selected' : ''}>${o}</option>`).join('')}</select>
+      ${f.freq === '每周' ? `<select data-form="n" aria-label="周几">${WEEK.slice(1).map((w, i) => `<option value="${i + 1}"${i + 1 === Number(f.n) ? ' selected' : ''}>${w}</option>`).join('')}</select>` : ''}
+      ${f.freq === '每月' ? `<label for="fDay">几号</label><input type="number" id="fDay" min="1" max="31" data-form="n" value="${esc(f.n)}">` : ''}
+      <label for="fTime">北京时间</label><input type="time" id="fTime" data-form="time" value="${esc(f.time)}"></div><p class="sub">一律按北京时间，换夏令时不受影响。工作日只算周一到周五，不看节假日。每月选的日子超过当月天数时，按月底算。</p>`,
+    () => act.outs.map((o) => opt('checkbox', 'outs', o, f.outs.includes(o), o, o === '灯具组群' ? '全组都能看到' : o === '私聊相关人' ? '由动作决定发给谁' : '发给下面选的人')).join('') + (f.outs.includes('私聊指定人') ? `<div class="field" style="margin-top:8px"><label>接收人</label>${PEOPLE.map((p) => `<label><input type="checkbox" name="to" value="${esc(p)}"${f.to.includes(p) ? ' checked' : ''}> ${esc(p)}</label>`).join('')}</div>` : ''),
+    () => ['跳过', '补跑'].map((m) => opt('radio', 'miss', m, m === f.miss, `关机错过时${m}`, m === '跳过' ? '适合提醒，过时的消息没有意义' : '开机后补发一次，最多补 24 小时内的')).join('') + `<div class="field" style="margin-top:8px"><label for="fFail">失败通知</label><select id="fFail" data-form="fail">${['林键春', '创建人'].map((o) => `<option${o === f.fail ? ' selected' : ''}>${o}</option>`).join('')}</select></div>`,
+  ][f.step]();
+  const err = formError(f), row = formRow(f);
+  return `<div class="stack"><div class="bar"><div class="steps">${names.map((n, i) => `<button data-step="${i}" class="${i === f.step ? 'on' : ''}">${i + 1} ${n}</button>`).join('')}</div><span class="spacer"></span>
+      <button class="btn" data-do="cancel">取消</button><button class="btn" data-do="prev"${f.step === 0 ? ' disabled' : ''}>上一步</button><button class="btn" data-do="next"${f.step === 4 ? ' disabled' : ''}>下一步</button>
+      <button class="btn pri" data-do="save"${err || S.busy ? ' disabled' : ''}>保存并试运行</button></div>
+    ${S.msg ? `<div class="msg">${esc(S.msg)}</div>` : ''}
+    <div class="two"><div class="card"><h3>${f.step + 1}. ${names[f.step]}</h3>${body}</div>
+    <div class="card sum"><h3>这个任务会这样跑</h3><dl><dt>名称</dt><dd>${esc(row['任务名称'] || '—')}</dd><dt>做什么</dt><dd>${esc(act.t)}</dd><dt>谁来做</dt><dd>${esc(f.bot)}</dd><dt>什么时候</dt><dd>${esc(whenText(row))}（北京）</dd><dt>输出到</dt><dd>${esc(outText(row)) || '<span style="color:var(--red)">还没选</span>'}</dd><dt>错过时</dt><dd>${esc(f.miss)}</dd><dt>失败通知</dt><dd>${esc(f.fail)}</dd></dl>
+      <p class="sub" style="margin:10px 0 0">${err ? esc(err) + '。' : ''}保存后先试运行一次，结果只发给创建人。确认没问题，到「任务」列表点提交审批，林键春通过后才会正式运行。</p></div></div></div>`;
+}
+
+const SHOW = (x) => `${x['任务名称']}\n${ACTIONS[x['动作键']] ? ACTIONS[x['动作键']].t : x['动作键']}\n${whenText(x)}\n${outText(x)}\n错过时${x['错过时']}，失败通知${x['失败通知']}${x['动作键'] === 'fixed_text' ? '\n内容：' + (paramsOf(x).text || '') : ''}`;
+function diffHtml(oldS, newS) {
+  const a = oldS.split('\n'), b = newS.split('\n'), n = Math.max(a.length, b.length);
+  const left = [], right = [];
+  for (let i = 0; i < n; i++) { const x = a[i] ?? '', y = b[i] ?? ''; left.push(x === y ? esc(x) : `<del>${esc(x)}</del>`); right.push(x === y ? esc(y) : `<ins>${esc(y)}</ins>`); }
+  return `<div class="diff"><div><b>改之前</b><br>${left.join('<br>')}</div><div><b>改之后</b><br>${right.join('<br>')}</div></div>`;
+}
+function viewApprove() {
+  const list = pendingTasks();
+  const back = visibleTasks().filter((t) => t['来源'] === PAGE_SRC && t['审批状态'] === '已退回');
+  const card = (t) => {
+    const last = lastApproved(t['任务键']);
+    let old = null; if (last) { try { old = JSON.parse(last['内容快照']); } catch (e) { /* 旧快照读不了就只显示现在的 */ } }
+    const who = (t['创建人'] || []).map((u) => u.name).join('、') || '—';
+    return `<div class="card"><div class="bar"><b style="font-size:14px">${esc(t['任务名称'])}</b><span class="sub">${esc(who)} 提交${t['试运行结果'] ? ' · 试运行：' + esc(t['试运行结果']) : ''}</span><span class="spacer"></span>
+      ${isManager() ? `<input type="text" data-reason="${esc(t._id)}" placeholder="退回意见（退回时必填）" aria-label="退回意见" style="height:28px;border:1px solid var(--line-2);border-radius:6px;padding:0 8px"><button class="btn sm" data-do="reject" data-id="${esc(t._id)}">退回</button><button class="btn sm pri" data-do="approve" data-id="${esc(t._id)}">通过</button>` : '<span class="sub">等林键春审批</span>'}</div>
+      ${old ? diffHtml(SHOW(old), SHOW(t)) : `<div class="diff" style="grid-template-columns:minmax(0,1fr)"><div><b>新任务</b><br>${esc(SHOW(t)).replace(/\n/g, '<br>')}</div></div>`}</div>`;
+  };
+  return `<div class="stack">${S.msg ? `<div class="msg">${esc(S.msg)}</div>` : ''}${list.length ? list.map(card).join('') : '<div class="empty">没有等审批的任务。</div>'}
+    ${back.length ? `<div class="card"><h3>已退回</h3><div class="todo">${back.map((t) => `<div>${pill('已退回')}<span><b>${esc(t['任务名称'])}</b>：${esc(t['退回意见'] || '没写意见')}</span></div>`).join('')}</div></div>` : ''}</div>`;
+}
+
+// ===== ⑤c 写表 =====
+const tableObj = (k) => SDK.bitable.base.getTableById(TABLES[k].id);
+function encodeFields(k, obj) {
+  const out = {};
+  for (const [name, v] of Object.entries(obj)) {
+    const m = FIELD_META[k][name];
+    if (!m) throw new Error(`表里没有字段：${name}`);
+    if (v == null || v === '' || (Array.isArray(v) && !v.length)) { out[m.id] = null; continue; }
+    if (m.type === 'select') {
+      const list = (Array.isArray(v) ? v : [v]).map((x) => { if (!m.options[x]) throw new Error(`字段 ${name} 没有选项：${x}`); return { id: m.options[x], text: x }; });
+      out[m.id] = MULTI_FIELDS.has(name) ? list : list[0];
+    } else if (m.type === 'text') out[m.id] = [{ type: 'text', text: String(v) }];
+    else out[m.id] = v;   // 数字、日期（毫秒）
+  }
+  return out;
+}
+const writeRow = async (k, id, obj) => withTimeout((await tableObj(k)).setRecord(id, { fields: encodeFields(k, obj) }), 15000, '写表');
+const addRow = async (k, obj) => withTimeout((await tableObj(k)).addRecord({ fields: encodeFields(k, obj) }), 15000, '写表');
+// 写入后立刻读可能是旧数据：按间隔重读，直到看到结果
+async function syncUntil(check, tries = [0.4, 0.7, 1, 1.5, 2, 2.5]) {
+  for (const sec of tries) {
+    await new Promise((r) => setTimeout(r, sec * 1000));
+    try { S.task = await readTable(TABLES.task, 'task'); } catch (e) { /* 下一轮再读 */ continue; }
+    if (check()) return true;
+  }
+  return false;
+}
+const taskById = (id) => S.task.find((t) => t._id === id);
+async function startTrial(id) {
+  S.trialing = id; render();
+  await writeRow('task', id, { 试运行请求: Date.now(), 试运行结果: null });
+  // X39 每分钟跑一次，处理完会清空 试运行请求
+  const done = await syncUntil(() => { const t = taskById(id); return t && !t['试运行请求'] && t['试运行结果']; }, [1, ...Array(24).fill(5)]);
+  S.trialing = '';
+  S.msg = done ? `试运行完成：${taskById(id)['试运行结果']}` : '等了 2 分钟调度器还没处理。请确认本机开着，X39 在运行。';
+  render();
+}
+async function saveForm() {
+  const f = S.form, row = formRow(f);
+  const fields = { ...row, 时间: whenText(row), 时钟: '北京固定', 输出到: outText(row), 说明: ACTIONS[f.action].d, 类型: '通知', 模块: '任务', 可见范围: '全员', 来源: PAGE_SRC, 状态: '启用', 审批状态: null, 退回意见: null, 试运行结果: null, 下次运行: null };
+  S.busy = true; S.msg = '保存中…'; render();
+  let id = f.rec;
+  if (id) {
+    // 保存即回到草稿，重新试运行和审批；X39 也会因为内容和审批快照不一致而不跑
+    await writeRow('task', id, fields);
+    await syncUntil(() => { const x = taskById(id); return x && x['任务名称'] === row['任务名称'] && !x['试运行结果']; });
+  } else {
+    const key = 'T' + Date.now().toString(36);
+    id = await addRow('task', { 任务键: key, ...fields });
+    await syncUntil(() => !!taskById(id));
+  }
+  S.busy = false; S.form = null; S.tab = '任务'; S.f.src = PAGE_SRC; S.msg = '';
+  await startTrial(id);
+}
+const ACTION_HANDLERS = {
+  async submit(id) { await writeRow('task', id, { 审批状态: '待审批', 退回意见: null }); await syncUntil(() => taskById(id)?.['审批状态'] === '待审批'); S.msg = '已提交，等林键春审批。'; },
+  async toggle(id) { const to = taskById(id)['状态'] === '启用' ? '停用' : '启用'; await writeRow('task', id, { 状态: to }); await syncUntil(() => taskById(id)?.['状态'] === to); S.msg = to === '启用' ? '已启用。' : '已暂停，到点不会运行。'; },
+  async del(id) { await withTimeout((await tableObj('task')).deleteRecord(id), 15000, '删除'); S.confirmDel = ''; await syncUntil(() => !taskById(id)); S.msg = '已删除。'; },
+  async approve(id) {
+    const t = taskById(id);
+    await addRow('appr', { 任务键: t['任务键'], 内容快照: JSON.stringify(snapshot(t)), 结果: '通过' });
+    await writeRow('task', id, { 审批状态: '已通过', 退回意见: null, 状态: '启用' });
+    await syncUntil(() => taskById(id)?.['审批状态'] === '已通过');
+    try { S.appr = await readTable(TABLES.appr, 'appr'); } catch (e) { /* 只影响显示 */ }
+    S.msg = `「${t['任务名称']}」已通过，下一个计划时间开始运行。`;
+  },
+  async reject(id, reason) {
+    const t = taskById(id);
+    await addRow('appr', { 任务键: t['任务键'], 内容快照: JSON.stringify(snapshot(t)), 结果: '退回', 意见: reason });
+    await writeRow('task', id, { 审批状态: '已退回', 退回意见: reason });
+    await syncUntil(() => taskById(id)?.['审批状态'] === '已退回');
+    S.msg = `已退回「${t['任务名称']}」。`;
+  },
+};
+
 // ===== ⑥ 渲染 =====
-const VIEWS = { 总览: viewHome, 任务: viewTasks, 机器人: viewBots, 运行记录: viewRuns };
+const VIEWS = { 总览: viewHome, 任务: viewTasks, 机器人: viewBots, 运行记录: viewRuns, 待审批: viewApprove };
+const viewOf = () => S.form ? viewNew() : VIEWS[S.tab]();
 function renderTabs() {
-  $('tabs').innerHTML = Object.keys(VIEWS).map((t) => `<button role="tab" aria-selected="${S.tab === t}" data-tab="${t}">${t}</button>`).join('');
+  $('tabs').innerHTML = Object.keys(VIEWS).map((t) => `<button role="tab" aria-selected="${!S.form && S.tab === t}" data-tab="${t}">${t}${t === '待审批' && pendingTasks().length ? ` ${pendingTasks().length}` : ''}</button>`).join('');
 }
 function renderMeta() {
   const sync = S.task.find((t) => t['任务键'] === SYNC_KEY);
@@ -340,15 +552,56 @@ function render() {
   renderTabs(); renderMeta();
   const notes = [...S.warn, ...(/[?&]debug/.test(location.search) ? STEPS : [])];
   const warn = notes.length ? `<div class="tip">${notes.map(esc).join('；')}。把这段截图发回。</div>` : '';
-  $('main').innerHTML = warn + VIEWS[S.tab]();
-  if (S.tab === '任务') taskList();
-  if (S.tab === '运行记录') runList();
+  const keepTop = $('main').scrollTop;
+  $('main').innerHTML = warn + viewOf();
+  $('main').scrollTop = keepTop;
+  if (!S.form && S.tab === '任务') { taskList(); if (S.msg) $('count').textContent += ' · ' + S.msg; }
+  if (!S.form && S.tab === '运行记录') runList();
 }
 
-$('tabs').addEventListener('click', (e) => { const b = e.target.closest('button[data-tab]'); if (!b) return; S.tab = b.dataset.tab; $('main').scrollTop = 0; render(); });
+$('tabs').addEventListener('click', (e) => { const b = e.target.closest('button[data-tab]'); if (!b) return; S.tab = b.dataset.tab; S.form = null; S.msg = ''; $('main').scrollTop = 0; render(); });
 // 筛选只重画列表，不重画输入框本身（整块重画会打断中文输入）
+$('newTask').addEventListener('click', () => { S.form = blankForm(); S.msg = ''; $('main').scrollTop = 0; render(); });
+const applyAction = (f, k) => { const a = ACTIONS[k]; if (Object.values(ACTIONS).some((x) => x.t === f.name) || !f.name) f.name = a.t; f.action = k; f.outs = [...a.out]; f.to = [...(a.to || [])]; };
+$('main').addEventListener('click', async (e) => {
+  const step = e.target.closest('button[data-step]');
+  if (step && S.form) { S.form.step = Number(step.dataset.step); render(); return; }
+  const b = e.target.closest('button[data-do]'); if (!b) return;
+  const act = b.dataset.do, id = b.dataset.id;
+  if (act === 'prev' || act === 'next') { S.form.step += act === 'next' ? 1 : -1; render(); return; }
+  if (act === 'cancel') { S.form = null; S.msg = ''; render(); return; }
+  if (act === 'edit') { S.form = formFromTask(taskById(id)); S.msg = ''; $('main').scrollTop = 0; render(); return; }
+  if (act === 'askdel') { S.confirmDel = id; render(); return; }
+  if (act === 'undel') { S.confirmDel = ''; render(); return; }
+  if (window.__SNAPSHOT__) { S.msg = '预览不会写表。'; render(); return; }
+  try {
+    if (act === 'save') await saveForm();
+    else if (act === 'trial') { S.msg = ''; await startTrial(id); }
+    else if (act === 'reject') {
+      const box = $('main').querySelector(`input[data-reason="${id}"]`), reason = box ? box.value.trim() : '';
+      if (!reason) { S.msg = '退回要写意见。'; render(); return; }
+      b.disabled = true; await ACTION_HANDLERS.reject(id, reason); render();
+    } else { b.disabled = true; await ACTION_HANDLERS[act](id); render(); }
+  } catch (err) { S.busy = false; S.trialing = ''; S.msg = `操作失败：${err && err.message ? err.message : err}。多半是应用权限配置没给这张表开可编辑，把这段截图发回。`; render(); }
+});
+// 表单改动：单选、多选和下拉改完重画，文字框只记值不重画（重画会打断中文输入）
+$('main').addEventListener('change', (e) => {
+  const el = e.target, f = S.form; if (!f) return;
+  if (el.name === 'action') applyAction(f, el.value);
+  else if (el.name === 'bot') f.bot = el.value;
+  else if (el.name === 'miss') f.miss = el.value;
+  else if (el.name === 'outs') { f.outs = el.checked ? [...f.outs, el.value] : f.outs.filter((x) => x !== el.value); }
+  else if (el.name === 'to') { f.to = el.checked ? [...f.to, el.value] : f.to.filter((x) => x !== el.value); }
+  else if (el.dataset.form) { f[el.dataset.form] = el.value; if (el.dataset.form === 'freq') f.n = 1; }
+  else return;
+  render();
+});
+$('main').addEventListener('input', (e) => {
+  const el = e.target, f = S.form;
+  if (f && (el.dataset.form === 'name' || el.dataset.form === 'text')) f[el.dataset.form] = el.value;
+});
 const refilter = (el) => { S.f[el.dataset.f] = el.value; S.tab === '任务' ? taskList() : runList(); };
-$('main').addEventListener('change', (e) => { if (e.target.dataset.f && e.target.tagName === 'SELECT') refilter(e.target); });
+$('main').addEventListener('change', (e) => { if (e.target.dataset.f && !S.form && e.target.tagName === 'SELECT') refilter(e.target); });
 $('main').addEventListener('input', (e) => { if (e.target.dataset.f && e.target.tagName === 'INPUT' && !e.isComposing) refilter(e.target); });
 $('main').addEventListener('compositionend', (e) => { if (e.target.dataset.f) refilter(e.target); });
 $('main').addEventListener('scroll', () => $('sticky').classList.toggle('stuck', $('main').scrollTop > 0), { passive: true });
