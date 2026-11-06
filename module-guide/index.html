@@ -1,0 +1,507 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>使用说明</title>
+<!--
+  飞书应用「灯具组-全流程」插件页：使用说明（2026-11-06）
+  14 个应用页面的操作说明，正文和飞书知识库 2.9~2.22 是同一份。本文件由 tools/module-guide-page/build.py 生成，别直接改 index.html。
+  只有静态内容，不读写任何表；saveConfig 按硬规矩登记产品主表。页面里没有任何密钥。?doc=caigou 可直接打开某一篇。
+-->
+<style>
+  :root { --bg:#f5f6f7; --card:#fff; --ink:#1f2329; --sub:#646a73; --line:#e5e6eb; --blue:#3370ff; --blue-soft:#e1eaff; --yellow-soft:#fff1d6; }
+  * { box-sizing:border-box; }
+  html,body { height:100%; overflow:hidden; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:13px/1.5 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif; }
+  .wrap { padding:12px 16px 0; height:100vh; display:flex; flex-direction:column; }
+  .savebar { flex:none; display:none; align-items:center; gap:12px; background:#fff7e8; border:1px solid #ffd591; border-radius:8px; padding:10px 14px; margin-bottom:10px; }
+  .savebar button { height:32px; padding:0 16px; border:0; border-radius:6px; background:var(--blue); color:#fff; font-size:14px; cursor:pointer; }
+  .savebar button:disabled { opacity:.6; cursor:default; }
+  .meta { color:var(--sub); font-size:12px; }
+  .tip { flex:none; background:var(--yellow-soft); border-radius:6px; padding:6px 10px; margin-bottom:8px; font-size:12px; }
+  .sticky { flex:none; display:flex; align-items:center; gap:14px; flex-wrap:wrap; padding:4px 0 10px; }
+  .sticky .title { margin:0; font-size:17px; font-weight:600; }
+  input[type=search], select { font:inherit; color:var(--ink); border:1px solid #d0d3d6; border-radius:6px; padding:5px 8px; background:#fff; height:32px; min-width:0; }
+  input[type=search] { width:260px; max-width:100%; }
+  input:focus, select:focus { outline:none; border-color:var(--blue); box-shadow:0 0 0 2px var(--blue-soft); }
+  #narrowPick { display:none; flex:1 1 160px; }
+  .body { flex:1; min-height:0; display:flex; gap:12px; }
+  #nav { flex:none; width:206px; overflow:auto; padding-bottom:24px; }
+  .ng { color:var(--sub); font-size:12px; padding:10px 8px 4px; }
+  .ng:first-child { padding-top:0; }
+  .ni { display:block; width:100%; text-align:left; border:0; background:none; border-radius:6px; padding:6px 8px; cursor:pointer; font:inherit; color:var(--ink); }
+  .ni b { display:block; font-weight:500; }
+  .ni span { display:block; font-size:12px; color:var(--sub); }
+  .ni:hover { background:#eceef1; }
+  .ni.on { background:var(--blue-soft); }
+  .ni.on b { color:var(--blue); font-weight:600; }
+  .ni .hit { margin-top:2px; color:var(--sub); }
+  #main { flex:1; min-width:0; min-height:0; overflow:auto; padding-bottom:32px; }
+  .doc { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:18px 24px 24px; font-size:14px; line-height:1.75; max-width:920px; }
+  .doc header { border-bottom:1px solid var(--line); padding-bottom:10px; margin-bottom:14px; }
+  .dh { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+  .dh h1 { margin:0; font-size:20px; line-height:1.4; }
+  a { color:var(--blue); text-decoration:none; }
+  a:hover { text-decoration:underline; }
+  .kb { margin-left:auto; font-size:12px; }
+  .toc { display:flex; flex-wrap:wrap; gap:4px 14px; margin-top:6px; font-size:12px; }
+  .doc h2 { font-size:16px; margin:22px 0 8px; line-height:1.5; scroll-margin-top:8px; }
+  .doc h3 { font-size:14px; margin:14px 0 4px; }
+  .doc p { margin:6px 0; }
+  .doc ul,.doc ol { margin:6px 0; padding-left:22px; }
+  .doc li { margin:3px 0; }
+  .note { background:var(--yellow-soft); border-radius:6px; padding:8px 12px; margin:10px 0; }
+  .tblbox { overflow-x:auto; margin:10px 0; }
+  .doc table { border-collapse:collapse; width:100%; font-size:13px; line-height:1.6; }
+  .doc th,.doc td { border:1px solid var(--line); padding:6px 10px; text-align:left; vertical-align:top; }
+  .doc th { background:var(--bg); color:var(--sub); font-weight:500; white-space:nowrap; }
+  .doc td.nw { white-space:nowrap; }
+  .flowbox { overflow-x:auto; margin:10px 0; }
+  .flow { display:block; max-width:none; }
+  .flow text { font-family:inherit; }
+  mark { background:#ffe58f; color:inherit; border-radius:2px; }
+  .empty { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:40px; text-align:center; color:var(--sub); max-width:920px; }
+  @media (max-width:720px) {
+    #nav { display:none; }
+    #narrowPick { display:block; }
+    .doc { padding:14px; }
+    .search-on #nav { display:block; width:100%; }
+    .search-on #main { display:none; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap" id="wrap">
+  <div class="tip" id="tallTip" style="display:none">插件框比屏幕还高，往下滑时顶部搜索栏会被滚走。请在应用编辑模式里把这个插件组件的高度拖到一屏以内。</div>
+  <div class="savebar" id="savebar">
+    <span>这是插件的配置预览。确认没问题后点右边按钮，插件才会保存到应用页面上。</span>
+    <button id="saveBtn">保存到页面</button>
+    <span class="meta" id="saveMsg"></span>
+  </div>
+  <div class="sticky">
+    <div class="title">使用说明</div>
+    <select id="narrowPick" aria-label="选择页面"><optgroup label="采购与发货"><option value="caigou">采购申请</option><option value="beihuo">四季品备货计划</option><option value="fahuo">发货指令</option><option value="logistics">在途货件状态查询</option><option value="export">出口单证信息</option></optgroup><optgroup label="季节品"><option value="track">季节品每日追踪</option><option value="review">季节品复盘</option><option value="clearance">季节品清仓决策</option></optgroup><optgroup label="四季品与经营"><option value="target">目标总览</option><option value="sijipin">四季品经营</option><option value="xunpan">每日询盘</option></optgroup><optgroup label="产品与工具"><option value="master">产品主表</option><option value="profit">配送&amp;定价利润测算</option><option value="todo">任务待办</option></optgroup></select>
+    <input type="search" id="q" placeholder="搜全部说明，如 驳回、保存报错" aria-label="搜索说明">
+    <span class="meta" id="qMeta"></span>
+  </div>
+  <div class="body">
+    <nav id="nav">
+<div class="ng" data-group="0">采购与发货</div>
+<button class="ni" data-doc="caigou"><b>采购申请</b><span>发起、审批与进度</span></button>
+<button class="ni" data-doc="beihuo"><b>四季品备货计划</b><span>排发货与补货</span></button>
+<button class="ni" data-doc="fahuo"><b>发货指令</b><span>下单、审核与货件号</span></button>
+<button class="ni" data-doc="logistics"><b>在途货件状态查询</b><span>货件物流跟踪</span></button>
+<button class="ni" data-doc="export"><b>出口单证信息</b><span>合同货件报关追踪</span></button>
+<div class="ng" data-group="1">季节品</div>
+<button class="ni" data-doc="track"><b>季节品每日追踪</b><span>看灯与今日分析</span></button>
+<button class="ni" data-doc="review"><b>季节品复盘</b><span>复盘与明年计划审批</span></button>
+<button class="ni" data-doc="clearance"><b>季节品清仓决策</b><span>怎么算、怎么填</span></button>
+<div class="ng" data-group="2">四季品与经营</div>
+<button class="ni" data-doc="target"><b>目标总览</b><span>目标填写</span></button>
+<button class="ni" data-doc="sijipin"><b>四季品经营</b><span>每周复盘</span></button>
+<button class="ni" data-doc="xunpan"><b>每日询盘</b><span>看数与预警</span></button>
+<div class="ng" data-group="3">产品与工具</div>
+<button class="ni" data-doc="master"><b>产品主表</b><span>维护产品与下游开关</span></button>
+<button class="ni" data-doc="profit"><b>配送&amp;定价利润测算</b><span>配送费、利润与定价</span></button>
+<button class="ni" data-doc="todo"><b>任务待办</b><span>派任务与循环任务</span></button>
+    </nav>
+    <main id="main">
+<article class="doc" id="doc-caigou" hidden><header><div class="dh"><h1>采购申请</h1><a class="kb" href="https://zcnt6ibhe9z3.feishu.cn/wiki/Uw5bwHeaaikOMtkqEADc8ZLJnwd" target="_blank" rel="noopener">在知识库打开</a></div><div class="toc"><a href="#caigou-s0" data-jump="caigou-s0">整体流程</a><a href="#caigou-s1" data-jump="caigou-s1">运营：① 发起申请</a><a href="#caigou-s2" data-jump="caigou-s2">主管：② 审批</a><a href="#caigou-s3" data-jump="caigou-s3">所有人：③ 采购进度</a><a href="#caigou-s4" data-jump="caigou-s4">常见问题</a></div></header>
+<p>这篇讲运营怎么发起采购申请、主管怎么审批、怎么看采购进度。页面在应用的「采购申请」，上面有三个页签。</p>
+<h2 id="caigou-s0">整体流程</h2>
+<div class="flowbox"><svg class="flow" viewBox="0 0 552 430" width="552" height="430" role="img" aria-label="流程图：运营填数量并提交申请 → 运营主管审批 → 通过 交采购主管 → 驳回 申请人修改后重新提交 → 采购主管选采购员并审批 → 通过 系统在领星生成采购计划 → 在采购进度页跟踪到货"><defs><marker id="ah" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L8 4L0 8z" fill="#86909c"/></marker><marker id="ar" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L8 4L0 8z" fill="#f54a45"/></marker></defs><path d="M126.0 52V82" fill="none" stroke="#86909c" stroke-width="1.5" marker-end="url(#ah)"/><path d="M126.0 126V156" fill="none" stroke="#86909c" stroke-width="1.5" marker-end="url(#ah)"/><path d="M244 104.0H386.0V156" fill="none" stroke="#86909c" stroke-width="1.5" marker-end="url(#ah)"/><path d="M126.0 200V230" fill="none" stroke="#86909c" stroke-width="1.5" marker-end="url(#ah)"/><path d="M126.0 274V304" fill="none" stroke="#86909c" stroke-width="1.5" marker-end="url(#ah)"/><path d="M126.0 348V378" fill="none" stroke="#86909c" stroke-width="1.5" marker-end="url(#ah)"/><path d="M466.0 156V30.0H244" fill="none" stroke="#f54a45" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#ar)"/><path d="M244 252.0H426.0V200" fill="none" stroke="#f54a45" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#ar)"/><rect x="8" y="8" width="236" height="44" rx="6" fill="#ffffff" stroke="#c9cdd4"/><text x="126.0" y="34.5" text-anchor="middle" font-size="13" fill="#1f2329">运营填数量并提交申请</text><rect x="8" y="82" width="236" height="44" rx="6" fill="#ffffff" stroke="#c9cdd4"/><text x="126.0" y="108.5" text-anchor="middle" font-size="13" fill="#1f2329">运营主管审批</text><rect x="8" y="156" width="236" height="44" rx="6" fill="#d9f5d6" stroke="#2ea121"/><text x="126.0" y="182.5" text-anchor="middle" font-size="13" fill="#1f2329">通过 交采购主管</text><rect x="308" y="156" width="236" height="44" rx="6" fill="#fde2e2" stroke="#f54a45"/><text x="426.0" y="182.5" text-anchor="middle" font-size="13" fill="#1f2329">驳回 申请人修改后重新提交</text><rect x="8" y="230" width="236" height="44" rx="6" fill="#ffffff" stroke="#c9cdd4"/><text x="126.0" y="256.5" text-anchor="middle" font-size="13" fill="#1f2329">采购主管选采购员并审批</text><rect x="8" y="304" width="236" height="44" rx="6" fill="#d9f5d6" stroke="#2ea121"/><text x="126.0" y="330.5" text-anchor="middle" font-size="13" fill="#1f2329">通过 系统在领星生成采购计划</text><rect x="8" y="378" width="236" height="44" rx="6" fill="#ffffff" stroke="#c9cdd4"/><text x="126.0" y="404.5" text-anchor="middle" font-size="13" fill="#1f2329">在采购进度页跟踪到货</text></svg></div>
+<p>一次提交算一个批次。审批按批次走，同一批的 SKU 一起通过或驳回。</p>
+<h2 id="caigou-s1">运营：① 发起申请</h2>
+<ol><li>在左栏选分类和 SPU。分类包括灯具·四季品、灯具·季节品、其他（多为包材和配件）、鞋类。</li><li>在「本次采购量」里填数量，填了数量就算选中。数量旁边会显示「每箱 N · X 箱」，非整箱标黄，主表没登记单箱数量的不显示。</li><li>按需填店铺、仓库、收货地、是否开票、发票类型、有无运费和 SKU 备注。多行要填一样的值，可以用「填入已填数量的行」或「全部应用」。</li><li>点「核对并提交申请」，核对后填批次备注，例如「圣诞备货，11/10 前要到晋江」，再点「确认提交」。</li></ol>
+<p><b>批量导入：</b> 点「导入表格」，上传 .xlsx 或 .csv，表里有 SKU 列和数量列即可。老的 .xls 要先另存为 .xlsx。</p>
+<p><b>灰色行：</b> 表示这个 SKU 正在审批中，不能重复申请。</p>
+<p><b>收货地和是否开票可以不填，也能提交，</b> 但采购下单时会来问，建议先填好。</p>
+<h2 id="caigou-s2">主管：② 审批</h2>
+<p>页面分「待我审批」「全部审批中」「已驳回」「已生成（近 30 天）」。审批人由申请表里的运营主管和采购主管字段决定。</p>
+<ul><li><b>运营主管：</b> 核对后点「通过，交采购主管」或驳回。本次数量超过上次 2 倍的 SKU 会有提示。</li><li><b>采购主管：</b> 必须先选采购员，再点「通过，生成采购计划」。不选采购员，系统无法创建采购计划。</li><li><b>驳回：</b> 要写原因，原因会写进批次备注。驳回的行会解锁，申请人改完后回到「① 发起申请」重新提交。</li></ul>
+<p>通过后系统一般几分钟生成采购计划，状态变成「已生成采购计划」。长时间不动请找管理员。</p>
+<h2 id="caigou-s3">所有人：③ 采购进度</h2>
+<p>这里的数据来自采购计划管理表，领星建单后回流。</p>
+<ul><li>顶部卡片可以筛选未完成批次、有逾期的批次、待下单、部分到货和已全部到货。</li><li>预计到货日已过、还没全部到货的算逾期，标红。</li><li>可以按申请人筛选，也可以搜 SKU、品名、计划编号、采购单号和供应商。</li></ul>
+<h2 id="caigou-s4">常见问题</h2>
+<ul><li><b>看不到最新数据：</b> 点右上角「刷新数据」。顶部有黄条说明正在读最新数据，等它消失后再提交或审批。</li><li><b>提示写入失败、没有权限：</b> 应用数据权限要把采购计划申请表开成「可编辑」，找林键春处理。</li><li><b>页面认不出我：</b> 不影响看数据。提交一次后会自动识别。</li><li><b>供应商和价税合计看不到：</b> 这几项目前只对曾舒婷显示。</li></ul>
+</article>
+<article class="doc" id="doc-beihuo" hidden><header><div class="dh"><h1>四季品备货计划</h1><a class="kb" href="https://zcnt6ibhe9z3.feishu.cn/wiki/R7YEwJ6xxinXalkPFuTcgp0knWg" target="_blank" rel="noopener">在知识库打开</a></div><div class="toc"><a href="#beihuo-s0" data-jump="beihuo-s0">怎么用</a><a href="#beihuo-s1" data-jump="beihuo-s1">哪些改动别人能看到</a><a href="#beihuo-s2" data-jump="beihuo-s2">关键规则</a><a href="#beihuo-s3" data-jump="beihuo-s3">常见问题</a></div></header>
+<p>选一个四季品 ASIN×国家，看现在有多少货、未来要卖多少、什么时候断货、什么时候发多少。页面在应用的「四季品备货计划」。表的计算口径见 <a href="https://zcnt6ibhe9z3.feishu.cn/wiki/DXojwp5qqiyuj3kgBQZcPcCMnwf" target="_blank" rel="noopener">2.5</a>。</p>
+<h2 id="beihuo-s0">怎么用</h2>
+<ol><li>顶部搜 ASIN、品名或 SKU，也可以按负责人筛选。只列四季品。</li><li>看 ①～③ 现状：FBA 可售加预留是起点，在途货件按预计到仓日计入。黄色表示已过预计到仓日仍未收，按明天到计算。</li><li>改 ④ 未来 6 个月预估日均。默认值来自产品目标总表，也可以用「全部填 7 天日均」等按钮，或按时段自定义。</li><li>改 ⑤ 时效参数：生产、头程、安全、发货备货和采购备货天数。</li><li>在 ⑥ 排发货：勾选建议货件，或点「新增预发货」。勾选的货件会进入库存趋势和日历。</li><li>在 ⑦ 库存日历逐日看库存、到货和缺货。红色表示可售天数低于发货提前期加安全天数，现在发也接不上。</li><li>在 ⑧ 看同 SPU 其他 ASIN：按倍数折算预估，一起看断货和补货量。</li></ol>
+<h2 id="beihuo-s1">哪些改动别人能看到</h2>
+<div class="tblbox"><table><thead><tr><th>操作</th><th>影响范围</th></tr></thead><tbody><tr><td class="nw">在页面里改数字</td><td class="nw">默认只存在你的浏览器</td></tr><tr><td class="nw">点「保存到页面」</td><td>方案存进存档，全组共用</td></tr><tr><td>④ 点「同步到多维表」</td><td>写回产品目标总表，备货表建议量、月目标和周目标都会跟着变</td></tr><tr><td class="nw">⑤ 点写回多维表</td><td>这个 ASIN 的所有 SKU 行都写同一套参数</td></tr></tbody></table></div>
+<h2 id="beihuo-s2">关键规则</h2>
+<ul><li><b>节奏：</b> 周二下单、周四发货，建议货件每 2 周一批，按整箱取整。</li><li><b>美国分仓：</b> 勾选后每批按箱平均拆 5 份，分别按 30/30/35/45/50 天到仓。加急批不拆。</li><li><b>常规渠道来不及：</b> 页面会拆出加急批，只补断档部分。</li><li><b>预估为 0 的月份：</b> 多半是新品没有去年同月数据，建议采购量会偏少，请手填。</li></ul>
+<h2 id="beihuo-s3">常见问题</h2>
+<ul><li><b>同步时提示产品目标总表还没有预估行：</b> 系统每天自动补行，刚勾进备货表的产品第二天再同步。</li><li><b>搜不到某个 ASIN：</b> 页面只显示销售季分类是四季品、且在销量预估-备货表里的产品。</li><li><b>和备货表数字有小差异：</b> 备货表库存只算 FBA 可售、不含预留，在途用 FBA 口径。</li></ul>
+</article>
+<article class="doc" id="doc-fahuo" hidden><header><div class="dh"><h1>发货指令</h1><a class="kb" href="https://zcnt6ibhe9z3.feishu.cn/wiki/RNWzwp2qJiVne5knTfocNnhqnsb" target="_blank" rel="noopener">在知识库打开</a></div><div class="toc"><a href="#fahuo-s0" data-jump="fahuo-s0">整体流程</a><a href="#fahuo-s1" data-jump="fahuo-s1">运营：新建指令</a><a href="#fahuo-s2" data-jump="fahuo-s2">运营：指令列表</a><a href="#fahuo-s3" data-jump="fahuo-s3">审核人</a><a href="#fahuo-s4" data-jump="fahuo-s4">常见问题</a></div></header>
+<p>这篇讲运营怎么下发货指令、审核人怎么审、货件号怎么回填。页面在应用的「发货指令」，有新建指令、指令列表、待发货三个页签。审核人目前是曾舒婷和林键春。</p>
+<h2 id="fahuo-s0">整体流程</h2>
+<div class="flowbox"><svg class="flow" viewBox="0 0 552 356" width="552" height="356" role="img" aria-label="流程图：运营新建指令 保存到指令列表 → 核对后提交审核 → 审核人审核 → 驳回 提交人修改后再提交 → 通过 自动写入发货计划 → 待发货 审核人填货件号"><defs><marker id="ah" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L8 4L0 8z" fill="#86909c"/></marker><marker id="ar" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L8 4L0 8z" fill="#f54a45"/></marker></defs><path d="M126.0 52V82" fill="none" stroke="#86909c" stroke-width="1.5" marker-end="url(#ah)"/><path d="M126.0 126V156" fill="none" stroke="#86909c" stroke-width="1.5" marker-end="url(#ah)"/><path d="M244 178.0H386.0V230" fill="none" stroke="#86909c" stroke-width="1.5" marker-end="url(#ah)"/><path d="M126.0 200V230" fill="none" stroke="#86909c" stroke-width="1.5" marker-end="url(#ah)"/><path d="M126.0 274V304" fill="none" stroke="#86909c" stroke-width="1.5" marker-end="url(#ah)"/><path d="M466.0 230V104.0H244" fill="none" stroke="#f54a45" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#ar)"/><rect x="8" y="8" width="236" height="44" rx="6" fill="#ffffff" stroke="#c9cdd4"/><text x="126.0" y="34.5" text-anchor="middle" font-size="13" fill="#1f2329">运营新建指令 保存到指令列表</text><rect x="8" y="82" width="236" height="44" rx="6" fill="#ffffff" stroke="#c9cdd4"/><text x="126.0" y="108.5" text-anchor="middle" font-size="13" fill="#1f2329">核对后提交审核</text><rect x="8" y="156" width="236" height="44" rx="6" fill="#ffffff" stroke="#c9cdd4"/><text x="126.0" y="182.5" text-anchor="middle" font-size="13" fill="#1f2329">审核人审核</text><rect x="308" y="230" width="236" height="44" rx="6" fill="#fde2e2" stroke="#f54a45"/><text x="426.0" y="256.5" text-anchor="middle" font-size="13" fill="#1f2329">驳回 提交人修改后再提交</text><rect x="8" y="230" width="236" height="44" rx="6" fill="#d9f5d6" stroke="#2ea121"/><text x="126.0" y="256.5" text-anchor="middle" font-size="13" fill="#1f2329">通过 自动写入发货计划</text><rect x="8" y="304" width="236" height="44" rx="6" fill="#ffffff" stroke="#c9cdd4"/><text x="126.0" y="330.5" text-anchor="middle" font-size="13" fill="#1f2329">待发货 审核人填货件号</text></svg></div>
+<p>每张指令独立一行，多人同时操作互不影响。审核通过后内容自动写进「出口对账-发货计划」，不用再手抄。</p>
+<h2 id="fahuo-s1">运营：新建指令</h2>
+<h3>① 选产品</h3>
+<p>有两种方式：</p>
+<ul><li><b>搜索勾选：</b> 搜品名、ASIN、MSKU 或 SPU，勾好后点「完成」才会加入明细。</li><li><b>按采购单导入：</b> 点「按采购单导入」，选店铺，勾采购单。箱数按「剩余发货数 ÷ 每箱」自动算，零头另起尾箱行。</li></ul>
+<p>一张指令只能有一个店铺，不同店铺要分开建。美国和加拿大的产品不能混在一张单里。</p>
+<h3>② 发货明细</h3>
+<ul><li>有箱规的填箱数，总数自动算。不整箱时改每箱数量，或点「另起一行」填尾箱。</li><li>没有固定箱规的（如鞋子）每箱和箱数留空，直接填总数。</li><li>鞋类按款和颜色显示尺码表，每个尺码直接填件数。</li><li>一行要发多张采购单时，用「多张」勾选，系统会按采购单拆成几行，出口对账才算得清。</li></ul>
+<h3>③ 发货安排</h3>
+<div class="tblbox"><table><thead><tr><th>项目</th><th>美国</th><th>加拿大</th></tr></thead><tbody><tr><td class="nw">开船日期默认</td><td class="nw">下周三</td><td class="nw">下周五</td></tr><tr><td class="nw">是否分仓默认</td><td class="nw">分仓</td><td class="nw">不分仓</td></tr><tr><td class="nw">预计到达默认</td><td>分仓：开船后 30/30/35/45/55 天；不分仓：35 天</td><td class="nw">不分仓：40 天</td></tr></tbody></table></div>
+<p>以上默认值都可以改。美国分仓的 5 个货件依次是美西、美西、美中、美东、美东，用不到 5 个的多余货件留空。渠道可空，货件号留空。</p>
+<p>任一 SKU 不足 5 箱时不能分仓，要改成不分仓。</p>
+<p>点「保存到指令列表」后别人才看得到。保存前填的内容只存在本机浏览器。</p>
+<h2 id="fahuo-s2">运营：指令列表</h2>
+<ul><li><b>提交审核：</b> 弹窗里 FNSKU、SKU、数量、开船日和到达日标红，请逐项核对后再确认。</li><li><b>撤回：</b> 待审核的单可以撤回成草稿。</li><li><b>同批货分几次发：</b> 点「复制」，填复制几张、每张往后推几天。货件号会清空，复制出来的是草稿，可以逐张改。</li><li><b>批量：</b> 勾选多张可以一起提交或删除。</li></ul>
+<p>只有提交人能改自己的草稿和被驳回的单。</p>
+<h2 id="fahuo-s3">审核人</h2>
+<h3>审核</h3>
+<ul><li>在指令列表逐张或批量「审核通过」或「驳回」。驳回要写原因，提交人能看到。</li><li>通过后逐行写入发货计划。</li><li>驳回待发货的单时，没建货件的行从发货计划删除；已建货件的行保留并标「已驳回」。</li></ul>
+<h3>待发货</h3>
+<ul><li><b>填货件号：</b> 按货件格填。多张单共用货件时，勾选后点「合并填货件号」。只有同店铺、同国家、分仓方式相同的单能合并。</li><li><b>从领星匹配：</b> 按本批 MSKU 找开船前 3 周内新建、未被占用的货件，并按目的仓排到美西、美中、美东。货件表每天同步一次，刚建的货件第二天才有，匹配后请核对。</li><li><b>填采购单：</b> 可以补填或修改采购单号。单号和 SKU 要在采购合同表里对得上才会挂关联，对不上的写进备注。</li><li><b>拆分：</b> 按产品或数量拆成两张，发货计划的行跟着拆。已建货件的单不能拆。</li></ul>
+<h2 id="fahuo-s4">常见问题</h2>
+<ul><li><b>刚改的内容没显示：</b> 飞书同步有几秒延迟，稍后点「刷新数据」。</li><li><b>一直加载或提示读不到某张表：</b> 多半是应用数据权限没开这张表。把页面提示截图发给林键春。</li><li><b>明细标红「主表无此店产品」：</b> 新店铺在产品主表里没有这个 SKU，MSKU 和 FNSKU 沿用了原来的，请核对。</li></ul>
+</article>
+<article class="doc" id="doc-logistics" hidden><header><div class="dh"><h1>在途货件状态查询</h1><a class="kb" href="https://zcnt6ibhe9z3.feishu.cn/wiki/AZ2XwFMWgiE2aHk0dWPclZxWnMd" target="_blank" rel="noopener">在知识库打开</a></div><div class="toc"><a href="#logistics-s0" data-jump="logistics-s0">两个分页</a><a href="#logistics-s1" data-jump="logistics-s1">看哪个状态</a><a href="#logistics-s2" data-jump="logistics-s2">导入物流商表</a><a href="#logistics-s3" data-jump="logistics-s3">数据什么时候更新</a><a href="#logistics-s4" data-jump="logistics-s4">常见问题</a></div></header>
+<p>查每个 ASIN 的在途货件走到哪、有没有逾期。页面在应用的「在途货件状态查询」，页面标题是「货件物流跟踪」。</p>
+<h2 id="logistics-s0">两个分页</h2>
+<ul><li><b>ASIN×国家汇总：</b> 看发货量、在途和逾期，点一行展开各货件进度。</li><li><b>货件进度：</b> 一行一个货件，进度依次为建单、已发货、海运途中、到港·尾程、已签收、亚马逊接收。绿色已完成，蓝色进行中，红色逾期或延迟。带「预计」的日期还没发生。</li></ul>
+<p>可以按发货月份、运单状态、预计送达周、国家、店铺和信息来源筛选，也可以搜 ASIN、品名、SPU、MSKU 和货件号。</p>
+<h2 id="logistics-s1">看哪个状态</h2>
+<ul><li><b>有物流商信息时，以物流商为准。</b> 没有的话显示领星状态，这时在途分不出海运还是尾程，单列为「领星在途」。</li><li><b>逾期：</b> 预计送达已过仍未签收。预计送达优先取物流商给的日期区间末日，没有时取领星预计到仓日。</li><li><b>领星已完结的货件不显示。</b></li></ul>
+<h2 id="logistics-s2">导入物流商表</h2>
+<p>物流商发来新表时：</p>
+<ol><li>点「导入物流商表」，选物流商导出的「物流最新情况」xlsx，至少要有 FBA ID 和运单状态两列。</li><li>确认匹配结果：匹配到多少、哪些有变化、哪些不在表里。</li><li>确认写入。</li></ol>
+<p>不在表里的货件不会导入，通常是领星已完结，或不是灯具组店铺的货件。</p>
+<h2 id="logistics-s3">数据什么时候更新</h2>
+<p>领星货件每天同步一次，刚建的货件第二天才有。物流商信息只有导入时才更新。</p>
+<h2 id="logistics-s4">常见问题</h2>
+<ul><li><b>提示没找到 FBA ID 表头：</b> 文件不是物流商的「物流最新情况」导出格式。</li><li><b>导入报错：</b> 应用数据权限要把货件物流跟踪表开成可编辑，找林键春处理。</li></ul>
+</article>
+<article class="doc" id="doc-export" hidden><header><div class="dh"><h1>出口单证信息</h1><a class="kb" href="https://zcnt6ibhe9z3.feishu.cn/wiki/JGDQwZjOli1VQTkIw9KcMT32n71" target="_blank" rel="noopener">在知识库打开</a></div><div class="toc"><a href="#export-s0" data-jump="export-s0">三个页签</a><a href="#export-s1" data-jump="export-s1">几个口径</a><a href="#export-s2" data-jump="export-s2">数据什么时候更新</a><a href="#export-s3" data-jump="export-s3">常见问题</a></div></header>
+<p>把合同、采购单、货件和报关串起来查，主要给做出口对账的曾舒婷用。页面在应用的「出口单证信息」，页面标题是「出口单证追踪」，只能看，不能改。要改数据请到出口对账表。</p>
+<h2 id="export-s0">三个页签</h2>
+<div class="tblbox"><table><thead><tr><th>页签</th><th>从什么查起</th><th>能看到什么</th></tr></thead><tbody><tr><td class="nw">按合同协议号</td><td class="nw">报关合同</td><td>报关单、货件轨迹、采购单、财务信息</td></tr><tr><td class="nw">按合同单号</td><td class="nw">采购单</td><td>每个 SKU 的已发、未发和发票状态</td></tr><tr><td class="nw">按货件</td><td class="nw">FBA 货件</td><td>货件状态，以及数量对应哪份合同</td></tr></tbody></table></div>
+<p>可以用顶部搜货件号、合同号、采购单号和品名，也可以按出口月份和发票状态筛选。</p>
+<h2 id="export-s1">几个口径</h2>
+<ul><li><b>已发：</b> 按报关明细匹配到的数量算。没有报关数据的 SKU，已发和未发留空。</li><li><b>发票状态：</b> 报关明细有发票号码就算已开，分未开、部分开和已开齐。</li><li><b>货件号查不到：</b> 领星和货件明细里都没有这个货件号，多半是财务表录错了，请核对财务表。</li><li><b>逾期：</b> 预计到仓日已过且未收完。</li><li><b>货件轨迹：</b> 是领星状态时间线，不是货代的真实物流轨迹。已完结的货件只显示领星状态。</li></ul>
+<h2 id="export-s2">数据什么时候更新</h2>
+<p>系统每天美西时间 18:10 同步采购单、货件和报关匹配，并从财务「出口退税」表回填发票、退税和回款。页面看到的是最近一次同步的结果。</p>
+<h2 id="export-s3">常见问题</h2>
+<ul><li><b>页面打不开或读不到数据：</b> 应用数据权限要开放出口对账的相关表，把页面提示截图发给林键春。</li><li><b>合同显示无报关数据：</b> 报关明细里还没有匹配到这张单。</li></ul>
+</article>
+<article class="doc" id="doc-track" hidden><header><div class="dh"><h1>季节品每日追踪</h1><a class="kb" href="https://zcnt6ibhe9z3.feishu.cn/wiki/Vi37wqAlRiGd6jkncfIcNhlinag" target="_blank" rel="noopener">在知识库打开</a></div><div class="toc"><a href="#track-s0" data-jump="track-s0">每天怎么做</a><a href="#track-s1" data-jump="track-s1">看懂卡片</a><a href="#track-s2" data-jump="track-s2">其他操作</a><a href="#track-s3" data-jump="track-s3">数据什么时候更新</a><a href="#track-s4" data-jump="track-s4">常见问题</a></div></header>
+<p>运营每天在这里看季节品的红绿灯，并写下今日分析。页面在应用的「季节品每日追踪」。表的口径见 <a href="https://zcnt6ibhe9z3.feishu.cn/wiki/Nfouw4wZ5iX2Lwk4GxKcDxvMnzc" target="_blank" rel="noopener">2.6</a> 季节品阶段跟踪。</p>
+<h2 id="track-s0">每天怎么做</h2>
+<div class="flowbox"><svg class="flow" viewBox="0 0 252 356" width="252" height="356" role="img" aria-label="流程图：选负责人 看红黄灯产品 → 看当日数据和近 7 天 → 写问题和归因 → 写计划操作 预期效果 复盘时间 → 到复盘时间 在 7 日计划填实际效果和判断"><defs><marker id="ah" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L8 4L0 8z" fill="#86909c"/></marker><marker id="ar" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L8 4L0 8z" fill="#f54a45"/></marker></defs><path d="M126.0 52V82" fill="none" stroke="#86909c" stroke-width="1.5" marker-end="url(#ah)"/><path d="M126.0 126V156" fill="none" stroke="#86909c" stroke-width="1.5" marker-end="url(#ah)"/><path d="M126.0 200V230" fill="none" stroke="#86909c" stroke-width="1.5" marker-end="url(#ah)"/><path d="M126.0 274V304" fill="none" stroke="#86909c" stroke-width="1.5" marker-end="url(#ah)"/><rect x="8" y="8" width="236" height="44" rx="6" fill="#ffffff" stroke="#c9cdd4"/><text x="126.0" y="34.5" text-anchor="middle" font-size="13" fill="#1f2329">选负责人 看红黄灯产品</text><rect x="8" y="82" width="236" height="44" rx="6" fill="#ffffff" stroke="#c9cdd4"/><text x="126.0" y="108.5" text-anchor="middle" font-size="13" fill="#1f2329">看当日数据和近 7 天</text><rect x="8" y="156" width="236" height="44" rx="6" fill="#ffffff" stroke="#c9cdd4"/><text x="126.0" y="182.5" text-anchor="middle" font-size="13" fill="#1f2329">写问题和归因</text><rect x="8" y="230" width="236" height="44" rx="6" fill="#ffffff" stroke="#c9cdd4"/><text x="126.0" y="256.5" text-anchor="middle" font-size="13" fill="#1f2329">写计划操作 预期效果 复盘时间</text><rect x="8" y="304" width="236" height="44" rx="6" fill="#ffffff" stroke="#c9cdd4"/><text x="126.0" y="322.0" text-anchor="middle" font-size="13" fill="#1f2329">到复盘时间 在 7</text><text x="126.0" y="339.0" text-anchor="middle" font-size="13" fill="#1f2329">日计划填实际效果和判断</text></svg></div>
+<ol><li>进页面先选负责人。左侧按销售季和 SPU 分组。</li><li>优先处理亮红灯和黄灯的产品，以及「待复盘」的操作。</li><li>在今日分析里写<b>问题、归因、计划操作、预期效果、复盘时间</b>。问题和归因有下拉选项，每框最多勾 2 项，也可以手写。</li><li>到复盘时间后，在 7 日计划里填<b>实际效果和效果判断</b>。填写今日分析时不用判断。</li></ol>
+<h2 id="track-s1">看懂卡片</h2>
+<ul><li><b>阶段预估：</b> 五个阶段的销量和日均。已结束的阶段显示实际销量，绿底标「实际」，原预估放在鼠标悬停里。</li><li><b>当日数据：</b> 销量对目标、广告花费、TACoS、应达和累计销量。</li><li><b>7 日计划：</b> 过去 7 天的计划记录，连续相同的计划合并成一条。</li><li><b>未分析：</b> 当天亮红灯或黄灯，但问题、归因、计划操作、建议操作都没填，或内容和上一日一字不差。系统会沿用前一天的内容，所以照抄不算分析。</li></ul>
+<h2 id="track-s2">其他操作</h2>
+<ul><li><b>改阶段日均或时段：</b> 双击阶段日期改本品时段，相邻阶段跟着动。改动写进产品目标总表，追踪表当晚同步。</li><li><b>归档不关注：</b> 不想再跟的产品点「归档不关注」，第二天起不再显示，并入售罄。勾选「显示售罄/归档」可以找回并取消归档。</li><li><b>看历史：</b> 可以切换日期，默认只读近 7 天。</li></ul>
+<h2 id="track-s3">数据什么时候更新</h2>
+<p>追踪表每天夜里更新，美西时间 22:30 灌数据，23:25 判红绿灯。页面显示的是最新数据日，不是实时。</p>
+<h2 id="track-s4">常见问题</h2>
+<ul><li><b>保存报错：</b> 应用数据权限要把季节品追踪表开成可编辑，改日均还要开产品目标总表，找林键春处理。</li><li><b>日均不能改：</b> 这个阶段已经结束，显示的是实际数。</li><li><b>提示目标总表没有这个产品的行：</b> 系统每天自动补行，第二天再试。</li></ul>
+</article>
+<article class="doc" id="doc-review" hidden><header><div class="dh"><h1>季节品复盘</h1><a class="kb" href="https://zcnt6ibhe9z3.feishu.cn/wiki/J4jhwErPLiUfktkScHfcLPCcnyc" target="_blank" rel="noopener">在知识库打开</a></div><div class="toc"><a href="#review-s0" data-jump="review-s0">整体流程</a><a href="#review-s1" data-jump="review-s1">运营怎么填</a><a href="#review-s2" data-jump="review-s2">提交条件</a><a href="#review-s3" data-jump="review-s3">审批怎么做</a><a href="#review-s4" data-jump="review-s4">常见问题</a></div></header>
+<p>一个季节结束后，运营在这里复盘整季，并定明年的备货和策略，审批通过后自动进入下一赛季。页面在应用的「季节品复盘」。</p>
+<h2 id="review-s0">整体流程</h2>
+<div class="flowbox"><svg class="flow" viewBox="0 0 552 282" width="552" height="282" role="img" aria-label="流程图：运营按阶段填复盘 → 信息完整后提交审批 → 林键春在明年行动清单审批 → 驳回 运营修改后再提交 → 通过 当晚建下一赛季的行"><defs><marker id="ah" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L8 4L0 8z" fill="#86909c"/></marker><marker id="ar" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L8 4L0 8z" fill="#f54a45"/></marker></defs><path d="M126.0 52V82" fill="none" stroke="#86909c" stroke-width="1.5" marker-end="url(#ah)"/><path d="M126.0 126V156" fill="none" stroke="#86909c" stroke-width="1.5" marker-end="url(#ah)"/><path d="M244 178.0H386.0V230" fill="none" stroke="#86909c" stroke-width="1.5" marker-end="url(#ah)"/><path d="M126.0 200V230" fill="none" stroke="#86909c" stroke-width="1.5" marker-end="url(#ah)"/><path d="M466.0 230V104.0H244" fill="none" stroke="#f54a45" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#ar)"/><rect x="8" y="8" width="236" height="44" rx="6" fill="#ffffff" stroke="#c9cdd4"/><text x="126.0" y="34.5" text-anchor="middle" font-size="13" fill="#1f2329">运营按阶段填复盘</text><rect x="8" y="82" width="236" height="44" rx="6" fill="#ffffff" stroke="#c9cdd4"/><text x="126.0" y="108.5" text-anchor="middle" font-size="13" fill="#1f2329">信息完整后提交审批</text><rect x="8" y="156" width="236" height="44" rx="6" fill="#ffffff" stroke="#c9cdd4"/><text x="126.0" y="182.5" text-anchor="middle" font-size="13" fill="#1f2329">林键春在明年行动清单审批</text><rect x="308" y="230" width="236" height="44" rx="6" fill="#fde2e2" stroke="#f54a45"/><text x="426.0" y="256.5" text-anchor="middle" font-size="13" fill="#1f2329">驳回 运营修改后再提交</text><rect x="8" y="230" width="236" height="44" rx="6" fill="#d9f5d6" stroke="#2ea121"/><text x="126.0" y="256.5" text-anchor="middle" font-size="13" fill="#1f2329">通过 当晚建下一赛季的行</text></svg></div>
+<h2 id="review-s1">运营怎么填</h2>
+<p>每个 ASIN×国家一张卡，顶部筛选季节。销量和各项比率已自动带入，只需要填文字和计划：</p>
+<ul><li><b>各阶段：</b> 阶段情况总结（发生了什么、为什么、学到什么），明年备货量。</li><li><b>整体：</b> 竞品状况、明年策略、优化建议。</li><li><b>时间线：</b> 明年起售日期、生产时间、首批海运时间。系统会倒推发货日和采购日。</li></ul>
+<p>操作效果会从每日追踪带入，只读，11-04 起才有记录。</p>
+<h2 id="review-s2">提交条件</h2>
+<p>信息不完整时不能提交。主要要求：</p>
+<ul><li>有销量的阶段都写了总结。</li><li>五个阶段都填了明年备货量，不备货就填 0。</li><li>竞品状况等卡片提示的缺项都补上。</li></ul>
+<p>卡片会显示还差什么。待审批、已通过时运营不能编辑。</p>
+<h2 id="review-s3">审批怎么做</h2>
+<p>审批人只有林键春，在「明年行动清单」页签的审批列操作。清单按 SPU 分组，组内按采购日从早到晚排。</p>
+<ul><li><b>修正数量：</b> 留空就用运营填的合计；填了以修正数量为准，五期日均按比例缩放。</li><li><b>通过：</b> 当晚自动建好下一赛季的目标行、追踪行和复盘行，已有的不动。</li><li><b>退回修改：</b> 驳回必须写审批意见。已建好的明年目标行不会自动删，要到目标总览页修改。</li></ul>
+<h2 id="review-s4">常见问题</h2>
+<ul><li><b>销量或比率不对：</b> 这些是只读数据，不能在页面改，请告诉林键春。</li><li><b>看不到审批按钮：</b> 只有审批人能看到。</li><li><b>保存报错：</b> 应用数据权限要把复盘表开成可编辑，找林键春处理。</li></ul>
+</article>
+<article class="doc" id="doc-clearance" hidden><header><div class="dh"><h1>季节品清仓决策</h1><a class="kb" href="https://zcnt6ibhe9z3.feishu.cn/wiki/LRjPwOEQsip4l6kAmyCcsGk2nlh" target="_blank" rel="noopener">在知识库打开</a></div><div class="toc"><a href="#clearance-s0" data-jump="clearance-s0">怎么比较</a><a href="#clearance-s1" data-jump="clearance-s1">操作步骤</a><a href="#clearance-s2" data-jump="clearance-s2">保存规则</a><a href="#clearance-s3" data-jump="clearance-s3">没算进去的</a><a href="#clearance-s4" data-jump="clearance-s4">常见问题</a></div></header>
+<p>季节品卖不完时，这个页面帮你算两件事：本季要推到什么程度，剩下的货是弃置还是留到明年。页面在应用的「季节品清仓决策」。</p>
+<div class="note">页面结果只是测算参考，最终决定由运营和主管定。页面已上线，保存功能还在实测，遇到报错把提示截图发给林键春。</div>
+<h2 id="clearance-s0">怎么比较</h2>
+<ul><li><b>货本已经花掉了，不影响方案排名。</b> 比较看的是从今天起还能收回或还要付出多少现金，页面同时显示含货本的盈亏。</li><li><b>本季三档：</b> 保本档按保本价卖；轻推低于保本价并加广告；重推大幅低于保本价并加重广告。</li><li><b>剩余库存两种处理：</b> A 季末全部弃置；B 按未来 12 个月销量预估留货，预估卖不掉的今年弃置，先弃库龄最老的。</li><li><b>不算移除到海外仓明年再发。</b> 这条路通常更亏，页面不比较。</li></ul>
+<div class="flowbox"><svg class="flow" viewBox="0 0 552 356" width="552" height="356" role="img" aria-label="流程图：选 SKU 确认库存和本季结束日 → 调整本季三档 → 填未来 12 个月销量预估 → 看方案对比和建议 → A 季末全部弃置 → B 按预估留货 其余弃置"><defs><marker id="ah" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L8 4L0 8z" fill="#86909c"/></marker><marker id="ar" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L8 4L0 8z" fill="#f54a45"/></marker></defs><path d="M126.0 52V82" fill="none" stroke="#86909c" stroke-width="1.5" marker-end="url(#ah)"/><path d="M126.0 126V156" fill="none" stroke="#86909c" stroke-width="1.5" marker-end="url(#ah)"/><path d="M126.0 200V230" fill="none" stroke="#86909c" stroke-width="1.5" marker-end="url(#ah)"/><path d="M126.0 274V304" fill="none" stroke="#86909c" stroke-width="1.5" marker-end="url(#ah)"/><path d="M244 252.0H386.0V304" fill="none" stroke="#86909c" stroke-width="1.5" marker-end="url(#ah)"/><rect x="8" y="8" width="236" height="44" rx="6" fill="#ffffff" stroke="#c9cdd4"/><text x="126.0" y="34.5" text-anchor="middle" font-size="13" fill="#1f2329">选 SKU 确认库存和本季结束日</text><rect x="8" y="82" width="236" height="44" rx="6" fill="#ffffff" stroke="#c9cdd4"/><text x="126.0" y="108.5" text-anchor="middle" font-size="13" fill="#1f2329">调整本季三档</text><rect x="8" y="156" width="236" height="44" rx="6" fill="#ffffff" stroke="#c9cdd4"/><text x="126.0" y="182.5" text-anchor="middle" font-size="13" fill="#1f2329">填未来 12 个月销量预估</text><rect x="8" y="230" width="236" height="44" rx="6" fill="#ffffff" stroke="#c9cdd4"/><text x="126.0" y="256.5" text-anchor="middle" font-size="13" fill="#1f2329">看方案对比和建议</text><rect x="8" y="304" width="236" height="44" rx="6" fill="#ffffff" stroke="#c9cdd4"/><text x="126.0" y="330.5" text-anchor="middle" font-size="13" fill="#1f2329">A 季末全部弃置</text><rect x="308" y="304" width="236" height="44" rx="6" fill="#ffffff" stroke="#c9cdd4"/><text x="426.0" y="330.5" text-anchor="middle" font-size="13" fill="#1f2329">B 按预估留货 其余弃置</text></svg></div>
+<h2 id="clearance-s1">操作步骤</h2>
+<h3>1. 选 SKU</h3>
+<p>顶部选美国或加拿大，再搜 SKU、ASIN、品名、SPU 或店铺。同国家多个店铺的货分开算。不选 SKU 时可以手动测算。</p>
+<h3>2. 核对 ① 产品与库存</h3>
+<p>售价、成本和尺寸从主表带入，可以改。需要重点核对两项：</p>
+<ul><li><b>本季结束日：</b> 默认取目标总表里还没结束的清仓期结束日，可改。</li><li><b>库龄批次：</b> 件数来自 ASIN 库存概况，库龄来自领星 FBA 库存明细，已按比例拆好，卖出时先扣最老的批次。没有库龄数据的按 30 天估算，请改成实际情况。</li></ul>
+<h3>3. 调整 ② 本季三档</h3>
+<p>每档的售价、日销和 TACOS 都能改。日销默认近 7 天日均，<b>降价后能卖多少要按自己的判断改。</b> 页面会显示各档卖出多少、季末剩多少和本季现金。</p>
+<h3>4. 填 ③ 销量预估</h3>
+<p>填本季结束后 12 个月每月的销量，不卖的月份留空，每月销量平摊到天。留货量取「季末剩余」和「预估合计」中较小的，其余今年弃置。</p>
+<h3>5. 看 ④ 方案对比</h3>
+<ul><li>表格对比三档分别配 A、B 两种处理的现金和含货本结果，并给出建议。</li><li>「硬推值不值」看多卖的每件换来的现金，是否高于这件货留到季末的处理价值。</li><li>逐月持有成本图显示留货的仓储费和超龄附加费总额，注意看 271 天和 366 天的超龄跳档。</li></ul>
+<h2 id="clearance-s2">保存规则</h2>
+<p>填了就自动保存，全组共用，换 SKU 或刷新都能还原。页面不提供删除。库龄批次和三档没动过就不存，会继续跟最新库存；改过之后可以点「改用最新库存」或「恢复自动」回到默认。</p>
+<h2 id="clearance-s3">没算进去的</h2>
+<p>退货、仓储利用率附加费和资金成本都没有计入。费率是 2026 年的，页面 ⑤ 费率表可以核对。</p>
+<h2 id="clearance-s4">常见问题</h2>
+<ul><li><b>提示保存失败：</b> 应用数据权限要把「清仓决策-预估存档」开成可编辑，找林键春处理。</li><li><b>提示「ASIN 库存概况里没有这一行」或 0 件：</b> 请手填库龄批次。</li><li><b>对比表没有 B 方案：</b> 还没填 12 个月销量预估。</li></ul>
+</article>
+<article class="doc" id="doc-target" hidden><header><div class="dh"><h1>目标总览</h1><a class="kb" href="https://zcnt6ibhe9z3.feishu.cn/wiki/PWD2wwM9Yiy92dk60qjc8k9dnkb" target="_blank" rel="noopener">在知识库打开</a></div><div class="toc"><a href="#target-s0" data-jump="target-s0">四季品</a><a href="#target-s1" data-jump="target-s1">季节品</a><a href="#target-s2" data-jump="target-s2">怎么保存</a><a href="#target-s3" data-jump="target-s3">怎么看有没有填完</a><a href="#target-s4" data-jump="target-s4">常见问题</a></div></header>
+<p>运营在这里把四季品和季节品的目标填全。页面在应用的「目标总览」，页面标题是「目标填写」，分四季品和季节品两个分页。这里是目标的唯一入口，其他页面都读这里的数。</p>
+<h2 id="target-s0">四季品</h2>
+<p>左侧选 SPU，右侧每个国家一块，分三层：</p>
+<ol><li><b>年度目标：</b> 产品目标、经营策略、关键指标，一般不改。</li><li><b>月度：</b> 每月的经营策略和关键指标。月销量目标由下面的 ASIN 预估自动相加，不用填。</li><li><b>ASIN 预估日均：</b> 本月起 6 个月，必填，没量也填 0。点「向右补空格」可以把左边填过的值复制到右边。</li></ol>
+<p>改日均后，月目标、备货表和周目标都会跟着变。</p>
+<h2 id="target-s1">季节品</h2>
+<p>左侧按季节和 SPU 展开，每个 ASIN×国家一张卡：</p>
+<ul><li><b>五个阶段：</b> 起量、爆发、高峰、消退、清仓，分别填日均和阶段目标。天数为 0 的阶段不用填。</li><li><b>本品时段：</b> 双击阶段日期可以改成本品自己的起止日期，相邻阶段跟着动。点「恢复日历」回到季节节奏日历的日期。</li><li><b>只读项：</b> 总库存按发货量自动算，计划备货量来自复盘审批。</li></ul>
+<p>页面会显示整季预估销量和库存差额，正数是多备，负数是不够。</p>
+<h2 id="target-s2">怎么保存</h2>
+<ul><li>改动先存为草稿，换 SPU、切分页、刷新都不会丢，但只在你的浏览器里。</li><li><b>要点顶部黄条的保存，才写进多维表。</b></li></ul>
+<h2 id="target-s3">怎么看有没有填完</h2>
+<p>各层都不能漏。必填格空着时显示红虚线，缺行也算没完成。左侧绿点表示填完，橙点表示填了一部分，灰点表示没填。</p>
+<h2 id="target-s4">常见问题</h2>
+<ul><li><b>提示还没有年度行、月度行或预估行：</b> 系统每天自动补行，第二天再看。</li><li><b>月销量目标是 0：</b> 这个 SPU×国家下没有 ASIN 预估行，或预估都没填。</li><li><b>提示节奏日历里没有这个分类：</b> 双击任一阶段日期设置本品时段，否则五段都要填。</li><li><b>保存报错：</b> 应用数据权限要把产品目标总表开成可编辑。改动还在草稿里，不会丢，找林键春处理。</li></ul>
+</article>
+<article class="doc" id="doc-sijipin" hidden><header><div class="dh"><h1>四季品经营</h1><a class="kb" href="https://zcnt6ibhe9z3.feishu.cn/wiki/UrfGwA1ZIi1aFdkZWBIcRz8bnWe" target="_blank" rel="noopener">在知识库打开</a></div><div class="toc"><a href="#sijipin-s0" data-jump="sijipin-s0">每周怎么做</a><a href="#sijipin-s1" data-jump="sijipin-s1">红绿灯怎么判</a><a href="#sijipin-s2" data-jump="sijipin-s2">目标从哪来</a><a href="#sijipin-s3" data-jump="sijipin-s3">还能看什么</a><a href="#sijipin-s4" data-jump="sijipin-s4">常见问题</a></div></header>
+<p>每周复盘四季品：看这周表现怎么样、哪里不对、下周做什么。页面在应用的「四季品经营」，按 SPU×国家一张卡。</p>
+<h2 id="sijipin-s0">每周怎么做</h2>
+<ol><li>顶部选周和负责人，默认看上一完整周。一周按周日到周六算，用美国日期。</li><li>先看卡片的红绿灯和数据变化，再点「看趋势」或 ASIN 名称看明细。</li><li>填<b>本周复盘的三项：竞品动态、问题和归因、计划操作。</b> 三项都填才算复盘完成，「填写进度」里能看到全组情况。</li><li>需要时填周层的产品目标、经营策略和关键指标。主管在「建议操作」写意见。</li></ol>
+<p>每周新行会沿用上周的目标、策略和指标，有变化再改。</p>
+<h2 id="sijipin-s1">红绿灯怎么判</h2>
+<p>本周未结束或样本太少（销量或点击过低）时不判灯。三项里最差的一项决定整张卡的颜色。</p>
+<div class="tblbox"><table><thead><tr><th>指标</th><th>绿</th><th>黄</th><th>红</th></tr></thead><tbody><tr><td class="nw">周目标达成</td><td class="nw">≥100%</td><td class="nw">≥80%</td><td class="nw">其余</td></tr><tr><td class="nw">没有周目标时比上周</td><td class="nw">≥-10%</td><td class="nw">≥-30%</td><td class="nw">其余</td></tr><tr><td class="nw">TACOS</td><td class="nw">≤15%</td><td class="nw">≤20%</td><td class="nw">其余</td></tr><tr><td>CVR 比前 4 周平均</td><td class="nw">≥-10%</td><td class="nw">≥-25%</td><td class="nw">其余</td></tr></tbody></table></div>
+<h2 id="sijipin-s2">目标从哪来</h2>
+<div class="tblbox"><table><thead><tr><th>层级</th><th>来源</th><th>能否在本页改</th></tr></thead><tbody><tr><td class="nw">年度和月度目标</td><td class="nw">产品目标总表</td><td class="nw">只读，到目标总览页改</td></tr><tr><td class="nw">周目标销量</td><td class="nw">月目标按天拆到这一周</td><td>不能手改，要改 ASIN 预估日均</td></tr><tr><td class="nw">周层目标、策略、指标</td><td class="nw">本页</td><td class="nw">可改</td></tr></tbody></table></div>
+<h2 id="sijipin-s3">还能看什么</h2>
+<ul><li><b>月销量条：</b> 前 6 个月实际、本月实时、后 5 个月预估。只算这张四季品卡的 ASIN。</li><li><b>产品表现：</b> 销量、毛利、转化率、广告等趋势，点指标卡切换曲线，最多同时选 3 个。</li><li><b>库存趋势：</b> 未来 120 天预计库存和断货日，口径与四季品备货计划一致。</li></ul>
+<h2 id="sijipin-s4">常见问题</h2>
+<ul><li><b>显示缺成本：</b> 产品主表缺采购成本、头程、FBA 配送费、佣金或汇率，去产品主表补。</li><li><b>没有月目标：</b> 目标总表里各 ASIN 预估日均都空，此时按环比判灯。</li><li><b>保存报错：</b> 应用数据权限要把四季品经营表开成可编辑，找林键春处理。</li></ul>
+</article>
+<article class="doc" id="doc-xunpan" hidden><header><div class="dh"><h1>每日询盘</h1><a class="kb" href="https://zcnt6ibhe9z3.feishu.cn/wiki/MC3KwHlzBik43rkgpWycLK9jnmg" target="_blank" rel="noopener">在知识库打开</a></div><div class="toc"><a href="#xunpan-s0" data-jump="xunpan-s0">怎么用</a><a href="#xunpan-s1" data-jump="xunpan-s1">预警规则</a><a href="#xunpan-s2" data-jump="xunpan-s2">目标从哪来</a><a href="#xunpan-s3" data-jump="xunpan-s3">数据什么时候更新</a><a href="#xunpan-s4" data-jump="xunpan-s4">常见问题</a></div></header>
+<p>每天看一遍自己的链接今天卖得怎么样、有没有异常。页面在应用的「每日询盘」，只能看，不能改。</p>
+<h2 id="xunpan-s0">怎么用</h2>
+<ol><li>选负责人，页面按子 ASIN×国家显示全部在售链接。</li><li>先看预警，分 P0 紧急、P1 重要、P2 关注，顶部可以按级别筛选。没有问题时显示「今日无预警」。</li><li>看今日和昨日全天、近 7 天日均和销量趋势，并和目标日均对比。</li><li>可以切换 SPU 汇总和 ASIN 明细。明细按今日销量排序，断货和售罄的排在最后。</li></ol>
+<h2 id="xunpan-s1">预警规则</h2>
+<div class="tblbox"><table><thead><tr><th>级别</th><th>预警</th><th>触发条件</th></tr></thead><tbody><tr><td class="nw">P0</td><td class="nw">售罄</td><td>可售加预留少于 10 件，且没有在途</td></tr><tr><td class="nw">P0</td><td class="nw">断货</td><td>可售加预留少于 10 件，有在途待到仓</td></tr><tr><td class="nw">P0</td><td class="nw">将断货</td><td>可售天数少于 7 天，且没有在途</td></tr><tr><td class="nw">P0</td><td class="nw">链接异常</td><td>今日销量为 0，近 7 天日均不少于 3 件</td></tr><tr><td class="nw">P0</td><td class="nw">严重亏损</td><td>昨日 TACOS 加近 7 天退货率超过 35%</td></tr><tr><td class="nw">P1</td><td class="nw">亏损</td><td>昨日 TACOS 加近 7 天退货率达到 30%</td></tr><tr><td class="nw">P1</td><td class="nw">销量骤降</td><td>今日销量低于昨日的 70%</td></tr><tr><td class="nw">P1</td><td class="nw">预算耗尽</td><td>今日广告花费低于近 7 天日均的 50%</td></tr><tr><td class="nw">P1</td><td class="nw">ACOS超标</td><td>昨日花费不少于 $10，ACOS 超过 50% 或没有广告销售</td></tr><tr><td class="nw">P1</td><td class="nw">TACOS超标</td><td>昨日花费不少于 $10，TACOS 超过 20%</td></tr><tr><td class="nw">P1</td><td class="nw">库存不足</td><td>四季品：可售天数少于 30 天，或含在途少于 60 天；季节品：可售天数低于 30 天和距清仓截止天数中较小的那个</td></tr><tr><td class="nw">P2</td><td class="nw">退货率</td><td>近 7 天退货率超过 8%，或翻倍且超过 3%</td></tr><tr><td class="nw">P2</td><td class="nw">BSR骤降</td><td>排名数字比之前高出 50% 以上</td></tr><tr><td class="nw">P2</td><td class="nw">转化异常</td><td>近 3 天 CVR 低于近 7 天的 60%，且近 7 天 Sessions 不少于 100</td></tr></tbody></table></div>
+<p>断货和售罄的链接不再判销量、预算和库存类预警。</p>
+<h2 id="xunpan-s2">目标从哪来</h2>
+<ul><li><b>四季品：</b> 四季品经营表的周目标销量。</li><li><b>季节品：</b> 季节品追踪表的阶段日均目标。</li></ul>
+<p>没填时页面会提示，要到对应页面补。</p>
+<h2 id="xunpan-s3">数据什么时候更新</h2>
+<p>系统每天美西时间 17:40 同步，会刷新当天和前 2 天。今日数据不是实时值，Sessions 要第二天才出。</p>
+<p>只覆盖灯具组店铺，不含鞋类。</p>
+<h2 id="xunpan-s4">常见问题</h2>
+<ul><li><b>「预算耗尽」不一定是真没预算：</b> 这条只比较今天和近 7 天的花费，同步时当天还没结束也可能触发。</li><li><b>有产品显示「未登记主表」：</b> 产品主表没有这个产品，请补登记。</li><li><b>这个负责人没有链接：</b> 检查产品主表的负责人字段。</li></ul>
+</article>
+<article class="doc" id="doc-master" hidden><header><div class="dh"><h1>产品主表</h1><a class="kb" href="https://zcnt6ibhe9z3.feishu.cn/wiki/SV2swRYo1iw7YikfsAEcLFUmnkb" target="_blank" rel="noopener">在知识库打开</a></div><div class="toc"><a href="#master-s0" data-jump="master-s0">三个视图</a><a href="#master-s1" data-jump="master-s1">编辑规则</a><a href="#master-s2" data-jump="master-s2">数据体检查什么</a><a href="#master-s3" data-jump="master-s3">下游开关</a><a href="#master-s4" data-jump="master-s4">常见问题</a></div></header>
+<p>维护产品的基础信息：身份、成本、箱规、合规内容，以及产品进哪些下游表。页面在应用的「产品主表」，这里的数据是全系统的源头，改之前要想清楚影响。表结构见 <a href="https://zcnt6ibhe9z3.feishu.cn/wiki/KNbzw2asfiTSTak7t8jcYGu5nRc" target="_blank" rel="noopener">2.1</a>。</p>
+<h2 id="master-s0">三个视图</h2>
+<div class="tblbox"><table><thead><tr><th>视图</th><th>用途</th></tr></thead><tbody><tr><td class="nw">产品库</td><td>左侧选 SPU，可切换四季品和季节品；右侧每个 ASIN 一张横卡，编辑成本、箱规和合规内容</td></tr><tr><td class="nw">数据体检</td><td>自动列出有问题的行，点一行去改</td></tr><tr><td class="nw">下游开关</td><td>决定产品进不进备货表、定价利润表、Listing审核等</td></tr></tbody></table></div>
+<h2 id="master-s1">编辑规则</h2>
+<ul><li><b>身份键默认锁定。</b> 下游所有表都靠它匹配。解锁改动后，追踪表、备货表、利润表里按旧值匹配的行会断开，要去下游核对。</li><li><b>改成本参数：</b> 每日数据、经营表、利润表和备货页的毛利都会跟着变，下次重算生效。</li><li><b>物理和合规内容：</b> 可以同时写到同 SKU 的其他国家行。</li><li><b>保存前会重读：</b> 别人刚改过时页面会停下，请刷新后重新编辑。</li></ul>
+<p>单件到岸成本等于采购成本加头程，单位人民币，不含 FBA 和佣金。</p>
+<h2 id="master-s2">数据体检查什么</h2>
+<div class="tblbox"><table><thead><tr><th>问题</th><th>后果</th></tr></thead><tbody><tr><td class="nw">成本有空项</td><td>经营表、利润表显示「缺成本」</td></tr><tr><td class="nw">缺单箱数量</td><td class="nw">备货表算不出建议量</td></tr><tr><td class="nw">国家为空</td><td class="nw">追踪表带不出数据</td></tr><tr><td>SKU 或 ASIN 有脏字符</td><td>下游匹配失败，可以点「一键清理」，只去掉首尾空格、换行和零宽字符</td></tr><tr><td>同 SKU 同国家重复</td><td class="nw">下游可能取到错误的行</td></tr><tr><td class="nw">勾选和销售季分类冲突</td><td>会把产品带进错误的流程</td></tr><tr><td>销售季分类、SPU、负责人为空</td><td>节奏、汇总和负责人都会缺失</td></tr></tbody></table></div>
+<h2 id="master-s3">下游开关</h2>
+<ul><li><b>自动建行（橙色表头）：</b> 勾上后自动化去下游查重，没有就新建。取消勾选不会删行，有「启用」字段的表会把行隐藏。</li><li><b>每日数据表、产品表现、四季品经营表：</b> 行由拉数脚本生成，勾选只决定拉不拉这个产品，当晚生效。</li><li><b>销售季分类说了算：</b> 系统每晚按分类同步部分开关，手动拨的可能被改回。</li></ul>
+<h2 id="master-s4">常见问题</h2>
+<ul><li><b>图片怎么改：</b> 图片要在多维表里上传，页面不支持。</li><li><b>保存报错：</b> 应用数据权限要把产品主表开成可编辑，找林键春处理。</li></ul>
+</article>
+<article class="doc" id="doc-profit" hidden><header><div class="dh"><h1>配送&amp;定价利润测算</h1><a class="kb" href="https://zcnt6ibhe9z3.feishu.cn/wiki/GKLMw6pnki1KgfkrBWuccXnEnmc" target="_blank" rel="noopener">在知识库打开</a></div><div class="toc"><a href="#profit-s0" data-jump="profit-s0">五个模块</a><a href="#profit-s1" data-jump="profit-s1">常用计算口径</a><a href="#profit-s2" data-jump="profit-s2">什么会改到主表</a><a href="#profit-s3" data-jump="profit-s3">对账怎么看</a><a href="#profit-s4" data-jump="profit-s4">常见问题</a></div></header>
+<p>测算 FBA 配送费、单件利润、广告投入和定价。页面在应用的「配送&amp;定价利润测算」。顶部选美国或加拿大，再搜 SKU，也可以不选 SKU 手动填。</p>
+<h2 id="profit-s0">五个模块</h2>
+<div class="tblbox"><table><thead><tr><th>模块</th><th>用途</th></tr></thead><tbody><tr><td class="nw">① FBA 配送费</td><td>按包装尺寸和重量算淡季、旺季配送费，并提示压缩包装能否降档</td></tr><tr><td class="nw">② 单件利润</td><td>算毛利、毛利率、投产比和保本 ACOS</td></tr><tr><td class="nw">③ 广告投入推演</td><td>按日预算和点击转化，算日单量、利润和保本日预算</td></tr><tr><td class="nw">④ 定价反推</td><td>按目标毛利率或投产比反推售价和原价，带敏感度表</td></tr><tr><td class="nw">⑤ 配送费对账</td><td>对比主表配送费和 2026 计算值，可批量更新旺季费</td></tr></tbody></table></div>
+<h2 id="profit-s1">常用计算口径</h2>
+<ul><li><b>投产比：</b> 毛利 ÷（采购 + 头程），按百分比显示。</li><li><b>旺季：</b> 10.15 到次年 1.14。</li><li><b>带电：</b> 美国 +$0.11，在 3.5% 附加费之后加；加拿大不收。</li><li><b>退货率：</b> 只作参考，不参与利润计算。</li><li><b>③ 默认值：</b> 日预算 30、CPC 1、广告转化 10%、自然点击等于广告点击、自然转化 15%。</li><li><b>④ 默认值：</b> 目标成交价等于 ② 的成交价，目标毛利率 35%，投产比 100%，可在右上切换。</li></ul>
+<p>加拿大 2026 旺季费率未公布，沿用 2025 旺季表。</p>
+<h2 id="profit-s2">什么会改到主表</h2>
+<p>大部分测算只在页面上算。只有这三个操作会写进产品主表，改动后全系统的利润数据都会变：</p>
+<ul><li><b>回填配送费到主表：</b> 单行确认后写入。</li><li><b>回填尺寸重量到主表：</b> 单行确认后写入。</li><li><b>批量更新旺季配送费：</b> 只改旺季配送费这一列。</li></ul>
+<p>写入前页面会检查别人是否刚改过。</p>
+<h2 id="profit-s3">对账怎么看</h2>
+<ul><li><b>只差旺季：</b> 大多是主表还在用 2025 旺季表或旺季为空，可以批量更新。</li><li><b>淡季对不上：</b> 如果同尺寸的颜色款实收价不同，多半是亚马逊实测尺寸和主表不一致。<b>先看后台实收，再单行回填，不要批量覆盖。</b></li><li><b>缺尺寸或重量：</b> 先把主表补全。</li></ul>
+<h2 id="profit-s4">常见问题</h2>
+<ul><li><b>原价、折扣或广告占比是空的：</b> 定价利润表没有这一行，需要手填。</li><li><b>回填报错：</b> 应用数据权限要把产品主表开成可编辑，找林键春处理。</li></ul>
+</article>
+<article class="doc" id="doc-todo" hidden><header><div class="dh"><h1>任务待办</h1><a class="kb" href="https://zcnt6ibhe9z3.feishu.cn/wiki/IbhbwgOIzi27fskTgHTceEeZnNm" target="_blank" rel="noopener">在知识库打开</a></div><div class="toc"><a href="#todo-s0" data-jump="todo-s0">页签</a><a href="#todo-s1" data-jump="todo-s1">常用操作</a><a href="#todo-s2" data-jump="todo-s2">循环任务</a><a href="#todo-s3" data-jump="todo-s3">派给机器人</a><a href="#todo-s4" data-jump="todo-s4">从其他页面来的任务</a><a href="#todo-s5" data-jump="todo-s5">常见问题</a></div></header>
+<p>这篇讲组内怎么派任务、收任务和建循环任务。页面在应用的「任务待办」。</p>
+<div class="note">页面刚上线，正在实测。遇到报错把提示截图发给林键春。</div>
+<h2 id="todo-s0">页签</h2>
+<div class="tblbox"><table><thead><tr><th>页签</th><th>看什么</th></tr></thead><tbody><tr><td class="nw">我的待办</td><td>派给我的、还没完成的任务</td></tr><tr><td class="nw">审批</td><td>采购申请和发货指令里等人审批的事项，分「待我审批」和「全部审批中」</td></tr><tr><td class="nw">全组</td><td>所有人的任务和最近 7 天动态</td></tr><tr><td class="nw">我派出的</td><td class="nw">我建给别人的任务</td></tr><tr><td class="nw">循环任务</td><td>定期自动生成任务的规则</td></tr><tr><td class="nw">已完成</td><td class="nw">做完的任务</td></tr></tbody></table></div>
+<p>审批页只能看，点「去审批」打开对应页面，审批动作在原页面完成。</p>
+<h2 id="todo-s1">常用操作</h2>
+<h3>派任务</h3>
+<ol><li>点右上角「新建」。</li><li>写清任务名称，说明选填，再选负责人、截止时间和优先级。</li><li><b>新建后对方不会自动收到消息。</b> 需要立刻通知的话，在任务行点「提醒」。</li></ol>
+<h3>做任务</h3>
+<p>负责人打开任务后会记录查看时间，做完点「标为完成」。负责人只能改状态，截止时间和负责人要找派单人或林键春改。</p>
+<h3>提醒</h3>
+<p>任务行的「操作」列可以直接点「提醒」，对方会收到飞书消息，内容有任务、说明、截止时间和提醒人。一分钟内不能重复提醒。目前没有定时提醒和逾期自动提醒。</p>
+<h3>批量</h3>
+<p>点右上角「批量」后勾选，可以标完成、提醒或删除。没权限的任务会跳过，并告诉你跳过了几条。</p>
+<h3>删除</h3>
+<p>只有创建人和林键春能删，要二次确认，删了不能恢复。</p>
+<h2 id="todo-s2">循环任务</h2>
+<div class="flowbox"><svg class="flow" viewBox="0 0 552 356" width="552" height="356" role="img" aria-label="流程图：新建任务 把重复选成每周或每月 → 保存为循环规则 → 系统每天北京 7 点半检查规则 → 到时间自动生成一条任务 → 负责人完成这一条 → 没做完 显示逾期 下一次照常生成"><defs><marker id="ah" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L8 4L0 8z" fill="#86909c"/></marker><marker id="ar" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L8 4L0 8z" fill="#f54a45"/></marker></defs><path d="M126.0 52V82" fill="none" stroke="#86909c" stroke-width="1.5" marker-end="url(#ah)"/><path d="M126.0 126V156" fill="none" stroke="#86909c" stroke-width="1.5" marker-end="url(#ah)"/><path d="M126.0 200V230" fill="none" stroke="#86909c" stroke-width="1.5" marker-end="url(#ah)"/><path d="M126.0 274V304" fill="none" stroke="#86909c" stroke-width="1.5" marker-end="url(#ah)"/><path d="M244 252.0H386.0V304" fill="none" stroke="#86909c" stroke-width="1.5" marker-end="url(#ah)"/><rect x="8" y="8" width="236" height="44" rx="6" fill="#ffffff" stroke="#c9cdd4"/><text x="126.0" y="34.5" text-anchor="middle" font-size="13" fill="#1f2329">新建任务 把重复选成每周或每月</text><rect x="8" y="82" width="236" height="44" rx="6" fill="#ffffff" stroke="#c9cdd4"/><text x="126.0" y="108.5" text-anchor="middle" font-size="13" fill="#1f2329">保存为循环规则</text><rect x="8" y="156" width="236" height="44" rx="6" fill="#ffffff" stroke="#c9cdd4"/><text x="126.0" y="182.5" text-anchor="middle" font-size="13" fill="#1f2329">系统每天北京 7 点半检查规则</text><rect x="8" y="230" width="236" height="44" rx="6" fill="#ffffff" stroke="#c9cdd4"/><text x="126.0" y="256.5" text-anchor="middle" font-size="13" fill="#1f2329">到时间自动生成一条任务</text><rect x="8" y="304" width="236" height="44" rx="6" fill="#ffffff" stroke="#c9cdd4"/><text x="126.0" y="330.5" text-anchor="middle" font-size="13" fill="#1f2329">负责人完成这一条</text><rect x="308" y="304" width="236" height="44" rx="6" fill="#fde2e2" stroke="#f54a45"/><text x="426.0" y="330.5" text-anchor="middle" font-size="13" fill="#1f2329">没做完 显示逾期 下一次照常生成</text></svg></div>
+<ul><li><b>谁能建：</b> 所有人都能建。只有创建人和林键春能改或暂停。</li><li><b>频率：</b> 每个工作日、每周、每两周、每月、每月最后一天、每季度或每年，还可以设提前几天出现。</li><li><b>周末：</b> 日期不挪，落到周末就是周末。</li><li><b>没做完：</b> 下一次照常生成，旧的继续显示逾期。</li><li><b>单独修改：</b> 每次生成的任务都能单独改，不影响规则。</li><li><b>删除规则：</b> 以后不再生成，已经生成的任务保留。</li></ul>
+<h2 id="todo-s3">派给机器人</h2>
+<p>负责人可以选「机器人」，用来提应用需求和 AI 任务。说明要写清楚要什么、用什么数据、结果放哪。机器人不会点完成，由创建人或林键春关闭，也不会收到提醒。</p>
+<h2 id="todo-s4">从其他页面来的任务</h2>
+<p>任务行会标创建来源，详情里有打开来源页面的入口。</p>
+<p>目前只有 Listing审核页会自动建任务（提交审核和退回整改，见 <a href="https://zcnt6ibhe9z3.feishu.cn/wiki/DQ3TwHeBKiArVXkarNpcCtmRnqh" target="_blank" rel="noopener">2.8</a>）。其他页面的来源只是预设入口，还不会自动建任务。</p>
+<h2 id="todo-s5">常见问题</h2>
+<ul><li><b>提醒、完成或保存时报错：</b> 应用数据权限要把任务待办表开成可编辑，找林键春处理。</li><li><b>改不了任务：</b> 只有负责人、派单人和林键春能改，负责人只能改状态。</li><li><b>任务显示已逾期：</b> 截止时间已过且没完成。只写了日期没写时间的，当天结束前不算逾期。</li></ul>
+</article>
+      <div class="empty" id="empty" hidden>没有搜到相关内容，换个词试试。</div>
+    </main>
+  </div>
+</div>
+
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var main = $('main'), q = $('q'), pick = $('narrowPick'), wrap = $('wrap');
+  var navBtns = Array.prototype.slice.call(document.querySelectorAll('.ni'));
+  var docs = Array.prototype.slice.call(document.querySelectorAll('.doc'));
+  var current = '';
+  var texts = {};
+  docs.forEach(function (a) { texts[a.id.slice(4)] = a.textContent; });
+  var store = { get: function () { try { return localStorage.getItem('moduleGuideDoc'); } catch (e) { return null; } },
+                set: function (v) { try { localStorage.setItem('moduleGuideDoc', v); } catch (e) {} } };
+
+  function clearMarks(root) {
+    Array.prototype.slice.call(root.querySelectorAll('mark')).forEach(function (m) {
+      var p = m.parentNode; p.replaceChild(document.createTextNode(m.textContent), m); p.normalize();
+    });
+  }
+  function markAll(root, word) {
+    var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT), nodes = [], n, lw = word.toLowerCase();
+    while ((n = walker.nextNode())) { if (n.nodeValue.toLowerCase().indexOf(lw) >= 0) nodes.push(n); }
+    nodes.forEach(function (node) {
+      var s = node.nodeValue, low = s.toLowerCase(), i = 0, at, frag = document.createDocumentFragment();
+      while ((at = low.indexOf(lw, i)) >= 0) {
+        frag.appendChild(document.createTextNode(s.slice(i, at)));
+        var m = document.createElement('mark'); m.textContent = s.slice(at, at + word.length); frag.appendChild(m);
+        i = at + word.length;
+      }
+      frag.appendChild(document.createTextNode(s.slice(i)));
+      node.parentNode.replaceChild(frag, node);
+    });
+  }
+  function open(id, opts) {
+    opts = opts || {};
+    if (!$('doc-' + id)) id = docs[0].id.slice(4);
+    current = id;
+    docs.forEach(function (a) { a.hidden = a.id !== 'doc-' + id; clearMarks(a); });
+    $('empty').hidden = true;
+    navBtns.forEach(function (b) { b.classList.toggle('on', b.dataset.doc === id); });
+    pick.value = id;
+    store.set(id);
+    main.scrollTop = 0;
+    var word = q.value.trim();
+    if (word) {
+      var doc = $('doc-' + id);
+      markAll(doc, word);
+      var first = doc.querySelector('mark');
+      if (first && opts.scroll !== false) first.scrollIntoView({ block: 'center' });
+    }
+    wrap.classList.remove('search-on');
+  }
+  function snippet(text, word) {
+    var at = text.toLowerCase().indexOf(word.toLowerCase());
+    return text.slice(Math.max(0, at - 8), at + word.length + 14).replace(/\s+/g, ' ');
+  }
+  function search() {
+    var word = q.value.trim();
+    var groups = document.querySelectorAll('.ng');
+    navBtns.forEach(function (b) {
+      b.hidden = false;
+      var old = b.querySelector('.hit'); if (old) old.remove();
+    });
+    Array.prototype.forEach.call(groups, function (g) { g.hidden = false; });
+    if (!word) {
+      $('qMeta').textContent = '';
+      wrap.classList.remove('search-on');
+      open(current || docs[0].id.slice(4), { scroll: false });
+      return;
+    }
+    var lw = word.toLowerCase(), hits = [];
+    navBtns.forEach(function (b) {
+      var t = texts[b.dataset.doc], found = t.toLowerCase().indexOf(lw) >= 0;
+      b.hidden = !found;
+      if (found) {
+        hits.push(b.dataset.doc);
+        var s = document.createElement('span'); s.className = 'hit'; s.textContent = '…' + snippet(t, word) + '…';
+        b.appendChild(s);
+      }
+    });
+    Array.prototype.forEach.call(groups, function (g) {
+      var el = g.nextElementSibling, any = false;
+      while (el && el.classList.contains('ni')) { if (!el.hidden) any = true; el = el.nextElementSibling; }
+      g.hidden = !any;
+    });
+    $('qMeta').textContent = hits.length ? hits.length + ' 篇包含「' + word + '」' : '';
+    if (!hits.length) {
+      docs.forEach(function (a) { a.hidden = true; });
+      $('empty').hidden = false;
+      navBtns.forEach(function (b) { b.classList.remove('on'); });
+      return;
+    }
+    open(hits.indexOf(current) >= 0 ? current : hits[0], { scroll: false });
+    wrap.classList.add('search-on');
+  }
+  var timer;
+  q.addEventListener('input', function () { clearTimeout(timer); timer = setTimeout(search, 150); });
+  navBtns.forEach(function (b) { b.addEventListener('click', function () { open(b.dataset.doc); }); });
+  pick.addEventListener('change', function () { open(pick.value); });
+  main.addEventListener('click', function (e) {
+    var a = e.target.closest && e.target.closest('a');
+    if (!a) return;
+    if (a.dataset.doc) { e.preventDefault(); q.value = ''; search(); open(a.dataset.doc); }
+    else if (a.dataset.jump) { e.preventDefault(); var t = $(a.dataset.jump); if (t) t.scrollIntoView({ block: 'start' }); }
+  });
+
+  var want = new URLSearchParams(location.search).get('doc');
+  open(want || store.get() || docs[0].id.slice(4));
+
+  function fit() { $('tallTip').style.display = window.innerHeight > (window.screen.height || 99999) + 40 ? '' : 'none'; }
+  fit(); window.addEventListener('resize', fit);
+})();
+</script>
+
+<script type="module">
+// 内容已经在页面里，SDK 只用来「保存到页面」；加载失败不影响阅读。
+const BASE_TOKEN = 'JGvebyaAYapWtOslxc9cuKYXnwd';
+const MASTER = 'tblqksywqgYvywOT';   // 本页不读表；按插件硬规矩登记产品主表，宿主才接受配置
+const URLS = [new URL('./sdk/index.mjs', location.href).href,
+  'https://cdn.jsdelivr.net/npm/@lark-base-open/js-sdk@1.0.2/dist/index.mjs'];
+let sdk = null;
+if (window.parent !== window) {
+  for (const u of URLS) { try { sdk = await import(u); break; } catch (e) { /* 试下一个 */ } }
+}
+const dash = sdk && sdk.dashboard;
+if (dash) {
+  let st = '';
+  try { st = dash.state; } catch (e) { st = ''; }
+  if (dash.saveConfig && st !== 'View' && st !== 'FullScreen') {
+    const btn = document.getElementById('saveBtn'), msg = document.getElementById('saveMsg');
+    document.getElementById('savebar').style.display = 'flex';
+    btn.onclick = async () => {
+      btn.disabled = true; msg.textContent = '保存中…';
+      try {
+        const ok = await dash.saveConfig({ dataConditions: [{ tableId: MASTER, baseToken: BASE_TOKEN, dataRange: { type: 'ALL' }, series: 'COUNTA' }], customConfig: { page: '使用说明' } });
+        msg.textContent = ok === false ? '保存失败，请重试' : '已保存';
+      } catch (e) { msg.textContent = '保存失败：' + (e && e.message || e); }
+      btn.disabled = false;
+    };
+  } else if (dash.setRendered) { dash.setRendered().catch(() => {}); }
+}
+</script>
+</body>
+</html>
