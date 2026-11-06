@@ -188,7 +188,7 @@ const TABLES = {
   // 第一张 = saveConfig 第一条 dataCondition（应用只按这一条给授权）；管理表要在「数据授权（勿删）」页另加组件
   apply: { id: 'tblvt4KuPv7dnduI', name: '采购计划申请表', fields: ['父ASIN/SKU', '品名', 'SPU', '父ASIN', '店铺', '图片', '上次采购量', '实际采购量', '合并采购复选框',
     '采购流程', '采购申请人', '申请时间_采购', '批次标识_采购', '运营主管_采购', '采购主管', '采购员', '收货地', '是否开票', '可开发票类型', '有无运费',
-    'SKU仓库_采购', 'SKU备注_采购', '批次备注_采购', '修改人', '更新时间', '页面操作'] },
+    'SKU仓库_采购', 'SKU备注_采购', '批次备注_采购', '修改人', '更新时间', '页面操作', '页面操作批次'] },
   // 每箱数量、销售季分类按 领星SKU = 申请表 父ASIN/SKU 取；主表没登记的 SKU 按 SPU 借同 SPU 的分类
   pm: { id: 'tblqksywqgYvywOT', name: '产品主表-灯类+精铺', fields: ['领星SKU', '单箱数量', '销售季分类', 'SPU', '产品线'] },
   mgmt: { id: 'tblTRcHwrEwr0Jmh', name: '采购计划管理表', fields: ['来源申请批次', '创建批次号', '计划编号', '关联产品sku', '品名', 'SPU', '采购量', '父记录', '领星采购单号',
@@ -398,7 +398,7 @@ const BUYERS = () => {
 
 // ===== ⑤ 状态 =====
 let VIEW = lsGet('caigou_view', 'apply');
-const F = { fill: {}, colors: new Set(), colorSpu: '', line: lsGet('caigou_line', 'four'), store: '', q: '', spu: '__all', approve: 'todo', track: 'open', person: '' };
+const F = { buyer: {}, fill: {}, colors: new Set(), colorSpu: '', line: lsGet('caigou_line', 'four'), store: '', q: '', spu: '__all', approve: 'todo', track: 'open', person: '' };
 let DRAFT = lsGet('caigou_draft_v1', {});        // rid → {qty, 收货地, 是否开票, 可开发票类型, 有无运费, SKU备注_采购}（只存本浏览器）
 let BATCH_NOTE = lsGet('caigou_note_v1', '');
 const saveDraft = () => { lsSet('caigou_draft_v1', DRAFT); lsSet('caigou_note_v1', BATCH_NOTE); };
@@ -842,6 +842,7 @@ function renderApprove() {
     $('main').innerHTML = `<div class="card empty">${tip}</div>`; return;
   }
   $('main').innerHTML = bs.map(bcard).join('');
+  $('main').querySelectorAll('select[id^="buyer_"]').forEach((el) => { el.onchange = () => { F.buyer[el.id.slice(6)] = el.value; }; });
   $('main').querySelectorAll('[data-act]').forEach((el) => { el.onclick = () => doAct(el.dataset.act, bs.find((b) => b.key === el.dataset.b), el); });
   loadImages();
 }
@@ -862,7 +863,7 @@ function bcard(b) {
   } else if (b.status === '待采购主管审批') {
     const can = isMe(b.buy) || !ME.known;
     acts = `<span class="who-note">等 <b>${esc(b.buy.name)}</b>（采购主管）分配采购员并审批${isMe(b.buy) ? ' —— 就是你' : ''}</span>
-      ${can ? `采购员 <select id="buyer_${esc(b.key)}"><option value="">选采购员</option>${buyers.map((u) => `<option value="${esc(u.id)}" ${b.buyer && b.buyer.id === u.id ? 'selected' : ''}>${esc(u.name)}</option>`).join('')}</select>
+      ${can ? `采购员 <select id="buyer_${esc(b.key)}"><option value="">选采购员</option>${buyers.map((u) => `<option value="${esc(u.id)}" ${(F.buyer[b.key] || (b.buyer && b.buyer.id)) === u.id ? 'selected' : ''}>${esc(u.name)}</option>`).join('')}</select>
         <button class="btn danger" data-act="reject" data-b="${esc(b.key)}">驳回</button><button class="btn ok" data-act="buy" data-b="${esc(b.key)}">通过，生成采购计划</button>` : ''}`;
   } else if (b.status === '生成中') {
     acts = `<span class="who-note">外部服务正在领星建采购计划，一般几分钟；完成后状态变「已生成采购计划」，行会出现在「③ 采购进度」。长时间不动找 ${esc(b.buy.name)}。</span>`;
@@ -884,12 +885,17 @@ async function doAct(act, b, btn) {
   if (!b) return;
   try {
     if (act === 'reject') {
-      const why = prompt(`驳回 ${b.applicant.name || ''} 的 ${b.rows.length} 个 SKU，原因（会写进批次备注）：`);
-      if (why == null) return;
-      btn.disabled = true;
-      const tag = `【驳回 ${ME.name || ''} ${fmtDT(Date.now())}】${why}`;
-      await write('apply', b.rows.map((r) => ({ id: r._id, f: { '采购流程': '已驳回', '合并采购复选框': false, '批次备注_采购': [r['批次备注_采购'], tag].filter(Boolean).join(' ') } })));
-      toast('已驳回'); render(); return;
+      // 不用浏览器原生 prompt：插件在飞书的 iframe 里，原生弹窗可能被拦截，点了没反应
+      dialog('驳回采购申请', `<p>驳回 <b>${esc(b.applicant.name || '')}</b> 的 ${b.rows.length} 个 SKU，原因（会写进批次备注）：</p><textarea id="rejWhy" rows="3" style="width:100%;box-sizing:border-box"></textarea>`,
+        [['取消', 'btn', closeDlg], ['确认驳回', 'btn danger', async (ok) => {
+          ok.disabled = true;
+          try {
+            const tag = `【驳回 ${ME.name || ''} ${fmtDT(Date.now())}】${$('rejWhy').value.trim()}`;
+            await write('apply', b.rows.map((r) => ({ id: r._id, f: { '采购流程': '已驳回', '合并采购复选框': false, '批次备注_采购': [r['批次备注_采购'], tag].filter(Boolean).join(' ') } })));
+            closeDlg(); toast('已驳回'); render();
+          } catch (e) { alertErr(e); }
+        }]]);
+      return;
     }
     if (act === 'ops') { btn.disabled = true; if (await trigger('ops', b.rows)) toast('已通过，交给采购主管'); render(); return; }
     if (act === 'buy') {
@@ -909,9 +915,24 @@ async function trigger(kind, rows) {
   if (SNAP) { simulate(kind, rows); return true; }
   if (hasTrigger()) {
     // 自动化「页面操作 = X」只在值变化时触发：先清空再写，同一行连续两次同样操作也能触发（自动化里清不空单选字段）
-    await write('apply', [{ id: rows[0]._id, f: { '页面操作': null } }]);
+    // 审批自动化按文本字段「页面操作批次」找整批：改记录触发的自动化按公式字段「批次标识_采购」筛选找不到行（11-06 测试库复现）
+    if (kind === 'submit') await write('apply', [{ id: rows[0]._id, f: { '页面操作': null } }]);
+    else {
+      const key = rows[0]['批次标识_采购'];
+      await write('apply', rows.map((r, i) => ({ id: r._id, f: i ? { '页面操作批次': key } : { '页面操作批次': key, '页面操作': null } })));
+    }
     await write('apply', [{ id: rows[0]._id, f: { '页面操作': ACT[kind] } }]);
-    setTimeout(() => boot(true), 5000); return true;
+    if (kind === 'submit') { setTimeout(() => boot(true), 5000); return true; }
+    // 先把这批显示成下一步，防止重复点；过一会读表核对，状态没变就明说，不让人以为已经通过
+    const from = rows[0]['采购流程'], rid = rows[0]._id, to = kind === 'ops' ? '待采购主管审批' : '生成中';
+    for (const r of rows) r['采购流程'] = to;
+    setTimeout(async () => {
+      await boot(true);
+      const now = (DATA.apply || []).find((r) => r._id === rid);
+      if (now && now['采购流程'] === from) dialog('审批还没生效', `<div class="warnbox">读表发现这一批还是「${esc(from)}」。再等一两分钟点「刷新数据」看看；还不变就去表里点「${BTN_OF[kind]}」按钮：</div>
+        <p><a href="${TABLE_URL(VIEW_OF[kind])}" target="_blank" rel="noopener">打开申请表 ↗</a></p>`, [['知道了', 'btn pri', closeDlg]]);
+    }, kind === 'ops' ? 8000 : 20000);
+    return true;
   }
   const what = { submit: '数量、勾选和备注已经写进表里', ops: '', buy: '采购员已经写进表里' }[kind];
   dialog('还差最后一步：去表里点按钮', `<div class="okbox">${what || '这一批的数据都在表里了'}。</div>
@@ -1110,7 +1131,7 @@ async function boot(again) {
     // 启动顺序照能用的插件页（产品主表页）：开发包 → 逐张读表；认人放到页面显示之后（10-28：启动时并发认人+开表，飞书那边全部超时）
     const main = (async () => { await readTable('apply'); await readTable('pm'); })();
     await main;
-    const mg = readTable('mgmt').then(() => { if (READY.apply && READY.pm) { renderTop(); if (VIEW === 'track') renderMain(); } })
+    const mg = readTable('mgmt').then(() => { if (READY.apply && READY.pm) { renderTop(); if (VIEW === 'track' || VIEW === 'approve') renderMain(); } })
       .catch((e) => { PROG[TABLES.mgmt.name] = '✘ ' + (e && e.message ? e.message : e); if (READY.apply) toast('采购进度（管理表）没读出来：' + (e && e.message ? e.message : e), 6000); });
     FROM_CACHE = false; clearInterval(slowTimer);
     afterLoad(again); REFRESHING = false;
