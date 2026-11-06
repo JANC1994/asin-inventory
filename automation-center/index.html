@@ -130,7 +130,9 @@ const TABLES = {
   bot: { id: 'tblQ6XzTLo0P8b9N', name: '机器人登记' },
   run: { id: 'tbl91rzNkcJrawjC', name: '运行记录' },
 };
-const MANAGER_ID = 'ou_24e3d484ccc9e17e463774309651251a';   // 林键春：看全部；其他人按 可见范围 过滤
+const MANAGER_NAME = '林键春';   // 看全部；其他人按 可见范围 过滤。ID 从表里 相关人 取：SDK 给的 ID 和 CLI 的 open_id 不是一套，不能写死（11-06 踩过）
+// getFieldMetaList 读不了时的退路（由 CLI 查出，只有字段 ID 和字段名）
+const FIELD_NAMES = {"task": {"fldN6w8Z5k": "下次运行", "fld59g1sLV": "模块", "fldo66O56g": "输出到", "fldRLvydkg": "来源", "fldI6QbZU7": "时钟", "fldl2gKmb1": "可见范围", "fldki50e9w": "上次结果", "fldLGMyP7S": "状态", "fldURPiWKb": "时间", "fldkSYPSzN": "机器人", "fldsIARleU": "说明", "fldwT976oZ": "类型", "fldQgaSK3K": "任务键", "fldnY3sFkB": "结果说明", "fldOcTz1zR": "上次运行", "fldRdqRhcZ": "相关人", "fldgcyAPjW": "任务名称"}, "bot": {"fldnzOu2P0": "状态", "fld7DrKHX3": "负责模块", "fldSm3jXrj": "可读", "fldgU0ieiW": "可写", "fldGu8yWmE": "可发给", "fldjYdafy8": "机器人"}, "run": {"fld0XVMl2L": "开始时间", "fldv6s2Xri": "任务键", "fldyoK18fF": "结果", "fld48RNUyv": "机器人", "fldVnQAG1p": "输出到", "fldlhSJsIo": "任务名称", "flddnhRJ4C": "记录键", "fldmOBFS0M": "说明", "fldieb6xZn": "结果码"}};
 const SYNC_KEY = 'X40';
 const STALE_HOURS = 3;
 
@@ -154,23 +156,24 @@ function cell(v) {
   if (typeof v === 'object') return v.text ?? v.name ?? cell(v.value);
   return String(v);
 }
-const userIds = (v) => (Array.isArray(v) ? v : v ? [v] : []).map((u) => u && u.id).filter(Boolean);
+const users = (v) => (Array.isArray(v) ? v : v ? [v] : []).filter((u) => u && u.id).map((u) => ({ id: u.id, name: u.name || '' }));
 
 // ===== ③ 读数据 =====
 let SDK = null;
 const S = { tab: '总览', task: [], bot: [], run: [], warn: [], me: null, identified: false, f: { src: '全部', bot: '全部', mod: '全部', st: '全部', q: '', rr: '全部', rq: '' } };
-const isManager = () => S.me === MANAGER_ID;
+const managerIds = () => [...new Set(S.task.flatMap((t) => (t['相关人'] || []).filter((u) => u.name === MANAGER_NAME).map((u) => u.id)))];
+const isManager = () => !!S.me && managerIds().includes(S.me);
 
-async function readTable(cfg) {
-  const table = await withTimeout(SDK.bitable.base.getTableById(cfg.id), 15000, `打开 ${cfg.name}`);
-  const metas = await withTimeout(table.getFieldMetaList(), 15000, `读 ${cfg.name} 字段`);
+// 字段清单读不了就用内置清单；整表读失败隔一下再试一次。每一步记下来，出错时诊断里能看到卡在哪
+const STEPS = [];
+async function readRows(table, cfg, names) {
   const rows = [];
   let pageToken;
   for (let guard = 0; guard < 200; guard++) {
     const res = await withTimeout(table.getRecordsByPage({ pageSize: 200, pageToken }), 20000, `读 ${cfg.name} 记录`);
     for (const r of res.records) {
       const o = { _id: r.recordId };
-      for (const m of metas) o[m.name] = m.name === '相关人' ? userIds(r.fields[m.id]) : cell(r.fields[m.id]);
+      for (const [fid, v] of Object.entries(r.fields)) { const n = names[fid]; if (n) o[n] = n === '相关人' ? users(v) : cell(v); }
       rows.push(o);
     }
     if (!res.hasMore) break;
@@ -178,12 +181,25 @@ async function readTable(cfg) {
   }
   return rows;
 }
+async function readTable(cfg, key) {
+  const table = await withTimeout(SDK.bitable.base.getTableById(cfg.id), 15000, `打开 ${cfg.name}`);
+  let names = FIELD_NAMES[key];
+  try {
+    const metas = await withTimeout(table.getFieldMetaList(), 15000, `读 ${cfg.name} 字段`);
+    names = Object.fromEntries(metas.map((m) => [m.id, m.name]));
+  } catch (e) { STEPS.push(`${cfg.name} 字段清单读不了，改用内置清单：${e && e.message ? e.message : e}`); }
+  try { return await readRows(table, cfg, names); } catch (e) {
+    STEPS.push(`${cfg.name} 记录第一次读失败：${e && e.message ? e.message : e}`);
+    await new Promise((r) => setTimeout(r, 1500));
+    return readRows(table, cfg, names);
+  }
+}
 
 async function load() {
   S.warn = [];
   if (window.__SNAPSHOT__) { Object.assign(S, window.__SNAPSHOT__); return; }
   for (const [k, cfg] of Object.entries(TABLES)) {   // 逐张读：启动时并发调 SDK 会把通道卡死
-    try { S[k] = await readTable(cfg); } catch (e) {
+    try { S[k] = await readTable(cfg, k); } catch (e) {
       if (cfg.required) throw e;
       S[k] = []; S.warn.push(`${cfg.name} 读不到：${e && e.message ? e.message : e}`);
     }
@@ -191,7 +207,7 @@ async function load() {
 }
 
 // ===== ④ 权限：组员只看全员可见和跟自己相关的 =====
-const visibleTasks = () => isManager() ? S.task : S.task.filter((t) => t['可见范围'] === '全员' || (S.me && (t['相关人'] || []).includes(S.me)));
+const visibleTasks = () => isManager() ? S.task : S.task.filter((t) => t['可见范围'] === '全员' || (S.me && (t['相关人'] || []).some((u) => u.id === S.me)));
 const visibleRuns = () => { if (isManager()) return S.run; const keys = new Set(visibleTasks().map((t) => t['任务键'])); return S.run.filter((r) => keys.has(r['任务键'])); };
 
 // ===== ⑤ 各页签 =====
@@ -322,7 +338,8 @@ function renderMeta() {
 }
 function render() {
   renderTabs(); renderMeta();
-  const warn = S.warn.length ? `<div class="tip">${S.warn.map(esc).join('；')}。把这段截图发回。</div>` : '';
+  const notes = [...S.warn, ...(/[?&]debug/.test(location.search) ? STEPS : [])];
+  const warn = notes.length ? `<div class="tip">${notes.map(esc).join('；')}。把这段截图发回。</div>` : '';
   $('main').innerHTML = warn + VIEWS[S.tab]();
   if (S.tab === '任务') taskList();
   if (S.tab === '运行记录') runList();
@@ -372,9 +389,13 @@ async function diagnose() {
   await t('dashboard.state', () => SDK.dashboard.state);
   for (const cfg of Object.values(TABLES)) {
     const tb = await t(`打开 ${cfg.name}`, () => SDK.bitable.base.getTableById(cfg.id));
-    if (tb) await t(`读 ${cfg.name} 记录`, () => tb.getRecordsByPage({ pageSize: 1 }));
+    if (tb) {
+      await t(`${cfg.name} 字段清单`, async () => (await tb.getFieldMetaList()).length + ' 个');
+      await t(`读 ${cfg.name} 200 条`, async () => { const r = await tb.getRecordsByPage({ pageSize: 200 }); return `${r.records.length} 条，还有更多 ${r.hasMore}`; });
+    }
   }
   await t('bridge.getUserId', () => SDK.bitable.bridge.getUserId());
+  for (const x of STEPS) res.push(['!', '读表过程', x]);
   return `<div class="card" style="margin-top:12px"><h3>接口诊断 <small>请把这块整体截图发回。「打不开或读不了」通常是数据授权4 少组件，或应用权限配置没给这张表开权限</small></h3><table class="tbl"><tbody>${res.map((r) =>
     `<tr><td style="width:24px">${r[0]}</td><td class="nw">${esc(r[1])}</td><td style="color:var(--sub)">${esc(r[2])}</td></tr>`).join('')}</tbody></table></div>`;
 }
@@ -396,7 +417,7 @@ renderTabs();
 try {
   if (!window.__SNAPSHOT__) { SDK = await loadSdk(); setupSave(); }
   await load();
-  if (window.__SNAPSHOT__) { S.me = /[?&]as=member/.test(location.search) ? 'ou_preview_member' : MANAGER_ID; S.identified = true; }
+  if (window.__SNAPSHOT__) { S.me = /[?&]as=member/.test(location.search) ? 'ou_preview_member' : managerIds()[0]; S.identified = true; }
   render();
   if (SDK) {
     try { const id = await withTimeout(SDK.bitable.bridge.getUserId(), 5000, '认人'); if (id) { S.me = id; S.identified = true; } } catch (e) { /* 认不出按组员视角，meta 上有提示 */ }
