@@ -105,6 +105,18 @@ button { cursor: pointer; }
 .empty { padding: 56px 16px; text-align: center; color: var(--sub); font-size: 13px; background: var(--paper); border: 1px solid var(--line); border-radius: 8px; }
 .empty b { display: block; color: var(--ink); font-size: 15px; font-weight: 500; margin-bottom: 4px; }
 
+/* 审批行：整行是链接，点了去对应页面 */
+.aprow { display: grid; grid-template-columns: minmax(0,1fr) 72px 100px 110px 70px; align-items: center; gap: 12px; min-height: 50px; padding: 4px 16px; border-top: 1px solid var(--line); color: inherit; text-decoration: none; }
+.thead.ap { grid-template-columns: minmax(0,1fr) 72px 100px 110px 70px; }
+.thead + .aprow { border-top: 0; }
+.aprow:hover { background: var(--hover); }
+.aprow:hover .go { text-decoration: underline; }
+.ap-t { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.ap-t > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ap-s { font-size: 12px; color: var(--sub); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.go { color: var(--blue); font-size: 13px; white-space: nowrap; }
+.warn-box { padding: 8px 12px; border-radius: 8px; background: var(--amber-soft); color: var(--amber); font-size: 13px; }
+
 /* 循环任务行 */
 .rule { display: grid; grid-template-columns: 36px minmax(0,1fr) 100px 72px 72px 140px; align-items: center; gap: 12px; min-height: 50px; padding: 4px 16px; border-top: 1px solid var(--line); cursor: pointer; }
 .thead.rules { grid-template-columns: 36px minmax(0,1fr) 100px 72px 72px 140px; }
@@ -122,6 +134,8 @@ button { cursor: pointer; }
   .frame.drawer-on .c-src, .frame.drawer-on .c-by { display: none; }
   .frame.drawer-on .row, .frame.drawer-on .thead { grid-template-columns: 22px minmax(0,1fr) 72px 140px 60px; }
   .frame.drawer-on .row.solo, .frame.drawer-on .thead.solo { grid-template-columns: 22px minmax(0,1fr) 140px 60px; }
+  .frame.drawer-on .aprow, .frame.drawer-on .thead.ap { grid-template-columns: minmax(0,1fr) 100px 70px; }
+  .frame.drawer-on .aprow .c-by, .frame.drawer-on .aprow .due, .frame.drawer-on .thead.ap .due { display: none; }
   .frame.drawer-on .rule, .frame.drawer-on .thead.rules { grid-template-columns: 36px minmax(0,1fr) 72px 140px; }
 }
 /* 抽屉 */
@@ -198,6 +212,8 @@ button { cursor: pointer; }
   .row .who, .row .c-by, .row .c-src { display: none; }
   .rule { grid-template-columns: 36px minmax(0,1fr) auto; padding: 4px 12px; }
   .rule .who, .rule .c-by, .rule .c-src { display: none; }
+  .aprow { grid-template-columns: minmax(0,1fr) auto; padding: 4px 12px; }
+  .aprow .who, .aprow .c-by, .aprow .due { display: none; }
   .notes { grid-template-columns: minmax(0,1fr); }
   .drawer { width: 100%; }
 }
@@ -371,6 +387,58 @@ window.TODO_HOST = (() => {
     } else if (dash && dash.setRendered) dash.setRendered().catch(() => {});
   }
 
+  // 审批汇总：只读。读失败不影响待办，页面上提示缺哪张表的权限。
+  const APPLY = 'tblvt4KuPv7dnduI', ORDER = 'tbl83YlBQgKzooyz';
+  const OPS_LEAD = { id: 'ou_24e3d484ccc9e17e463774309651251a', name: '林键春' };   // 与采购流程页一致：行上没写时的默认审批人
+  const BUY_LEAD = { id: 'ou_9b1d429b0ce616bd7b39542a2fee6299', name: '颜蕾' };
+  const uniq = (a) => [...new Set(a.filter(Boolean))];
+  const fmtN = (n) => Number(n || 0).toLocaleString('zh-CN');
+  function applyItems(rows) {
+    const g = new Map();
+    for (const r of rows) {
+      const st = sel(r['采购流程']), k = text(r['批次标识_采购']);
+      if (!k || !['待运营主管审批', '待采购主管审批'].includes(st)) continue;
+      if (!g.has(k)) g.set(k, { st, rows: [] });
+      g.get(k).rows.push(r);
+    }
+    return [...g].map(([k, b]) => {
+      const one = (f) => b.rows.map((r) => users(r[f])[0]).find(Boolean);
+      const m = /^(.+?)_(\d{4})(\d{2})(\d{2})-(\d{2}):(\d{2})/.exec(k);
+      const by = one('采购申请人')?.name || (m ? m[1] : '');
+      const appr = b.st === '待运营主管审批' ? (one('运营主管_采购') || OPS_LEAD) : (one('采购主管') || BUY_LEAD);
+      const qty = b.rows.reduce((s, r) => s + Number(text(r['实际采购量']) || 0), 0);
+      const ms = Math.max(...b.rows.map((r) => Number(r['申请时间_采购']) || 0));
+      const shops = uniq(b.rows.map((r) => sel(r['店铺'])));
+      return { id: 'ap_' + k, src: '采购申请', t: `${by} ${m ? `${+m[3]}-${m[4]} ${m[5]}:${m[6]}` : ''} 的采购申请`, sub: `${b.rows.length} 个 SKU · 合计 ${fmtN(qty)} 件${shops.length ? ' · ' + shops.slice(0, 2).join('、') + (shops.length > 2 ? ' 等' : '') : ''}`,
+        status: b.st, by, approvers: [appr.name], ids: [appr.id], at: ms ? stamp(ms) : (m ? `${m[2]}-${m[3]}-${m[4]} ${m[5]}:${m[6]}` : ''), mine: ME.includes(appr.id) };
+    });
+  }
+  function orderItems(rows) {
+    const cfg = rows.find((r) => text(r['指令号']) === '_CONFIG（勿删）');
+    const rev = cfg ? users(cfg['审核人']) : [];
+    return rows.filter((r) => sel(r['状态']) === '待审核' && !text(r['指令号']).startsWith('_')).map((r) => {
+      const by = users(r['提交人'])[0]?.name || '', box = text(r['合计箱数']), pcs = text(r['合计件数']);
+      const parts = [sel(r['国家']) || text(r['国家']), box ? box + ' 箱' : '', pcs ? fmtN(pcs) + ' 件' : '', text(r['摘要'])].filter(Boolean);
+      return { id: 'ap_' + r._id, src: '发货指令', t: text(r['指令号']) || '（未编号）', sub: parts.join(' · '), status: '待审核', by, approvers: rev.map((u) => u.name), ids: rev.map((u) => u.id),
+        at: stamp(r['最后修改']) || '', mine: rev.some((u) => ME.includes(u.id)) };
+    });
+  }
+  async function loadApprovals() {
+    const { S } = ctx, errs = [], out = [];
+    S.apLoading = true;
+    for (const [key, id, label, fn] of [['apply', APPLY, '采购计划申请表', applyItems], ['order', ORDER, '发货指令', orderItems]]) {
+      try { await open(key, id); out.push(...fn(await readAll(key))); }
+      catch (e) { console.warn(label, e); errs.push(label); }
+    }
+    S.ap = out; S.apLoading = false;
+    S.apErr = errs.length ? `读不到：${errs.join('、')}。请在应用权限里给你的角色开这张表的阅读权限，其余内容不受影响。` : '';
+    // 只审批、没有待办记录的人（如采购主管）也要认得出来
+    if (!S.me) { const hit = out.flatMap((a) => (a.ids || []).map((id, i) => [id, a.approvers[i]])).find(([id]) => ME.includes(id)); if (hit) S.me = hit[1]; }
+    if (out.some((a) => a.mine) && S.view !== 'ap' && !S.tasks.some((t) => t.who === S.me && t.st !== '已完成') && S.view === 'mine') S.view = 'ap';
+    S.apAll = out.some((a) => a.mine) ? false : out.length > 0;
+    ctx.all();
+  }
+
   async function start(c) {
     ctx = c; const { S, $ } = c;
     const tall = () => { $('tallTip').style.display = innerHeight > (screen.availHeight || screen.height || 1080) + 40 ? 'flex' : 'none'; };
@@ -401,7 +469,8 @@ window.TODO_HOST = (() => {
         snap.set(x, ruleRow(x)); return x;
       });
       S.view = S.me === c.MANAGER || !S.me ? 'all' : 'mine';
-      c.all();
+      S.apLoading = true; c.all();
+      loadApprovals();   // 后台读，不挡待办首屏；SDK 串行规矩在读完待办之后才开始
     } catch (e) {
       $('main').innerHTML = `<div class="empty"><b>读取失败，请把这段截图发回</b>卡在：${c.esc(steps[steps.length - 1] || '')}<br>${c.esc(e && e.message || e)}</div>`;
     }
@@ -426,9 +495,10 @@ const srcEntry = t => t.link ? t.link : (SOURCES[t.src] ? {text:'打开「'+t.sr
 const MANAGER = '林键春';
 const BASE_URL = 'https://zcnt6ibhe9z3.feishu.cn/base/JGvebyaAYapWtOslxc9cuKYXnwd?table=tblUp0MCrRKIVlBI&record=';
 const RAW = [];
+const EX_AP = [];
 const EX = RAW.map((t,i)=>({st:'待办',pri:'中',by:'林键春',...t,id:'ex'+i,ex:true}));
 const EX_RULES = [].map((r,i)=>({on:true,by:'林键春',pri:'中',...r,id:'r'+(i+1),isRule:true,ex:true}));
-const S = { batch: false, picked: new Set(), confirm: null, me: MANAGER, view: 'all', mode: 'ex', q: '', owner: '', sel: null, draft: null, panel: '', tasks: REAL.map(t=>({...t})), exTasks: EX, rules: [], exRules: EX_RULES, idx: 0, hover: false };
+const S = { ap: [], apErr: '', apLoading: false, apAll: false, batch: false, picked: new Set(), confirm: null, me: MANAGER, view: 'all', mode: 'ex', q: '', owner: '', sel: null, draft: null, panel: '', tasks: REAL.map(t=>({...t})), exTasks: EX, rules: [], exRules: EX_RULES, idx: 0, hover: false };
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 // 日期一律按字符串转天序号，不受浏览器时区影响（插件页硬规矩 4）
@@ -556,18 +626,42 @@ function peopleHtml() {
   const btn=(key,l,c,o)=>`<button data-owner="${key}" aria-pressed="${S.owner===key}" ${o?`title="其中 ${o} 条逾期"`:''}>${esc(l)}<b class="${o?'hot':''}">${c}</b></button>`;
   return `<div class="people">${btn('','全部',open.length,0)}${names.map(w=>btn(w,w,cnt(w),ov(w))).join('')}${un?btn('__none','未分配',un,0):''}</div>`;
 }
+/* 审批：只读汇总，审批动作留在原页面 */
+const aps = () => S.mode==='ex' ? EX_AP : S.ap;
+const apMine = a => a.mine || a.approvers.includes(S.me);
+const apUrl = a => APP_URL+SOURCES[a.src];
+function apNum(){ const all=aps(), m=all.filter(apMine); return m.length?`<span class="num hot" title="${m.length} 条等你审批">${m.length}</span>`:all.length?`<span class="num" title="${all.length} 条审批中">${all.length}</span>`:''; }
+function apHtml(){
+  const all=aps(), mine=all.filter(apMine);
+  if(S.apAll===null) S.apAll=!mine.length;
+  const pill=(on,l,n,v)=>`<button data-apall="${v}" aria-pressed="${on}">${l}<b>${n}</b></button>`;
+  let h=`<div class="people">${pill(!S.apAll,'待我审批',mine.length,0)}${pill(S.apAll,'全部审批中',all.length,1)}</div>`;
+  if(S.apErr) h+=`<div class="warn-box">${esc(S.apErr)}</div>`;
+  const k=(S.q||'').toLowerCase();
+  const list=(S.apAll?all:mine).filter(a=>!k||(a.t+a.sub+a.by+a.approvers.join('')+a.src).toLowerCase().includes(k));
+  if(S.apLoading&&!all.length) return h+'<div class="empty">正在读取采购申请和发货指令…</div>';
+  if(!list.length) return h+`<div class="empty"><b>${k?'没有符合条件的审批':S.apAll?'现在没有审批中的事项':'没有等你审批的事项'}</b>${k||S.apAll?'':'其他人的审批可以在「全部审批中」看。'}</div>`;
+  for(const src of ['采购申请','发货指令']){
+    const g=list.filter(a=>a.src===src).sort((x,y)=>(x.at||'').localeCompare(y.at||''));
+    if(!g.length) continue;
+    h+=`<div class="section"><div class="group-h">${src}<small>${g.length} 条</small></div><div class="thead ap"><span>审批事项</span><span class="c-by">提交人</span><span>审批人</span><span class="due">提交时间</span><span>操作</span></div>${g.map(a=>`<a class="aprow" href="${esc(apUrl(a))}" target="_blank" rel="noopener"><div style="min-width:0"><div class="ap-t"><span>${esc(a.t)}</span><span class="badge ${a.src==='发货指令'?'b-amber':'b-blue'}">${esc(a.status)}</span>${apMine(a)?'<span class="badge b-red">待我审批</span>':''}</div><div class="ap-s">${esc(a.sub)}</div></div><div class="c-by">${esc(a.by||'–')}</div><div class="who">${esc(a.approvers.join('、')||'–')}</div><div class="due">${a.at?md(a.at)+' '+a.at.slice(11,16):'–'}</div><div class="go">去审批 ↗</div></a>`).join('')}</div>`;
+  }
+  return h;
+}
 function renderTabs() {
   const open=pool().filter(t=>t.st!=='已完成');
-  const L={mine:'我的待办',all:'全组',sent:'我派出的',rules:'循环任务',done:'已完成'};
+  const L={mine:'我的待办',ap:'审批',all:'全组',sent:'我派出的',rules:'循环任务',done:'已完成'};
   const num=(l,hot)=>l.length?`<span class="num ${hot?'hot':''}" title="${l.length} 条${hot?`，其中 ${l.filter(t=>bucket(t)==='over').length} 条逾期`:''}">${l.length}</span>`:'';
   const hasOver=l=>l.some(t=>bucket(t)==='over');
   const mine=open.filter(t=>t.who===S.me), sent=open.filter(t=>t.by===S.me), on=rules().filter(r=>r.on);
-  const N={mine:num(mine,hasOver(mine)),all:num(open,hasOver(open)),sent:num(sent,hasOver(sent)),rules:num(on,false),done:''};
+  const N={mine:num(mine,hasOver(mine)),all:num(open,hasOver(open)),sent:num(sent,hasOver(sent)),rules:num(on,false),done:'',ap:apNum()};
   $('tabs').innerHTML=Object.keys(L).map(v=>`<button role="tab" data-view="${v}" aria-selected="${S.view===v}">${L[v]}${N[v]}</button>`).join('');
 }
 function renderMain() {
   let h='';
-  if (S.view==='rules') {
+  if (S.view==='ap') {
+    h=apHtml();
+  } else if (S.view==='rules') {
     const list=rules().filter(r=>!S.q||(r.n+r.d+r.who).includes(S.q)).sort((a,b)=>(b.on-a.on)||dn(a.due)-dn(b.due));
     h = list.length ? `<div class="section"><div class="group-h">循环任务<small>${list.filter(r=>r.on).length} 条启用</small></div><div class="thead rules"><span></span><span>任务和频率</span><span class="c-src">来源</span><span>执行人</span><span class="c-by">创建人</span><span>下次截止</span></div>${list.map(r=>`<div class="rule ${r.on?'':'off'}" data-rule="${r.id}" tabindex="0" role="button">${S.batch?`<span class="pick ${S.picked.has(r.id)?'on':''}" role="checkbox" aria-checked="${S.picked.has(r.id)}">✓</span>`:`<button class="sw" role="switch" aria-checked="${r.on}" aria-label="${r.on?'暂停':'启用'} ${esc(r.n)}" data-sw="${r.id}"></button>`}<div style="min-width:0"><div class="r-name">${esc(r.n)}${r.ex?' <span class="meta ex">示例</span>':''}</div><div class="r-freq">↻ ${esc(freqLabel(r.freq,r.anchor||r.due))}${r.on?'':' · 已暂停'}</div></div><div class="c-src">${esc(r.src||'–')}</div><div class="who ${r.who===BOT?'bot':''}">${esc(r.who||'未分配')}</div><div class="c-by">${esc(r.by||'–')}</div><div class="due">${r.on?dueLabel(r.due):'–'}</div></div>`).join('')}</div>`
       : `<div class="empty"><b>还没有循环任务</b>点右上角「新建」，把「重复」选成每周或每月。</div>`;
@@ -666,8 +760,7 @@ const canEdit = t => isMgr()||t.by===S.me;
 const canStatus = t => !t.auto&&(canEdit(t)||t.who===S.me);
 function listNow(){ return S.view==='rules' ? rules().filter(r=>!S.q||(r.n+r.d+r.who).includes(S.q)) : pool().filter(inView).filter(pass); }
 function renderBatch(){
-  $('frame').classList.toggle('batching',S.batch);
-  const b=$('batchBtn'); b.classList.toggle('on',S.batch); b.setAttribute('aria-pressed',S.batch); b.textContent=S.batch?'退出批量':'批量';
+  const b=$('batchBtn'); b.hidden=S.view==='ap'; if(S.view==='ap') S.batch=false; b.classList.toggle('on',S.batch); b.setAttribute('aria-pressed',S.batch); b.textContent=S.batch?'退出批量':'批量';
   if(!S.batch){ $('batchSlot').innerHTML=''; return; }
   const n=S.picked.size, dis=n?'':'disabled', list=listNow(), allOn=list.length&&list.every(t=>S.picked.has(t.id));
   const acts = S.view==='rules' ? `<button class="btn" data-b="on" ${dis}>启用</button><button class="btn" data-b="off" ${dis}>暂停</button>`
@@ -746,6 +839,7 @@ $('frame').addEventListener('click',async e=>{
   const k=e.target.closest('[data-check]');
   if(k){ const t=find(k.dataset.check); if(!(isMgr()||t.by===S.me||t.who===S.me)){ toast('这条只有负责人、派单人和主管能改'); return; }
     if(t.st==='已完成'){ setDone(t,'待办'); renderTabs(); renderMain(); persist(t); toast('已改回待办'); } else complete(t); return; }
+  const apb=e.target.closest('[data-apall]'); if(apb){ S.apAll=apb.dataset.apall==='1'; renderMain(); return; }
   const o=e.target.closest('[data-owner]'); if(o){ S.owner=S.owner===o.dataset.owner?'':o.dataset.owner; S.idx=0; renderMain(); return; }
   if(e.target.closest('[data-close]')){ close(); renderMain(); renderDrawer(); return; }
   const gr=e.target.closest('[data-goto-rule]'); if(gr){ S.sel=gr.dataset.gotoRule; renderDrawer(); return; }
