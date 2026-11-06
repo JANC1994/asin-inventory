@@ -13,7 +13,7 @@
   前台文案（标题/亮点/卖点/ST）只读：由「AI抓文案」按钮 / Keepa 脚本写入，页面不改。
   页面现场跑确定性规则（移植 tools/keepa/listing_rule_check.py 的规则部分），AI 规范分析字段只展示。
   可写回：文案审核状态 / 图片审核状态 / 运营审核文案 / 主管审核文案 / 运营审核图片 / 主管审核图片 / 6 个完成勾选。
-  11-06 提交主管审核：卡片按钮在任务待办表 tblUp0MCrRKIVlBI 建任务（来源跳转带 lr=记录ID&t=copy|img）；
+  11-06 提交主管审核：卡片按钮在任务待办表 tblUp0MCrRKIVlBI 建任务（来源跳转带 lr=记录ID&t=copy|img），图片同时把状态改成待审核-主管；
   插件读不到飞书外层网址，所以页面靠读未完成任务出顶部「待审核」条，点一下定位到那条记录。
   四条硬规矩见 wiki/页面设计/概念/飞书应用自定义插件页.md。
 -->
@@ -1023,6 +1023,13 @@ function openRequest(x, t) {
         }
       }
       TODO.tasks.push({ id, rec: r._id, t, who, whoId: TODO.people[who], due: dueMs });
+      if (t === 'img') {                                                  // 图片提交审核时状态同步到「待审核-主管」；文案没有这个状态，不动
+        try {
+          if (!SNAP) await TBLS.lr.setRecord(r._id, { fields: { [FIDS.lr['图片审核状态']]: toCell('lr', '图片审核状态', '待审核-主管') } });
+          r['图片审核状态'] = '待审核-主管'; x.ist = '待审核-主管';
+          if (DRAFT[r._id]) delete DRAFT[r._id]['图片审核状态'];
+        } catch (e) { warn += '，但图片状态没改成待审核-主管，请手动选择后保存'; console.error('img status', e); }
+      }
       box.remove();
       toast(SNAP ? '本地预览：未真正生成待办' : `已生成待办给 ${who}${warn}`);
       keepRender();
