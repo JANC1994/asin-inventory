@@ -83,6 +83,7 @@ button { cursor: pointer; }
 .row, .thead { display: grid; grid-template-columns: 22px minmax(0,1fr) 100px 72px 72px 140px 60px; align-items: center; gap: 12px; padding: 0 16px; }
 .row.solo, .thead.solo { grid-template-columns: 22px minmax(0,1fr) 100px 72px 140px 60px; }
 .thead { min-height: 30px; background: var(--bg); color: var(--sub); font-size: 12px; }
+.thead span { font-size: 12px; color: var(--sub); }
 .row { min-height: 42px; border-top: 1px solid var(--line); cursor: pointer; }
 .thead + .row { border-top: 0; }
 .row:hover { background: var(--hover); }
@@ -116,6 +117,13 @@ button { cursor: pointer; }
 .sw::after { content: ""; width: 14px; height: 14px; border-radius: 50%; background: var(--paper); }
 .sw[aria-checked="true"] { background: var(--blue); justify-content: flex-end; }
 
+@media (min-width: 1000px) {
+  .frame.drawer-on .top, .frame.drawer-on .main, .frame.drawer-on #batchSlot { margin-right: 440px; }
+  .frame.drawer-on .c-src, .frame.drawer-on .c-by { display: none; }
+  .frame.drawer-on .row, .frame.drawer-on .thead { grid-template-columns: 22px minmax(0,1fr) 72px 140px 60px; }
+  .frame.drawer-on .row.solo, .frame.drawer-on .thead.solo { grid-template-columns: 22px minmax(0,1fr) 140px 60px; }
+  .frame.drawer-on .rule, .frame.drawer-on .thead.rules { grid-template-columns: 36px minmax(0,1fr) 72px 140px; }
+}
 /* 抽屉 */
 .drawer { position: absolute; top: 0; right: 0; bottom: 0; width: 440px; max-width: 100%; background: var(--paper); border-left: 1px solid var(--line-2); box-shadow: -12px 0 32px var(--drawer); z-index: 10; display: flex; flex-direction: column; }
 .d-h { flex: none; display: flex; align-items: center; gap: 8px; padding: 14px 20px 0; font-size: 13px; color: var(--sub); }
@@ -139,7 +147,9 @@ button { cursor: pointer; }
 .desc:disabled { color: var(--sub); border-color: var(--line); }
 .foot-meta { font-size: 12px; color: var(--faint); display: flex; flex-direction: column; gap: 2px; }
 .foot-meta a { color: var(--blue); text-decoration: none; }
-.d-f { flex: none; display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 20px; border-top: 1px solid var(--line); }
+.d-h { order: -2; }
+.d-f { order: -1; flex: none; display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 20px; border-bottom: 1px solid var(--line); }
+.d-f:empty { display: none; }
 .ev-row { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 0 10px; width: 100%; padding: 10px 0; border: 0; border-top: 1px solid var(--line); background: none; text-align: left; font-size: 13px; }
 .ev-row:hover .tx { color: var(--blue); }
 .ev-row .tm { color: var(--faint); font-size: 12px; font-variant-numeric: tabular-nums; }
@@ -152,16 +162,15 @@ button { cursor: pointer; }
 .r-rem:hover { text-decoration: underline; }
 .pick { width: 18px; height: 18px; border-radius: 4px; border: 1.5px solid var(--line-2); display: grid; place-items: center; color: transparent; font-size: 11px; line-height: 1; }
 .pick.on { background: var(--blue); border-color: var(--blue); color: var(--on-accent); }
-.batch { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 16px; background: var(--paper); border-top: 1px solid var(--line-2); font-size: 13px; }
+.batch { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 16px 12px; padding: 8px 16px; background: var(--paper); border: 1px solid var(--blue); border-radius: 8px; font-size: 13px; }
 .batch b { font-weight: 500; font-variant-numeric: tabular-nums; }
 .batch .link-btn { margin-right: 8px; }
-.frame.batching .toast { bottom: 68px; }
 .scrim { position: absolute; inset: 0; z-index: 30; background: var(--drawer); display: grid; place-items: center; padding: 16px; }
 .dialog { width: 360px; max-width: 100%; background: var(--paper); border-radius: 10px; padding: 18px 20px; display: flex; flex-direction: column; gap: 8px; }
 .dialog h2 { margin: 0; font-size: 15px; font-weight: 600; }
 .dialog p { margin: 0; font-size: 13px; color: var(--sub); }
 .dialog div { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
-.toast { position: absolute; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 20; display: flex; gap: 12px; padding: 8px 14px; background: var(--ink); color: var(--paper); border-radius: 8px; font-size: 13px; white-space: nowrap; max-width: calc(100% - 24px); }
+.toast { position: absolute; left: 50%; top: 56px; transform: translateX(-50%); z-index: 20; display: flex; gap: 12px; padding: 8px 14px; background: var(--ink); color: var(--paper); border-radius: 8px; font-size: 13px; white-space: nowrap; max-width: calc(100% - 24px); }
 .toast span { overflow: hidden; text-overflow: ellipsis; }
 .toast button { flex: none; border: 0; background: none; color: inherit; text-decoration: underline; padding: 0; }
 
@@ -204,7 +213,7 @@ html, body { height: 100%; margin: 0; overflow: hidden; }
 </head>
 <body>
 <div class="outer">
-  <div class="savebar" id="savebar"><span>确认没问题后点右边按钮，插件才会保存到应用页面上。</span><button class="btn pri" id="saveBtn">保存到页面</button><span id="saveMsg"></span></div>
+  <div class="savebar" id="tallTip" style="background:#fff7e8">插件框比屏幕还高，要往下滑才能看全。请在应用编辑模式里把这个插件组件的高度拖到一屏以内。</div><div class="savebar" id="savebar"><span>确认没问题后点右边按钮，插件才会保存到应用页面上。</span><button class="btn pri" id="saveBtn">保存到页面</button><span id="saveMsg"></span></div>
   <div class="frame" id="frame">
     <div class="top">
       <h1>任务待办</h1>
@@ -214,8 +223,8 @@ html, body { height: 100%; margin: 0; overflow: hidden; }
       <button class="btn" id="batchBtn" aria-pressed="false">批量</button>
       <button class="btn pri" id="newBtn">新建</button>
     </div>
-    <div class="main" id="main"></div>
     <div id="batchSlot"></div>
+    <div class="main" id="main"></div>
     <div id="drawerSlot"></div>
     <div id="toastSlot"></div>
     <div id="confirmSlot"></div>
@@ -363,6 +372,8 @@ window.TODO_HOST = (() => {
 
   async function start(c) {
     ctx = c; const { S, $ } = c;
+    const tall = () => { $('tallTip').style.display = innerHeight > (screen.availHeight || screen.height || 1080) + 40 ? 'flex' : 'none'; };
+    addEventListener('resize', tall); tall();
     S.mode = 'real'; S.exTasks = []; S.exRules = []; S.tasks = []; S.rules = [];
     $('main').innerHTML = '<div class="empty">正在读取任务…</div>';
     const steps = [];
@@ -494,7 +505,7 @@ const remindedToday = t => t.remindedAt && dn(t.remindedAt)===T0;
 const canRemind = t => t.st!=='已完成' && t.who && t.who!==BOT;
 function remCtl(t) {
   if (S.batch) return '';
-  return canRemind(t)&&t.who!==S.me ? `<button class="r-rem" data-rem="${t.id}" aria-label="提醒 ${esc(t.who)}">${remindedToday(t)?'再提醒':'提醒'}</button>` : '';
+  return canRemind(t) ? `<button class="r-rem" data-rem="${t.id}" aria-label="提醒 ${esc(t.who)}">${remindedToday(t)?'再提醒':'提醒'}</button>` : '';
 }
 function rowHtml(t) {
   const done=t.st==='已完成', solo=S.view==='mine', r=ruleOf(t);
@@ -504,7 +515,7 @@ function rowHtml(t) {
   const src = t.src&&t.src!=='手动新建' ? (SOURCES[t.src]||t.src==='循环任务' ? esc(t.src) : esc(t.src)) : '–';
   return `<div class="row ${solo?'solo':''} ${done?'done':''} ${S.sel===t.id||picked?'sel':''}" data-id="${t.id}" tabindex="0" role="button">${left}<div class="name"><span>${esc(t.n||'（没写任务名）')}</span>${metas}</div><div class="c-src">${src}</div>${solo?'':`<div class="who ${t.who?'':'none'} ${t.who===BOT?'bot':''}">${esc(t.who||'未分配')}</div>`}<div class="c-by">${esc(t.by||'–')}</div>${dueHtml(t)}<div class="c-act">${remCtl(t)}</div></div>`;
 }
-const theadHtml = () => { const solo=S.view==='mine'; return `<div class="thead ${solo?'solo':''}"><span></span><span>任务</span><span>来源</span>${solo?'':'<span>执行人</span>'}<span>派单人</span><span>${S.view==='done'?'完成':'截止'}</span><span>操作</span></div>`; };
+const theadHtml = () => { const solo=S.view==='mine'; return `<div class="thead ${solo?'solo':''}"><span></span><span>任务</span><span class="c-src">来源</span>${solo?'':'<span>执行人</span>'}<span class="c-by">派单人</span><span>${S.view==='done'?'完成':'截止'}</span><span>操作</span></div>`; };
 
 /* 动态 */
 function events() {
@@ -557,7 +568,7 @@ function renderMain() {
   let h='';
   if (S.view==='rules') {
     const list=rules().filter(r=>!S.q||(r.n+r.d+r.who).includes(S.q)).sort((a,b)=>(b.on-a.on)||dn(a.due)-dn(b.due));
-    h = list.length ? `<div class="section"><div class="group-h">循环任务<small>${list.filter(r=>r.on).length} 条启用</small></div><div class="thead rules"><span></span><span>任务和频率</span><span>来源</span><span>执行人</span><span>创建人</span><span>下次截止</span></div>${list.map(r=>`<div class="rule ${r.on?'':'off'}" data-rule="${r.id}" tabindex="0" role="button">${S.batch?`<span class="pick ${S.picked.has(r.id)?'on':''}" role="checkbox" aria-checked="${S.picked.has(r.id)}">✓</span>`:`<button class="sw" role="switch" aria-checked="${r.on}" aria-label="${r.on?'暂停':'启用'} ${esc(r.n)}" data-sw="${r.id}"></button>`}<div style="min-width:0"><div class="r-name">${esc(r.n)}${r.ex?' <span class="meta ex">示例</span>':''}</div><div class="r-freq">↻ ${esc(freqLabel(r.freq,r.anchor||r.due))}${r.on?'':' · 已暂停'}</div></div><div class="c-src">${esc(r.src||'–')}</div><div class="who ${r.who===BOT?'bot':''}">${esc(r.who||'未分配')}</div><div class="c-by">${esc(r.by||'–')}</div><div class="due">${r.on?dueLabel(r.due):'–'}</div></div>`).join('')}</div>`
+    h = list.length ? `<div class="section"><div class="group-h">循环任务<small>${list.filter(r=>r.on).length} 条启用</small></div><div class="thead rules"><span></span><span>任务和频率</span><span class="c-src">来源</span><span>执行人</span><span class="c-by">创建人</span><span>下次截止</span></div>${list.map(r=>`<div class="rule ${r.on?'':'off'}" data-rule="${r.id}" tabindex="0" role="button">${S.batch?`<span class="pick ${S.picked.has(r.id)?'on':''}" role="checkbox" aria-checked="${S.picked.has(r.id)}">✓</span>`:`<button class="sw" role="switch" aria-checked="${r.on}" aria-label="${r.on?'暂停':'启用'} ${esc(r.n)}" data-sw="${r.id}"></button>`}<div style="min-width:0"><div class="r-name">${esc(r.n)}${r.ex?' <span class="meta ex">示例</span>':''}</div><div class="r-freq">↻ ${esc(freqLabel(r.freq,r.anchor||r.due))}${r.on?'':' · 已暂停'}</div></div><div class="c-src">${esc(r.src||'–')}</div><div class="who ${r.who===BOT?'bot':''}">${esc(r.who||'未分配')}</div><div class="c-by">${esc(r.by||'–')}</div><div class="due">${r.on?dueLabel(r.due):'–'}</div></div>`).join('')}</div>`
       : `<div class="empty"><b>还没有循环任务</b>点右上角「新建」，把「重复」选成每周或每月。</div>`;
   } else if (S.view==='done') {
     const list=pool().filter(inView).filter(pass);
@@ -600,7 +611,8 @@ function propsHtml(o, core, status, isNew) {
     <div class="p"><label for="fSrc">来源</label><select id="fSrc" ${core?'':'disabled'}>${opt(srcs,o.src||'')}</select></div>
   </div>`;
 }
-function renderDrawer() {
+function renderDrawer() { drawDrawer(); $('frame').classList.toggle('drawer-on', !!$('drawerSlot').innerHTML); }
+function drawDrawer() {
   const slot=$('drawerSlot');
   if (S.panel==='feed') {
     const ev=events();
