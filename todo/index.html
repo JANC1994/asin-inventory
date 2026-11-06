@@ -642,7 +642,7 @@ function drawDrawer() {
       ${t.rec?`<a href="${BASE_URL}${t.rec}" target="_blank" rel="noopener">在多维表打开</a>`:''}
     </div>
   </div>
-  <div class="d-f">${core?'<button class="btn danger" id="doDelete" style="order:9;margin-left:auto">删除</button>':''}${t.isRule?(core?`<button class="btn" id="doPause">${t.on?'暂停':'启用'}</button>`:''):`${status&&t.st!=='已完成'?'<button class="btn pri" id="doDone">标为完成</button>':''}${t.who===BOT?'':'<button class="btn" id="doNotify">提醒</button>'}`}</div></aside>`;
+  <div class="d-f">${core?'<button class="btn danger" id="doDelete" style="order:9;margin-left:auto">删除</button>':''}${t.isRule?(core?`<button class="btn" id="doPause">${t.on?'暂停':'启用'}</button>`:''):`${status&&t.st!=='已完成'?'<button class="btn pri" id="doDone">标为完成</button>':''}${canRemind(t)?'<button class="btn" id="doNotify">提醒</button>':''}`}</div></aside>`;
   bindProps(t,false);
 }
 function refreshPv(o){ const b=$('botRow'); if(b) b.hidden=o.who!==BOT; const s=$('repSlot'); if(s) s.innerHTML=repeatPv(o); const l=$('leadRow'); if(l) l.hidden=!o.freq; }
@@ -716,7 +716,7 @@ const COOL=60000;
 const cooling = t => t.sentMs && Date.now()-t.sentMs<COOL;
 function markRemind(t,at){ t.remindedAt=at; t.notify=true; t.sentMs=Date.now(); }
 async function remindOne(t){
-  if(!canRemind(t)){ toast('先选执行人再提醒'); return; }
+  if(!canRemind(t)){ toast(t.st==='已完成'?'任务已完成，不用提醒':t.who===BOT?'机器人任务不用提醒':'先选执行人再提醒'); return; }
   if(cooling(t)){ toast('刚提醒过，1 分钟后可以再发'); return; }
   markRemind(t,now()); S.idx=0; renderMain(); if(S.sel===t.id) renderDrawer();
   const ok=await persist(t);
