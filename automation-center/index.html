@@ -1,0 +1,413 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>自动化中心</title>
+<!--
+  飞书应用插件页：自动化中心（第 1 期，只读）。规矩见 wiki/页面设计/概念/飞书应用自定义插件页.md
+  数据来自 X40（sync_automation_center.py）每小时写的 3 张表；页面不写任何表，也不能启动或暂停任务。
+  授权：saveConfig 只登记产品主表，3 张表的授权组件在「数据授权4（勿删）」。
+  本地预览：build_preview.py 注入 window.__SNAPSHOT__；地址加 ?as=member 看组员视角。
+-->
+<style>
+  :root {
+    --bg: #f5f6f7; --card: #ffffff; --ink: #1f2329; --sub: #646a73; --faint: #8f959e; --line: #e5e6eb; --line-2: #d0d3d6; --seg: #eceef1;
+    --blue: #3370ff; --blue-soft: #e1eaff; --red: #d92f2a; --red-soft: #fde2e2;
+    --amber: #b25e00; --amber-soft: #fff1d6; --green: #1a7f4b; --green-soft: #d9f5e3; --gray-soft: #eef0f2;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; overflow: hidden; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.5 -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; }
+  button, input, select { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  :focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; }
+  .wrap { padding: 12px 16px 0; height: 100vh; display: flex; flex-direction: column; }
+  #main { flex: 1; min-height: 0; overflow: auto; position: relative; margin: 0 -16px; padding: 0 16px 24px; }
+  .tip { flex: none; background: #fff7e8; color: #b25e00; border-radius: 8px; padding: 6px 12px; font-size: 12.5px; margin-bottom: 8px; }
+  .savebar { flex: none; display: none; align-items: center; gap: 12px; background: #fff7e8; border: 1px solid #ffd591; border-radius: 8px; padding: 10px 14px; margin-bottom: 10px; }
+  .savebar.show { display: flex; }
+  .savebar button { height: 32px; padding: 0 16px; border: 0; border-radius: 6px; background: var(--blue); color: #fff; font-size: 14px; }
+  .savebar button:disabled { opacity: .6; cursor: default; }
+  .sticky { position: relative; flex: none; z-index: 20; background: var(--bg); margin: 0 -16px; padding: 0 16px 10px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+  .sticky.stuck { box-shadow: 0 6px 12px -8px rgba(0,0,0,.25); }
+  h1 { margin: 0; font-size: 17px; font-weight: 600; }
+  .tabs { display: flex; gap: 4px; background: var(--seg); border-radius: 8px; padding: 3px; }
+  .tabs button { flex: none; border: 0; background: none; padding: 4px 14px; border-radius: 6px; color: var(--sub); }
+  .tabs button[aria-selected="true"] { background: var(--card); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+  .spacer { flex: 1; }
+  .meta { color: var(--sub); font-size: 12px; }
+  .btn { height: 30px; padding: 0 14px; border: 1px solid var(--line-2); border-radius: 6px; background: var(--card); white-space: nowrap; }
+  .btn:hover { background: var(--bg); }
+  .btn:disabled { opacity: .55; cursor: default; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 12px 16px; min-width: 0; }
+  .card h3 { margin: 0 0 10px; font-size: 14px; font-weight: 600; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .card h3 small { font-weight: normal; color: var(--sub); font-size: 12px; }
+  .stack { display: flex; flex-direction: column; gap: 12px; }
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
+  .kpi b { display: block; font-size: 24px; font-weight: 600; line-height: 1.25; font-variant-numeric: tabular-nums; }
+  .kpi b.hot { color: var(--red); }
+  .kpi span { color: var(--sub); font-size: 12px; }
+  .two { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 12px; }
+  @media (max-width: 800px) { .two { grid-template-columns: minmax(0, 1fr); } }
+  .up { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 7px 10px; }
+  .up b { font-weight: 500; font-variant-numeric: tabular-nums; }
+  .todo { display: flex; flex-direction: column; gap: 8px; }
+  .todo > div { display: flex; gap: 8px; align-items: flex-start; }
+  .p { flex: none; display: inline-block; padding: 0 7px; border-radius: 4px; font-size: 12px; line-height: 19px; white-space: nowrap; }
+  .p-ok { background: var(--green-soft); color: var(--green); } .p-warn { background: var(--amber-soft); color: var(--amber); }
+  .p-bad { background: var(--red-soft); color: var(--red); } .p-blue { background: var(--blue-soft); color: var(--blue); } .p-gray { background: var(--gray-soft); color: var(--sub); }
+  .sub { color: var(--sub); font-size: 12px; }
+  .filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 10px; }
+  .filters label { display: inline-flex; align-items: center; gap: 5px; color: var(--sub); }
+  .filters select, .filters input { height: 28px; border: 1px solid var(--line-2); border-radius: 6px; background: var(--card); color: var(--ink); padding: 0 6px; }
+  .filters input { width: 180px; }
+  .tablecard { background: var(--card); border: 1px solid var(--line); border-radius: 8px; width: max-content; min-width: 100%; }
+  table { border-collapse: separate; border-spacing: 0; width: 100%; font-variant-numeric: tabular-nums; }
+  .tbl th, .tbl td { padding: 7px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+  .tbl th { position: sticky; top: 0; z-index: 5; background: #fafbfc; color: var(--sub); font-weight: 500; font-size: 12px; white-space: nowrap; }
+  .tbl tr:last-child td { border-bottom: 0; }
+  .tbl td.nw { white-space: nowrap; }
+  .tbl td.out { min-width: 170px; max-width: 280px; }
+  .tbl td.why { min-width: 200px; max-width: 360px; }
+  .tbl td b { font-weight: 500; }
+  .bots { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
+  .bots dl { display: grid; grid-template-columns: 62px minmax(0, 1fr); gap: 5px 8px; margin: 0; }
+  .bots dt { color: var(--sub); } .bots dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+  .empty { padding: 36px; text-align: center; color: var(--sub); }
+  .err { color: var(--red); white-space: pre-wrap; }
+  /* 24 小时时间轴 */
+  .tl { min-width: 840px; }
+  .tlbox { overflow-x: auto; }
+  .lane { display: grid; grid-template-columns: 64px minmax(0, 1fr); border-top: 1px solid var(--line); }
+  .lane > span { font-size: 12px; color: var(--sub); display: flex; align-items: center; }
+  .track { position: relative; height: 58px; background-image: linear-gradient(to right, var(--line) 1px, transparent 1px); background-size: calc(100% / 12) 100%; }
+  .mark { position: absolute; top: 50%; width: 0; height: 0; }
+  .mark i { position: absolute; left: -4px; top: -4px; width: 9px; height: 9px; border-radius: 50%; background: var(--blue); }
+  .mark.shift i { background: var(--amber); border-radius: 1px; transform: rotate(45deg); }
+  .mark.bad i { background: var(--red); }
+  .mark b { position: absolute; left: 0; transform: translateX(-50%); font-size: 11px; line-height: 1; font-weight: 500; white-space: nowrap; }
+  .mark.a b { bottom: 8px; } .mark.c b { top: 8px; }
+  .now { position: absolute; top: 0; bottom: 0; width: 0; border-left: 1.5px solid var(--red); z-index: 2; }
+  .hours { display: grid; grid-template-columns: 64px minmax(0, 1fr); border-top: 1px solid var(--line); }
+  .hours div { position: relative; height: 20px; }
+  .hours em { position: absolute; top: 4px; transform: translateX(-50%); font-size: 11px; line-height: 1; color: var(--sub); font-style: normal; }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12px; color: var(--sub); margin-top: 8px; }
+  .legend i { display: inline-block; width: 9px; height: 9px; background: var(--blue); border-radius: 50%; margin-right: 5px; }
+  .legend .s i { background: var(--amber); border-radius: 1px; transform: rotate(45deg); }
+  .legend .f i { background: var(--red); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="tip" id="tallTip" style="display:none">插件框比屏幕还高，往下滑时顶部会被滚走。请在应用编辑模式里把这个插件组件的高度拖到一屏以内。</div>
+  <div class="savebar" id="savebar">
+    <span>这是插件的配置预览。确认没问题后点右边按钮，插件才会保存到应用页面上。</span>
+    <button id="saveBtn">保存到页面</button>
+    <span class="meta" id="saveMsg"></span>
+  </div>
+  <div class="sticky" id="sticky">
+    <h1>自动化中心</h1>
+    <div class="tabs" id="tabs" role="tablist"></div>
+    <span class="spacer"></span>
+    <span class="meta" id="meta">读取中…</span>
+    <button class="btn" id="refresh">刷新</button>
+  </div>
+  <div id="main"><div class="empty">正在读取…</div></div>
+</div>
+
+<script type="module">
+// ===== ① 配置 =====
+const sdkUrls = () => {
+  const out = [];
+  try { out.push(new URL('./sdk/index.mjs', location.href).href); } catch (e) { /* 预览面板的 data: 地址没有相对路径 */ }
+  return out.concat(['https://cdn.jsdelivr.net/npm/@lark-base-open/js-sdk@1.0.2/dist/index.mjs', 'https://unpkg.com/@lark-base-open/js-sdk@1.0.2/dist/index.mjs']);
+};
+const BASE_TOKEN = 'JGvebyaAYapWtOslxc9cuKYXnwd';
+const AUTH_TABLE = 'tblqksywqgYvywOT';   // saveConfig 只登记产品主表：登记别的表保存后可能一直加载中（10-28、11-01 踩过）
+const TABLES = {
+  task: { id: 'tblNjjwfZZiclbMj', name: '自动化任务', required: true },
+  bot: { id: 'tblQ6XzTLo0P8b9N', name: '机器人登记' },
+  run: { id: 'tbl91rzNkcJrawjC', name: '运行记录' },
+};
+const MANAGER_ID = 'ou_24e3d484ccc9e17e463774309651251a';   // 林键春：看全部；其他人按 可见范围 过滤
+const SYNC_KEY = 'X40';
+const STALE_HOURS = 3;
+
+// ===== ② 工具 =====
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const withTimeout = (p, ms, what) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error(`${what} 超时 ${ms / 1000} 秒`)), ms))]);
+const BJ = 8 * 3600000;
+const pad = (n) => String(n).padStart(2, '0');
+const bj = (ms) => new Date(Number(ms) + BJ);   // 之后都用 getUTC*，避开本机美西时区
+const dayNo = (ms) => Math.floor((Number(ms) + BJ) / 86400000);
+const fmtDT = (ms) => { if (!ms) return '—'; const d = bj(ms); return `${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`; };
+const fmtHM = (ms) => { const d = bj(ms); return `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`; };
+const PILL = { 启用: 'ok', 成功: 'ok', 在线: 'ok', 运行中: 'blue', 失败: 'bad', 异常: 'bad', 待建应用: 'warn', 未运行: 'warn', 跟美西走: 'warn', 停用: 'gray', 已移除: 'gray', 无记录: 'gray' };
+const pill = (s) => s ? `<span class="p p-${PILL[s] || 'gray'}">${esc(s)}</span>` : '<span class="sub">—</span>';
+
+function cell(v) {
+  if (v == null) return '';
+  if (typeof v === 'number' || typeof v === 'string' || typeof v === 'boolean') return v;
+  if (Array.isArray(v)) return v.map(cell).join('');
+  if (typeof v === 'object') return v.text ?? v.name ?? cell(v.value);
+  return String(v);
+}
+const userIds = (v) => (Array.isArray(v) ? v : v ? [v] : []).map((u) => u && u.id).filter(Boolean);
+
+// ===== ③ 读数据 =====
+let SDK = null;
+const S = { tab: '总览', task: [], bot: [], run: [], warn: [], me: null, identified: false, f: { src: '全部', bot: '全部', mod: '全部', st: '全部', q: '', rr: '全部', rq: '' } };
+const isManager = () => S.me === MANAGER_ID;
+
+async function readTable(cfg) {
+  const table = await withTimeout(SDK.bitable.base.getTableById(cfg.id), 15000, `打开 ${cfg.name}`);
+  const metas = await withTimeout(table.getFieldMetaList(), 15000, `读 ${cfg.name} 字段`);
+  const rows = [];
+  let pageToken;
+  for (let guard = 0; guard < 200; guard++) {
+    const res = await withTimeout(table.getRecordsByPage({ pageSize: 200, pageToken }), 20000, `读 ${cfg.name} 记录`);
+    for (const r of res.records) {
+      const o = { _id: r.recordId };
+      for (const m of metas) o[m.name] = m.name === '相关人' ? userIds(r.fields[m.id]) : cell(r.fields[m.id]);
+      rows.push(o);
+    }
+    if (!res.hasMore) break;
+    pageToken = res.pageToken;
+  }
+  return rows;
+}
+
+async function load() {
+  S.warn = [];
+  if (window.__SNAPSHOT__) { Object.assign(S, window.__SNAPSHOT__); return; }
+  for (const [k, cfg] of Object.entries(TABLES)) {   // 逐张读：启动时并发调 SDK 会把通道卡死
+    try { S[k] = await readTable(cfg); } catch (e) {
+      if (cfg.required) throw e;
+      S[k] = []; S.warn.push(`${cfg.name} 读不到：${e && e.message ? e.message : e}`);
+    }
+  }
+}
+
+// ===== ④ 权限：组员只看全员可见和跟自己相关的 =====
+const visibleTasks = () => isManager() ? S.task : S.task.filter((t) => t['可见范围'] === '全员' || (S.me && (t['相关人'] || []).includes(S.me)));
+const visibleRuns = () => { if (isManager()) return S.run; const keys = new Set(visibleTasks().map((t) => t['任务键'])); return S.run.filter((r) => keys.has(r['任务键'])); };
+
+// ===== ⑤ 各页签 =====
+function timeline(tasks) {
+  const now = Date.now();
+  const lanes = ['数据同步', '通知', '巡检'].map((l) => {
+    const pts = [];
+    for (const t of tasks) {
+      if (t['类型'] !== l || t['状态'] !== '启用' || !/^(每天|工作日)/.test(String(t['时间']))) continue;
+      for (const hm of String(t['时间']).match(/\d\d:\d\d/g) || []) pts.push({ hm, id: /^X\d/.test(t['任务键']) ? t['任务键'] : String(t['任务名称']).split('_')[0], shift: t['时钟'] === '跟美西走', bad: t['上次结果'] === '失败' });
+    }
+    pts.sort((a, b) => a.hm.localeCompare(b.hm));
+    const g = [];
+    for (const p of pts) { const q = g[g.length - 1]; if (q && q.hm === p.hm) { q.id += ' ' + p.id; q.bad = q.bad || p.bad; } else g.push({ ...p }); }
+    return { l, g };
+  }).filter((x) => x.g.length);
+  if (!lanes.length) return '';
+  const pct = (hm) => { const [h, m] = hm.split(':').map(Number); return (h * 60 + m) / 14.4; };
+  const d = bj(now), nowPct = (d.getUTCHours() * 60 + d.getUTCMinutes()) / 14.4;
+  const rows = lanes.map(({ l, g }) => `<div class="lane"><span>${esc(l)}</span><div class="track"><div class="now" style="left:${nowPct}%"></div>${g.map((p, i) =>
+    `<div class="mark ${i % 2 ? 'c' : 'a'}${p.shift ? ' shift' : ''}${p.bad ? ' bad' : ''}" style="left:${pct(p.hm)}%" title="${esc(p.id)} 北京 ${p.hm}"><i></i><b>${esc(p.id)}</b></div>`).join('')}</div></div>`).join('');
+  let hrs = ''; for (let i = 0; i <= 24; i += 2) hrs += `<em style="left:${i / 24 * 100}%">${pad(i)}</em>`;
+  return `<div class="card"><h3>今天 24 小时 <small>北京时间，红线是现在</small></h3><div class="tlbox"><div class="tl">${rows}<div class="hours"><span></span><div>${hrs}</div></div></div></div>
+    <div class="legend"><span><i></i>北京时间固定</span><span class="s"><i></i>跟美西走，换夏令时北京时间偏 1 小时</span><span class="f"><i></i>上次失败</span></div></div>`;
+}
+
+function viewHome() {
+  const tasks = visibleTasks();
+  const win = tasks.filter((t) => t['来源'] === 'Windows任务');
+  const wf = tasks.filter((t) => t['来源'] === '多维表自动化');
+  const on = (x) => x.filter((t) => t['状态'] === '启用' || t['状态'] === '运行中').length;
+  const failed = tasks.filter((t) => t['上次结果'] === '失败' && t['状态'] !== '停用' && t['状态'] !== '已移除');
+  const botOn = S.bot.filter((b) => b['状态'] === '在线').length;
+  const next = tasks.filter((t) => t['下次运行'] && t['时钟'] !== '常驻' && t['任务键'] !== SYNC_KEY && Number(t['下次运行']) > Date.now()).sort((a, b) => a['下次运行'] - b['下次运行']).slice(0, 6);
+  const todo = [];
+  for (const t of failed) todo.push(['失败', `<b>${esc(t['任务名称'])}</b>：${esc(t['结果说明'] || '运行失败')}`]);
+  if (isManager()) {
+    const sync = S.task.find((t) => t['任务键'] === SYNC_KEY);
+    if (sync && sync['上次运行'] && Date.now() - sync['上次运行'] > STALE_HOURS * 3600000) todo.push(['异常', `状态同步 ${SYNC_KEY} 已 ${Math.floor((Date.now() - sync['上次运行']) / 3600000)} 小时没更新，页面上的状态可能过期`]);
+    const unknown = S.task.filter((t) => t['模块'] === '待分类');
+    if (unknown.length) todo.push(['未运行', `${unknown.length} 个任务还没分模块：${esc(unknown.slice(0, 4).map((t) => t['任务名称']).join('、'))}。在「自动化任务」表里改`]);
+    const missing = S.task.filter((t) => t['状态'] === '已移除');
+    if (missing.length) todo.push(['已移除', `${missing.length} 个任务已找不到：${esc(missing.slice(0, 4).map((t) => t['任务名称']).join('、'))}`]);
+    const pending = S.bot.filter((b) => b['状态'] === '待建应用');
+    if (pending.length) todo.push(['待建应用', `${esc(pending.map((b) => b['机器人']).join('、'))} 还没有飞书应用`]);
+    const shift = S.task.filter((t) => t['时钟'] === '跟美西走' && t['状态'] !== '停用');
+    if (shift.length) todo.push(['跟美西走', `${shift.length} 个任务换夏令时北京时间会偏 1 小时：${esc(shift.map((t) => t['任务键']).join('、'))}`]);
+  }
+  return `<div class="stack">
+    <div class="kpis">
+      <div class="card kpi"><b>${on(win)}</b><span>计划任务在跑，另 ${win.length - on(win)} 个停用</span></div>
+      <div class="card kpi"><b class="${failed.length ? 'hot' : ''}">${failed.length}</b><span>上次运行失败</span></div>
+      <div class="card kpi"><b>${on(wf)}</b><span>多维表自动化启用，另 ${wf.length - on(wf)} 条停用</span></div>
+      <div class="card kpi"><b>${botOn} / ${S.bot.length}</b><span>机器人在线</span></div>
+    </div>
+    ${timeline(tasks)}
+    <div class="two">
+      <div class="card"><h3>接下来</h3>${next.length ? `<div class="up">${next.map((t) => `<b>${fmtDT(t['下次运行'])}</b><span>${esc(t['任务名称'])} <span class="sub">→ ${esc(t['输出到'])}</span></span>`).join('')}</div>` : '<div class="sub">没有排定的任务。</div>'}</div>
+      <div class="card"><h3>需要处理</h3>${todo.length ? `<div class="todo">${todo.map(([p, h]) => `<div>${pill(p)}<span>${h}</span></div>`).join('')}</div>` : '<div class="sub">目前没有要处理的。</div>'}</div>
+    </div></div>`;
+}
+
+const uniq = (arr) => [...new Set(arr.filter(Boolean))];
+const opts = (list, val) => ['全部', ...list].map((o) => `<option${o === val ? ' selected' : ''}>${esc(o)}</option>`).join('');
+
+function viewTasks() {
+  const all = visibleTasks();
+  return `<div class="filters">
+    <label>来源 <select data-f="src">${opts(uniq(all.map((t) => t['来源'])), S.f.src)}</select></label>
+    <label>机器人 <select data-f="bot">${opts(uniq(all.map((t) => t['机器人'])), S.f.bot)}</select></label>
+    <label>模块 <select data-f="mod">${opts(uniq(all.map((t) => t['模块'])), S.f.mod)}</select></label>
+    <label>状态 <select data-f="st">${opts(uniq(all.map((t) => t['状态'])), S.f.st)}</select></label>
+    <input data-f="q" placeholder="搜任务名称" value="${esc(S.f.q)}" aria-label="搜任务名称">
+    <span class="sub" id="count"></span>
+  </div><div id="list"></div>`;
+}
+function taskList() {
+  const f = S.f, q = f.q.trim().toLowerCase();
+  const ORDER = { Windows任务: 0, 页面新建: 1, 多维表自动化: 2 };
+  const list = visibleTasks().filter((t) => (f.src === '全部' || t['来源'] === f.src) && (f.bot === '全部' || t['机器人'] === f.bot) && (f.mod === '全部' || t['模块'] === f.mod) && (f.st === '全部' || t['状态'] === f.st)
+    && (!q || String(t['任务名称']).toLowerCase().includes(q) || String(t['任务键']).toLowerCase().includes(q)))
+    .sort((a, b) => (ORDER[a['来源']] ?? 9) - (ORDER[b['来源']] ?? 9) || String(a['任务键']).localeCompare(String(b['任务键'])));
+  $('count').textContent = `共 ${list.length} 条`;
+  $('list').innerHTML = list.length ? `<div class="tablecard"><table class="tbl"><thead><tr><th>任务</th><th>来源</th><th>机器人</th><th>时间（北京）</th><th>输出到</th><th>模块</th><th>状态</th><th>上次运行</th><th>上次结果</th><th>下次运行</th></tr></thead><tbody>
+    ${list.map((t) => `<tr><td class="why"><b>${esc(t['任务名称'])}</b>${/^X\d/.test(t['任务键']) ? ` <span class="sub">${esc(t['任务键'])}</span>` : ''}${t['说明'] ? `<br><span class="sub">${esc(t['说明'])}</span>` : ''}</td>
+      <td class="nw">${esc(t['来源'] === 'Windows任务' ? '计划任务' : t['来源'])}</td><td class="nw">${esc(t['机器人'])}</td>
+      <td class="nw">${esc(t['时间'])}${t['时钟'] === '跟美西走' ? ' <span class="p p-warn" title="跟美西时间走，换夏令时北京时间偏 1 小时">会偏</span>' : ''}</td>
+      <td class="out">${esc(t['输出到'] || '—')}</td><td class="nw">${esc(t['模块'])}</td><td class="nw">${pill(t['状态'])}</td><td class="nw">${t['上次运行'] ? fmtDT(t['上次运行']) : '<span class="sub">—</span>'}</td>
+      <td>${pill(t['上次结果'])}${t['结果说明'] ? `<br><span class="sub">${esc(t['结果说明'])}</span>` : ''}</td><td class="nw">${t['状态'] === '运行中' ? '<span class="sub">常驻</span>' : t['下次运行'] ? fmtDT(t['下次运行']) : '<span class="sub">—</span>'}</td></tr>`).join('')}
+    </tbody></table></div>` : '<div class="empty">没有符合条件的任务。</div>';
+}
+
+function viewBots() {
+  if (!S.bot.length) return '<div class="empty">机器人登记读不到。</div>';
+  const tasks = visibleTasks();
+  return `<div class="bots">${S.bot.map((b) => { const n = tasks.filter((t) => t['机器人'] === b['机器人']).length;
+    return `<div class="card"><h3>${esc(b['机器人'])} ${pill(b['状态'])}</h3><dl><dt>负责</dt><dd>${esc(b['负责模块'])}</dd><dt>可读</dt><dd>${esc(b['可读'])}</dd><dt>可写</dt><dd>${esc(b['可写'])}</dd><dt>可发给</dt><dd>${esc(b['可发给'])}</dd><dt>名下任务</dt><dd>${n} 个</dd></dl></div>`; }).join('')}</div>`;
+}
+
+function viewRuns() {
+  return `<div class="filters">
+    <label>结果 <select data-f="rr">${opts(['成功', '失败', '运行中'], S.f.rr)}</select></label>
+    <input data-f="rq" placeholder="搜任务名称" value="${esc(S.f.rq)}" aria-label="搜任务名称">
+    <span class="sub" id="count"></span>
+    <span class="sub">计划任务的记录从 11-06 开始积累；飞书不提供多维表自动化的运行历史，所以这里没有它们。</span>
+  </div><div id="list"></div>`;
+}
+function runList() {
+  const f = S.f, q = f.rq.trim().toLowerCase();
+  const list = visibleRuns().filter((r) => (f.rr === '全部' || r['结果'] === f.rr) && (!q || String(r['任务名称']).toLowerCase().includes(q) || String(r['任务键']).toLowerCase().includes(q)))
+    .sort((a, b) => Number(b['开始时间']) - Number(a['开始时间']));
+  $('count').textContent = `共 ${list.length} 条`;
+  $('list').innerHTML = list.length ? `<div class="tablecard"><table class="tbl"><thead><tr><th>开始（北京）</th><th>任务</th><th>机器人</th><th>结果</th><th>输出到</th><th>说明</th></tr></thead><tbody>
+    ${list.slice(0, 500).map((r) => `<tr><td class="nw">${fmtDT(r['开始时间'])}</td><td class="nw"><b>${esc(r['任务名称'])}</b> <span class="sub">${esc(r['任务键'])}</span></td><td class="nw">${esc(r['机器人'])}</td><td class="nw">${pill(r['结果'])}</td><td class="out">${esc(r['输出到'] || '—')}</td><td class="why">${esc(r['说明'] || '')}</td></tr>`).join('')}
+    </tbody></table></div>` : '<div class="empty">没有运行记录。</div>';
+}
+
+// ===== ⑥ 渲染 =====
+const VIEWS = { 总览: viewHome, 任务: viewTasks, 机器人: viewBots, 运行记录: viewRuns };
+function renderTabs() {
+  $('tabs').innerHTML = Object.keys(VIEWS).map((t) => `<button role="tab" aria-selected="${S.tab === t}" data-tab="${t}">${t}</button>`).join('');
+}
+function renderMeta() {
+  const sync = S.task.find((t) => t['任务键'] === SYNC_KEY);
+  const when = sync && sync['上次运行'] ? `状态更新于 ${dayNo(sync['上次运行']) === dayNo(Date.now()) ? fmtHM(sync['上次运行']) : fmtDT(sync['上次运行'])}` : '';
+  const who = S.identified ? (isManager() ? '' : '组员视角') : '没认出身份，按组员视角显示';
+  $('meta').textContent = [when, who].filter(Boolean).join(' · ');
+}
+function render() {
+  renderTabs(); renderMeta();
+  const warn = S.warn.length ? `<div class="tip">${S.warn.map(esc).join('；')}。把这段截图发回。</div>` : '';
+  $('main').innerHTML = warn + VIEWS[S.tab]();
+  if (S.tab === '任务') taskList();
+  if (S.tab === '运行记录') runList();
+}
+
+$('tabs').addEventListener('click', (e) => { const b = e.target.closest('button[data-tab]'); if (!b) return; S.tab = b.dataset.tab; $('main').scrollTop = 0; render(); });
+// 筛选只重画列表，不重画输入框本身（整块重画会打断中文输入）
+const refilter = (el) => { S.f[el.dataset.f] = el.value; S.tab === '任务' ? taskList() : runList(); };
+$('main').addEventListener('change', (e) => { if (e.target.dataset.f && e.target.tagName === 'SELECT') refilter(e.target); });
+$('main').addEventListener('input', (e) => { if (e.target.dataset.f && e.target.tagName === 'INPUT' && !e.isComposing) refilter(e.target); });
+$('main').addEventListener('compositionend', (e) => { if (e.target.dataset.f) refilter(e.target); });
+$('main').addEventListener('scroll', () => $('sticky').classList.toggle('stuck', $('main').scrollTop > 0), { passive: true });
+$('refresh').addEventListener('click', async () => {
+  $('refresh').disabled = true; $('meta').textContent = '读取中…';
+  try { await load(); render(); } catch (e) { $('meta').textContent = '刷新失败：' + (e && e.message ? e.message : e); }
+  $('refresh').disabled = false;
+});
+
+// ===== ⑦ 保存（宿主不提供保存按钮） =====
+function setupSave() {
+  const dash = SDK && SDK.dashboard;
+  let st = '';
+  try { st = dash && dash.state; } catch (e) { st = '读取失败'; }
+  $('saveMsg').textContent = `（插件状态：${st || '未知'}）`;
+  if (dash && typeof dash.saveConfig === 'function' && st !== 'View' && st !== 'FullScreen') {
+    $('savebar').classList.add('show');
+    $('saveBtn').onclick = async () => {
+      $('saveBtn').disabled = true; $('saveMsg').textContent = '保存中…';
+      try {
+        const ok = await dash.saveConfig({ dataConditions: [{ tableId: AUTH_TABLE, baseToken: BASE_TOKEN, dataRange: { type: 'ALL' }, series: 'COUNTA' }], customConfig: { page: document.title, version: 1 } });
+        $('saveMsg').textContent = ok === false ? '保存失败，请重试' : '已保存 ✔';
+      } catch (e) { $('saveMsg').textContent = '保存失败：' + (e && e.message ? e.message : e); } finally { $('saveBtn').disabled = false; }
+    };
+  } else if (dash && dash.setRendered) dash.setRendered().catch(() => {});
+}
+
+// ===== ⑧ 诊断 =====
+async function diagnose() {
+  const res = [];
+  const t = async (name, fn) => {
+    try {
+      const v = await withTimeout(Promise.resolve().then(fn), 8000, name);
+      let shown; try { shown = typeof v === 'string' ? v : JSON.stringify(v); } catch (x) { shown = String(v); }
+      res.push(['✔', name, String(shown).slice(0, 200)]); return v;
+    } catch (e) { res.push(['✘', name, e && e.message ? e.message : String(e)]); return undefined; }
+  };
+  await t('dashboard.state', () => SDK.dashboard.state);
+  for (const cfg of Object.values(TABLES)) {
+    const tb = await t(`打开 ${cfg.name}`, () => SDK.bitable.base.getTableById(cfg.id));
+    if (tb) await t(`读 ${cfg.name} 记录`, () => tb.getRecordsByPage({ pageSize: 1 }));
+  }
+  await t('bridge.getUserId', () => SDK.bitable.bridge.getUserId());
+  return `<div class="card" style="margin-top:12px"><h3>接口诊断 <small>请把这块整体截图发回。「打不开或读不了」通常是数据授权4 少组件，或应用权限配置没给这张表开权限</small></h3><table class="tbl"><tbody>${res.map((r) =>
+    `<tr><td style="width:24px">${r[0]}</td><td class="nw">${esc(r[1])}</td><td style="color:var(--sub)">${esc(r[2])}</td></tr>`).join('')}</tbody></table></div>`;
+}
+
+function layoutCheck() { $('tallTip').style.display = innerHeight > (screen.availHeight || screen.height || 1080) + 40 ? '' : 'none'; }
+window.addEventListener('resize', layoutCheck);
+layoutCheck();
+
+async function loadSdk() {
+  const errs = [];
+  for (const u of sdkUrls()) {
+    try { return await withTimeout(import(u), 12000, '加载 SDK'); } catch (e) { errs.push(`${u} → ${e && e.message ? e.message : e}`); }
+  }
+  throw new Error('飞书 SDK 都没加载上（也就没有「保存到页面」按钮），请截图：' + errs.join(' ｜ '));
+}
+
+// ===== 启动：加载 SDK → setupSave → 逐张读表 → 页面显示 → 再认人 =====
+renderTabs();
+try {
+  if (!window.__SNAPSHOT__) { SDK = await loadSdk(); setupSave(); }
+  await load();
+  if (window.__SNAPSHOT__) { S.me = /[?&]as=member/.test(location.search) ? 'ou_preview_member' : MANAGER_ID; S.identified = true; }
+  render();
+  if (SDK) {
+    try { const id = await withTimeout(SDK.bitable.bridge.getUserId(), 5000, '认人'); if (id) { S.me = id; S.identified = true; } } catch (e) { /* 认不出按组员视角，meta 上有提示 */ }
+    render();
+  }
+} catch (e) {
+  const msg = esc(e && e.message ? e.message : e);
+  $('meta').textContent = '';
+  $('main').innerHTML = `<div class="card err">读取失败：${msg}</div>`;
+  if (SDK) { try { $('main').innerHTML = `<div class="card err">读取失败：${msg}</div>` + await diagnose(); } catch (e2) { /* 保留上面的报错 */ } }
+}
+</script>
+</body>
+</html>
