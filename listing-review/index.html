@@ -13,6 +13,8 @@
   前台文案（标题/亮点/卖点/ST）只读：由「AI抓文案」按钮 / Keepa 脚本写入，页面不改。
   页面现场跑确定性规则（移植 tools/keepa/listing_rule_check.py 的规则部分），AI 规范分析字段只展示。
   可写回：文案审核状态 / 图片审核状态 / 运营审核文案 / 主管审核文案 / 运营审核图片 / 主管审核图片 / 6 个完成勾选。
+  11-06 提交主管审核：卡片按钮在任务待办表 tblUp0MCrRKIVlBI 建任务（来源跳转带 lr=记录ID&t=copy|img）；
+  插件读不到飞书外层网址，所以页面靠读未完成任务出顶部「待审核」条，点一下定位到那条记录。
   四条硬规矩见 wiki/页面设计/概念/飞书应用自定义插件页.md。
 -->
 <style>
@@ -232,7 +234,26 @@
   .ntx { margin-top: 6px; padding: 6px 10px; border-left: 3px solid var(--or); background: var(--or-soft); border-radius: 0 6px 6px 0; white-space: pre-wrap; word-break: break-word; font-size: 12.5px; }
   .savebar { display: none; align-items: center; gap: 10px; background: #fff; border: 1px solid var(--or-soft2); border-radius: 10px; padding: 8px 12px; margin-bottom: 12px; }
   .savebar.show { display: flex; }
+  .rvbar { display: flex; align-items: center; gap: 8px; margin-top: 8px; padding: 6px 10px; background: var(--blue-soft); border-radius: 8px; font-size: 13px; overflow-x: auto; }
+  .rvbar b { color: var(--blue); flex: none; }
+  .rvbar button { flex: none; height: 26px; padding: 0 10px; border: 1px solid #c7d9f7; border-radius: 13px; background: #fff; color: var(--ink); font-size: 12.5px; cursor: pointer; white-space: nowrap; }
+  .rvbar button:hover { border-color: var(--blue); color: var(--blue); }
+  .rvbar button.on { background: var(--blue); border-color: var(--blue); color: #fff; }
+  .rqstat { font-size: 12.5px; color: var(--blue); background: var(--blue-soft); padding: 4px 10px; border-radius: 13px; white-space: nowrap; }
+  .rqmask { position: fixed; inset: 0; background: rgba(20,14,8,.45); z-index: 70; display: flex; align-items: center; justify-content: center; padding: 16px; }
+  .rqbox { width: 460px; max-width: 100%; background: #fff; border-radius: 12px; padding: 18px 20px; }
+  .rqbox h3 { margin: 0 0 4px; font-size: 16px; }
+  .rqbox .rqrow { display: flex; gap: 12px; margin-top: 14px; }
+  .rqbox label.f { flex: 1; min-width: 0; display: block; font-size: 12.5px; color: var(--sub); }
+  .rqbox select, .rqbox input[type=date], .rqbox textarea { display: block; width: 100%; box-sizing: border-box; margin-top: 4px; padding: 6px 8px; border: 1px solid var(--line2); border-radius: 8px; font: inherit; font-size: 13px; color: var(--ink); background: #fff; }
+  .rqbox textarea { height: 84px; resize: vertical; }
+  .rqbox .warn { margin-top: 12px; padding: 6px 10px; border-radius: 8px; background: var(--or-soft); color: var(--or-d); font-size: 12.5px; }
+  .rqbox .acts { display: flex; align-items: center; gap: 10px; margin-top: 16px; }
+  .rqbox .acts .ntf { font-size: 13px; display: inline-flex; align-items: center; gap: 5px; }
+  .rqbox .acts .grow { flex: 1; }
+  .rqbox .err { margin-top: 10px; color: var(--red); font-size: 12.5px; word-break: break-word; }
   .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: #2b2118; color: #fff; padding: 8px 16px; border-radius: 8px; font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 50; }
+  .toast { z-index: 80; }
   .toast.show { opacity: 1; }
 
   @media (max-width: 1100px) {
@@ -254,6 +275,7 @@
       <span class="meta" id="meta">数据加载中…</span>
     </div>
     <div class="hero-f" id="filters"></div>
+    <div id="rvbar"></div>
   </div>
   <div id="main"><div class="loading">正在读取多维表数据…</div></div>
 </div>
@@ -290,6 +312,7 @@ const TABLES = {
     '审核键', 'ASIN', '店铺', '产品线', 'SPU', 'SKU', '品名', '负责人', ...COPY, '开售时间', 'AI 规范分析', '更新日志',
     ...NOTES, '文案审核状态', '图片审核状态', ...DONE, 'listing最晚完成时间', ...ATT, ...NOTE_F] },
   pm: { id: 'tblqksywqgYvywOT', name: '产品主表-灯类+精铺', fields: ['ASIN', '图片'] },
+  td: { id: 'tblUp0MCrRKIVlBI', name: '任务待办表', fields: [] },                // 提交主管审核：读未完成任务、建任务（readTodo 单独读）
 };
 
 // ===== ② 通用工具 =====
@@ -460,6 +483,7 @@ async function readTable(key) {
 
 // ===== ⑤ 数据整理 =====
 let ITEMS = [], PMBY = {};
+const TODO = { table: null, f: {}, tasks: [], people: {}, me: [], err: '' };
 const state = { mode: store.get('lrp.mode') === 'one' ? 'one' : 'ov', line: 'all', shop: 'all', owner: store.get('lrp.owner') || 'all',
                 cst: 'all', ist: 'all', q: '', cur: null, tab: store.get('lrp.tab') === 'img' ? 'img' : 'copy' };
 const folded = new Set();
@@ -538,6 +562,7 @@ function renderFilters() {
 }
 
 function render() {
+  renderReviewBar();
   document.querySelectorAll('#mode button').forEach((b) => b.classList.toggle('on', b.dataset.m === state.mode));
   renderFilters();
   const list = ordered(scope());
@@ -649,7 +674,7 @@ function renderOne(list) {
       <div class="ai">${ai.text.split('\n').map((l) => `<div class="${/^🔴/.test(l) ? 'r' : /^🟠/.test(l) ? 'o' : /^🟡/.test(l) ? 'y' : /^【/.test(l) ? 'h' : ''}">${esc(l)}</div>`).join('')}</div>`
     : '<div class="meta">还没有 AI 规范分析（在表里点「AI抓文案」后生成）</div>';
   const copyCard = `<div class="bigc" data-card="copy"><div class="ch"><h3>📝 文案审核</h3>${opts('文案审核状态', COPY_ST)}${ck('文案完成', '文案完成')}
-      <span class="meta">规则检查 🔴${x.red} 🟠${x.orange}</span><span class="sp"></span><span class="meta smsg"></span><button class="btn pri sbtn">保存文案审核</button></div>
+      <span class="meta">规则检查 🔴${x.red} 🟠${x.orange}</span><span class="sp"></span><span class="meta smsg"></span>${rqCtl(r._id, 'copy')}<button class="btn pri sbtn">保存文案审核</button></div>
     <div class="cgrid"><div class="mods">${mods}</div>
       <div class="cside"><div class="sec"><h4>AI 规范分析</h4>${aiBox}</div>
         <div class="sec"><h4>整体意见</h4><div class="lb2">运营</div>${ta('运营审核文案', '运营对文案的整体意见…')}<div class="lb2">主管</div>${ta('主管审核文案', '主管对文案的整体意见…')}</div>
@@ -666,7 +691,7 @@ function renderOne(list) {
       ${gallery}${noteBody(nf, m)}</div>`;
   }).join('');
   const imgCard = `<div class="bigc" data-card="img"><div class="ch"><h3>🖼 图片审核</h3>${opts('图片审核状态', IMG_ST)}
-      <span class="sp"></span><span class="meta smsg"></span><button class="btn pri sbtn">保存图片审核</button></div>
+      <span class="sp"></span><span class="meta smsg"></span>${rqCtl(r._id, 'img')}<button class="btn pri sbtn">保存图片审核</button></div>
     <div class="cgrid"><div class="mods">${imods}</div>
       <div class="cside"><div class="sec"><h4>整体意见</h4><div class="lb2">运营</div>${ta('运营审核图片', '运营对图片的整体意见…')}<div class="lb2">主管</div>${ta('主管审核图片', '主管对图片的整体意见…')}</div></div></div></div>`;
 
@@ -707,6 +732,8 @@ function renderOne(list) {
   $('main').querySelectorAll('.ck input').forEach((c) => c.onchange = () => { c.parentElement.classList.toggle('on', c.checked); d[c.dataset.f] = c.checked; });
   $('main').querySelectorAll('textarea').forEach((t) => t.oninput = () => { d[t.dataset.f] = t.value; });
   $('main').querySelectorAll('.bigc').forEach((card) => card.querySelector('.sbtn').onclick = () => save(x, card));
+  $('main').querySelectorAll('.rqbtn').forEach((b) => b.onclick = () => openRequest(x, b.dataset.t));
+  $('main').querySelectorAll('.rqdone').forEach((b) => b.onclick = () => closeTask(b.dataset.task, b));
   $('main').querySelectorAll('.up').forEach((box) => {
     const inp = box.querySelector('input');
     inp.onchange = () => { const fs = [...inp.files]; inp.value = ''; if (fs.length) uploadAtts(r, box.dataset.up, fs, box); };
@@ -871,6 +898,153 @@ async function loadImages() {
   }
 }
 
+// ===== 提交主管审核（任务待办表）=====
+const REVIEW_PAGE = 'https://zcnt6ibhe9z3.feishu.cn/app/AiOrbUNtiaG6tysq5FMcBP93nbf?pageId=pge8JRO6tjqElaEj';
+const REVIEWER = '林键春', TODO_SRC = 'Listing审核', TYPE_NAME = { copy: '文案', img: '图片' };
+const reviewUrl = (rec, t) => `${REVIEW_PAGE}&lr=${rec}&t=${t}`;
+const openTask = (rec, t) => TODO.tasks.find((k) => k.rec === rec && k.t === t);
+const iAmKnown = () => TODO.me.some((id) => Object.values(TODO.people).includes(id));
+const isMine = (k) => TODO.me.includes(k.whoId);
+const mmdd = (ms) => ms ? ymd(dn(ms)).slice(5) : '无截止';
+const segText = (v) => Array.isArray(v) ? v.map(segText).join('') : v == null ? '' : typeof v === 'object' ? (v.text ?? v.name ?? '') : String(v);
+const segUser = (v) => (Array.isArray(v) ? v : v ? [v] : []).filter((u) => u && u.id);
+function reviewTarget(v) {
+  const seg = Array.isArray(v) ? v.find((x) => x && x.link) : null;
+  const m = /[?&]lr=(rec\w+)&t=(copy|img)/.exec(seg ? seg.link : segText(v));
+  return m ? { rec: m[1], t: m[2] } : null;
+}
+async function readTodo() {
+  try {
+    const table = await SDK.bitable.base.getTableById(TABLES.td.id);
+    const list = await table.getFieldMetaList();
+    TODO.table = table;
+    TODO.f = Object.fromEntries(list.map((f) => [f.name, f]));
+    const nameOf = Object.fromEntries(list.map((f) => [f.id, f.name]));
+    let pageToken;
+    for (let g = 0; g < 100; g++) {
+      const res = await table.getRecordsByPage({ pageSize: 200, pageToken });
+      for (const rec of res.records) {
+        const o = {};
+        for (const [id, v] of Object.entries(rec.fields)) if (nameOf[id]) o[nameOf[id]] = v;
+        for (const u of [...segUser(o['负责人']), ...segUser(o['创建人'])]) if (u.name) TODO.people[u.name] = u.id;
+        const tgt = reviewTarget(o['来源跳转']), who = segUser(o['负责人'])[0];
+        if (tgt && segText(o['创建来源']) === TODO_SRC && segText(o['状态']) !== '已完成')
+          TODO.tasks.push({ id: rec.recordId, ...tgt, who: who ? who.name : '', whoId: who ? who.id : '', due: o['截止时间'] || null });
+      }
+      if (!res.hasMore) break;
+      pageToken = res.pageToken;
+    }
+    for (const fn of ['getUserId', 'getBaseUserId']) {
+      try {
+        const id = await Promise.race([SDK.bitable.bridge[fn](), new Promise((_, rej) => setTimeout(() => rej(new Error('超时')), 5000))]);
+        if (id) TODO.me.push(id);
+      } catch (e) { /* 另一个能拿到就行 */ }
+    }
+  } catch (e) { TODO.err = e && e.message ? e.message : String(e); console.error('readTodo', e); }
+}
+// 顶部待审条：认得当前用户就只列自己的，认不出就列全部并标审核人，不让任务悄悄消失
+function renderReviewBar() {
+  const known = iAmKnown(), byId = Object.fromEntries(ITEMS.map((x) => [x.r._id, x]));
+  const list = TODO.tasks.filter((k) => byId[k.rec] && (!known || isMine(k))).sort((a, b) => (a.due || Infinity) - (b.due || Infinity));
+  if (!list.length) { $('rvbar').innerHTML = ''; return; }
+  $('rvbar').innerHTML = `<div class="rvbar"><b>🔔 ${known ? '待你审核' : '待审核'} ${list.length} 条</b>` + list.map((k) => {
+    const x = byId[k.rec], on = state.mode === 'one' && state.cur === k.rec && state.tab === k.t;
+    return `<button class="${on ? 'on' : ''}" data-rec="${k.rec}" data-t="${k.t}" title="${esc(txt(x.r['品名']))}">${TYPE_NAME[k.t]} · ${esc(x.asin)} · ${esc(x.shop)} · ${mmdd(k.due)}${known ? '' : ' · ' + esc(k.who)}</button>`;
+  }).join('') + '</div>';
+  $('rvbar').querySelectorAll('button').forEach((b) => b.onclick = () => {
+    Object.assign(state, { line: 'all', shop: 'all', owner: 'all', cst: 'all', ist: 'all', q: '', mode: 'one', cur: b.dataset.rec, tab: b.dataset.t });
+    navShut.clear();
+    render(); $('main').scrollTop = 0;
+  });
+}
+function rqCtl(rec, t) {
+  const k = openTask(rec, t);
+  if (!k) return `<button class="btn rqbtn" data-t="${t}">提交主管审核</button>`;
+  const done = iAmKnown() && isMine(k) ? `<button class="btn rqdone" data-task="${k.id}">审核完成，关闭待办</button>` : '';
+  return `<span class="rqstat">${esc(k.who || '主管')} 审核中 · 截止 ${mmdd(k.due)}</span>${done}`;
+}
+function cardDirty(x, t) {
+  const d = DRAFT[x.r._id] || {}, isCopy = t === 'copy';
+  return Object.entries(d).some(([f, v]) => COPY_KEYS.has(f) === isCopy && (DONE.includes(f) ? !!v !== !!x.r[f] : (txt(v) || null) !== (txt(x.r[f]) || null)));
+}
+function keepRender() {
+  keepNav = true;
+  const list = $('list'), top = list ? list.scrollTop : 0, y = $('main').scrollTop;
+  render();
+  if ($('list')) $('list').scrollTop = top;
+  $('main').scrollTop = y;
+}
+function todoCell(name, v) {
+  const f = TODO.f[name];
+  if (!f) throw new Error(`任务待办表缺字段「${name}」`);
+  if (f.type === 3) {
+    const o = (f.property && f.property.options || []).find((o) => o.name === v);
+    if (!o) throw new Error(`「${name}」没有选项「${v}」`);
+    return { id: o.id, text: o.name };
+  }
+  if (f.type === 11) return [{ id: v }];
+  if (f.type === 1) return Array.isArray(v) ? v : [{ type: 'text', text: String(v) }];
+  return v;                                                               // 日期 = 毫秒，勾选 = 布尔
+}
+const todoFields = (o) => Object.fromEntries(Object.entries(o).map(([n, v]) => { const c = todoCell(n, v); return [TODO.f[n].id, c]; }));
+function openRequest(x, t) {
+  const r = x.r, tn = TYPE_NAME[t];
+  const people = Object.keys(TODO.people).sort((a, b) => (b === REVIEWER) - (a === REVIEWER) || a.localeCompare(b, 'zh'));
+  const box = document.createElement('div');
+  box.className = 'rqmask';
+  box.innerHTML = `<div class="rqbox"><h3>提交主管审核${tn}</h3><div class="meta">${esc(x.asin)} · ${esc(x.shop)} · ${esc(x.spu)}</div>
+    ${cardDirty(x, t) ? `<div class="warn">这张卡还有没保存的修改，主管看不到。建议先取消，保存后再提交。</div>` : ''}
+    <div class="rqrow"><label class="f">审核人<select id="rqWho">${people.map((p) => `<option>${esc(p)}</option>`).join('')}</select></label>
+      <label class="f">截止日期<input type="date" id="rqDue" value="${ymd(TODAY + 1)}"></label></div>
+    <div class="rqrow"><label class="f">备注（选填）<textarea id="rqNote" placeholder="想让主管重点看什么…"></textarea></label></div>
+    <div class="err" id="rqErr">${TODO.err ? esc('读不到任务待办表：' + TODO.err + '（请把这句截图发回）') : ''}</div>
+    <div class="acts"><label class="ntf"><input type="checkbox" id="rqNtf" checked>同时飞书提醒审核人</label><span class="grow"></span>
+      <button class="btn" id="rqCancel">取消</button><button class="btn pri" id="rqOk"${(!SNAP && (TODO.err || !TODO.table)) || !people.length ? ' disabled' : ''}>生成待办</button></div></div>`;
+  document.body.appendChild(box);
+  box.onclick = (e) => { if (e.target === box) box.remove(); };
+  box.querySelector('#rqCancel').onclick = () => box.remove();
+  box.querySelector('#rqNote').focus();
+  box.querySelector('#rqOk').onclick = async () => {
+    const who = box.querySelector('#rqWho').value, due = box.querySelector('#rqDue').value, note = txt(box.querySelector('#rqNote').value);
+    const notify = box.querySelector('#rqNtf').checked, err = box.querySelector('#rqErr'), ok = box.querySelector('#rqOk');
+    if (!due) { err.textContent = '请选截止日期'; return; }
+    const dueMs = Date.parse(`${due}T00:00:00+08:00`), url = reviewUrl(r._id, t);
+    ok.disabled = true; err.textContent = '';
+    let id = 'mock' + Date.now(), warn = '';
+    try {
+      if (!SNAP) {
+        const desc = [note && `备注：${note}`, `产品：${x.spu}${txt(r['SKU']) ? ' · ' + txt(r['SKU']).split(',')[0] : ''}`, `审核页：${url}`].filter(Boolean).join('\n');
+        id = await TODO.table.addRecord({ fields: todoFields({
+          任务名称: `审核${tn}：${x.asin} · ${x.shop}`, 任务描述: desc, 负责人: TODO.people[who], 执行方: '人', 截止时间: dueMs,
+          状态: '待办', 优先级: '中', 创建来源: TODO_SRC, 来源跳转: [{ type: 'url', text: `打开 Listing审核 · ${x.asin} ${tn}`, link: url }] }) });
+        if (notify) {                                                     // 勾选触发现有自动化发消息；提醒失败不影响任务本身
+          try { await TODO.table.setRecord(id, { fields: todoFields({ 提醒请求时间: Date.now(), 通知负责人: true }) }); }
+          catch (e) { warn = '，但飞书提醒没发出，请到任务待办页点提醒'; console.error('notify', e); }
+        }
+      }
+      TODO.tasks.push({ id, rec: r._id, t, who, whoId: TODO.people[who], due: dueMs });
+      box.remove();
+      toast(SNAP ? '本地预览：未真正生成待办' : `已生成待办给 ${who}${warn}`);
+      keepRender();
+    } catch (e) {
+      ok.disabled = false;
+      err.textContent = '生成失败：' + (e && e.message ? e.message : e) + '（应用数据权限要对 任务待办表 开「可编辑」）';
+    }
+  };
+}
+async function closeTask(id, btn) {
+  btn.disabled = true;
+  try {
+    if (!SNAP) await TODO.table.setRecord(id, { fields: todoFields({ 状态: '已完成', 完成时间: Date.now() }) });
+    TODO.tasks = TODO.tasks.filter((k) => k.id !== id);
+    toast('待办已完成');
+    keepRender();
+  } catch (e) {
+    btn.disabled = false;
+    toast('关闭失败：' + (e && e.message ? e.message : e));
+  }
+}
+
 // ===== ⑧ 保存插件配置（硬规矩①②）=====
 function setupSave() {
   const dash = SDK && SDK.dashboard;
@@ -939,6 +1113,7 @@ function finish(rows, pm, src) {
 try {
   if (window.__SNAPSHOT__) {
     SNAP = true;
+    TODO.people = { 林键春: 'ou_mock_ljc', 林谆强: 'ou_mock_lzq' };
     finish(window.__SNAPSHOT__.lr, window.__SNAPSHOT__.pm, `本地快照 ${window.__SNAPSHOT__.at}（预览，保存不写回）`);
   } else {
     SDK = await loadSdk();
@@ -947,7 +1122,8 @@ try {
     let pm = [];
     let pmErr = '';
     try { pm = await readTable('pm'); } catch (e) { pmErr = ' · ⚠ 产品主表读不到，缩略图不显示：' + (e && e.message ? e.message : e); }
-    finish(rows, pm, '取数：Listing审核表 + 产品主表' + pmErr);
+    await readTodo();
+    finish(rows, pm, '取数：Listing审核表 + 产品主表' + pmErr + (TODO.err ? ' · ⚠ 任务待办表读不到，提交主管审核不可用' : ''));
   }
 } catch (e) {
   const msg = esc(e && e.message ? e.message : e);
