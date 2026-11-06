@@ -308,10 +308,11 @@ window.TODO_HOST = (() => {
     }
   }
   // 对象 → 表字段（普通值，写入前再转单元格）
+  // 不写「已查看」：自动化 wkfdoUnOMSFfy7oU 一勾它就把任务置为已完成（询盘任务的旧规则）。打开过只记「查看时间」
   function taskRow(t) {
     const bot = t.who === ctx.BOT;
     return { '任务名称': t.n, '任务描述': t.d, '负责人': bot ? '' : (ids[t.who] || ''), '执行方': bot ? '机器人' : (t.who ? '人' : ''), '机器人类型': bot ? t.botType : '',
-      '截止时间': t.due, '状态': t.st, '优先级': t.pri, '创建来源': t.src, '完成时间': t.doneAt, '查看时间': t.viewedAt, '已查看': !!t.viewedAt, '提醒请求时间': t.remindedAt, '规则ID': t.rule || '', '通知负责人': t.notify ? true : undefined };
+      '截止时间': t.due, '状态': t.st, '优先级': t.pri, '创建来源': t.src, '完成时间': t.doneAt, '查看时间': t.viewedAt, '提醒请求时间': t.remindedAt, '规则ID': t.rule || '', '通知负责人': t.notify ? true : undefined };
   }
   function ruleRow(r) {
     const bot = r.who === ctx.BOT;
