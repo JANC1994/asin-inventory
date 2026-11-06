@@ -297,7 +297,7 @@ window.TODO_HOST = (() => {
   function taskRow(t) {
     const bot = t.who === ctx.BOT;
     return { '任务名称': t.n, '任务描述': t.d, '负责人': bot ? '' : (ids[t.who] || ''), '执行方': bot ? '机器人' : (t.who ? '人' : ''), '机器人类型': bot ? t.botType : '',
-      '截止时间': t.due, '状态': t.st, '优先级': t.pri, '创建来源': t.src, '完成时间': t.doneAt, '查看时间': t.viewedAt, '已查看': !!t.viewedAt, '提醒请求时间': t.remindedAt, '规则ID': t.rule || '' };
+      '截止时间': t.due, '状态': t.st, '优先级': t.pri, '创建来源': t.src, '完成时间': t.doneAt, '查看时间': t.viewedAt, '已查看': !!t.viewedAt, '提醒请求时间': t.remindedAt, '规则ID': t.rule || '', '通知负责人': t.notify ? true : undefined };
   }
   function ruleRow(r) {
     const bot = r.who === ctx.BOT;
@@ -321,6 +321,8 @@ window.TODO_HOST = (() => {
     const changed = Object.keys(row).filter((k) => JSON.stringify(row[k] ?? '') !== JSON.stringify(old[k] ?? ''));
     if (!changed.length) return;
     await META[key].table.setRecord(o.id, { fields: fieldsOf(key, row, changed) });
+    // 勾选「通知负责人」触发现有自动化发消息，发完由自动化复位，所以不记进快照，下次还能再勾
+    delete row['通知负责人']; o.notify = false;
     snap.set(o, row);
   }
   async function create(list) {
@@ -497,7 +499,7 @@ function events() {
   for (const t of pool()) {
     if (inWin(t.createdAt)) out.push({k:'派出',at:t.createdAt,t,txt:`${t.by||'有人'} <span class="v-派出">${t.by==='系统'?'建给':'派给'}</span> ${t.who||'未分配'}`});
     if (inWin(t.viewedAt)) out.push({k:'查看',at:t.viewedAt,t,txt:`${t.who} 看了`});
-    if (inWin(t.remindedAt)) out.push({k:'提醒',at:t.remindedAt,t,txt:`<span class="v-提醒">请求提醒</span> ${t.who||'未分配'}`});
+    if (inWin(t.remindedAt)) out.push({k:'提醒',at:t.remindedAt,t,txt:`<span class="v-提醒">提醒了</span> ${t.who||'未分配'}`});
     if (inWin(t.doneAt)) out.push({k:'完成',at:t.doneAt,t,txt:`${t.who||'有人'} <span class="v-完成">${late(t)>0?`完成，晚 ${late(t)} 天`:'完成了'}</span>`});
     if (bucket(t)==='over'&&dn(t.due)>=WIN) out.push({k:'逾期',at:t.due+' 00:00',noTime:1,t,txt:`${t.who||'未分配'} <span class="v-逾期">到期没做完</span>`});
   }
@@ -617,7 +619,7 @@ function renderDrawer() {
 function refreshPv(o){ const b=$('botRow'); if(b) b.hidden=o.who!==BOT; const s=$('repSlot'); if(s) s.innerHTML=repeatPv(o); const l=$('leadRow'); if(l) l.hidden=!o.freq; }
 function setDone(t,st){ t.st=st; t.doneAt=st==='已完成'?now():null; }
 // 写回：设计稿里什么都不做；正式页由 TODO_HOST 写进多维表
-async function persist(o){ if(!HOST||o.ex) return; try { await HOST.save(o); } catch(e){ toast('保存失败：'+(e&&e.message||e)); } }
+async function persist(o){ if(!HOST||o.ex) return true; try { await HOST.save(o); return true; } catch(e){ toast('保存失败：'+(e&&e.message||e)); return false; } }
 function bindProps(o,isNew) {
   const sync=()=>{ if(!isNew){ renderTabs(); renderMain(); persist(o); toast(HOST?'已保存':'已保存（预览）'); } };
   const on=(id,fn)=>{ const el=$(id); if(el) el.onchange=()=>{ fn(el); refreshPv(o); sync(); }; };
@@ -656,7 +658,7 @@ async function runBatch(kind){
   let ok,skip,msg;
   if(kind==='done'){ [ok,skip]=pick(t=>canStatus(t)&&t.st!=='已完成'); ok.forEach(t=>setDone(t,'已完成')); msg=`已完成 ${ok.length} 条${skipped(skip,'没权限或已完成，')}`; }
   else if(kind==='undone'){ [ok,skip]=pick(canStatus); ok.forEach(t=>setDone(t,'待办')); msg=`已改回待办 ${ok.length} 条${skipped(skip,'没权限，')}`; }
-  else if(kind==='remind'){ [ok,skip]=pick(canRemind); const at=now(); ok.forEach(t=>{t.remindedAt=at;}); msg=`已记下 ${ok.length} 条提醒${skipped(skip,'没执行人或是机器人，')}。机器人接入后才会发消息`; }
+  else if(kind==='remind'){ [ok,skip]=pick(t=>canRemind(t)&&!cooling(t)); const at=now(); ok.forEach(t=>markRemind(t,at)); msg=`已发 ${ok.length} 条飞书提醒${skipped(skip,'没执行人、是机器人或刚提醒过，')}${HOST?'':'（预览，未真发）'}`; }
   else { const v=kind==='on'; [ok,skip]=pick(canEdit); ok.forEach(r=>{r.on=v;}); msg=`已${v?'启用':'暂停'} ${ok.length} 条${skipped(skip,'没权限，')}`; }
   S.picked.clear(); S.idx=0; renderTabs(); renderMain();
   for(const t of ok) await persist(t);
@@ -680,9 +682,16 @@ function askDelete(items){
     } };
   renderConfirm();
 }
-function remindOne(t){
+// 1 分钟内不重复发：自动化发完才复位勾选，连点也会刷屏
+const COOL=60000;
+const cooling = t => t.sentMs && Date.now()-t.sentMs<COOL;
+function markRemind(t,at){ t.remindedAt=at; t.notify=true; t.sentMs=Date.now(); }
+async function remindOne(t){
   if(!canRemind(t)){ toast('先选执行人再提醒'); return; }
-  t.remindedAt=now(); S.idx=0; renderMain(); if(S.sel===t.id) renderDrawer(); persist(t); toast('已记下。机器人接入后才会发消息，现在不发');
+  if(cooling(t)){ toast('刚提醒过，1 分钟后可以再发'); return; }
+  markRemind(t,now()); S.idx=0; renderMain(); if(S.sel===t.id) renderDrawer();
+  const ok=await persist(t);
+  if(ok) toast(HOST?`已发飞书提醒给 ${t.who}`:`已提醒 ${t.who}（预览，未真发）`);
 }
 function all(){ renderTabs(); renderMain(); renderDrawer(); }
 function complete(t){ const prev=t.st, prevAt=t.doneAt; setDone(t,'已完成'); S.idx=0; renderTabs(); renderMain(); persist(t); const r=ruleOf(t); const nx=r&&r.due?` 下一次 ${md(r.due)}`:''; toast(`已完成${nx}`,()=>{t.st=prev;t.doneAt=prevAt;renderTabs();renderMain();persist(t);}); }
