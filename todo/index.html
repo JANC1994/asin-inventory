@@ -47,7 +47,8 @@ button { cursor: pointer; }
 .tabs { display: flex; gap: 4px; background: var(--seg); border-radius: 8px; padding: 3px; overflow-x: auto; scrollbar-width: none; }
 .tabs button { flex: none; border: 0; background: none; padding: 4px 14px; border-radius: 6px; color: var(--sub); font-size: 13px; }
 .tabs button[aria-selected="true"] { background: var(--paper); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
-.tabs .num { display: inline-block; min-width: 18px; padding: 0 5px; border-radius: 9px; background: var(--red); color: var(--on-accent); font-size: 11px; line-height: 18px; margin-left: 4px; }
+.tabs .num { display: inline-block; min-width: 18px; padding: 0 5px; border-radius: 9px; background: var(--line-2); color: var(--sub); font-size: 11px; line-height: 18px; margin-left: 4px; text-align: center; font-variant-numeric: tabular-nums; }
+.tabs .num.hot { background: var(--red); color: var(--on-accent); }
 .main { flex: 1; min-height: 0; overflow: auto; }
 .main-in { padding: 0 16px 24px; display: flex; flex-direction: column; gap: 12px; }
 .badge { display: inline-block; border-radius: 4px; padding: 1px 8px; font-size: 12px; white-space: nowrap; }
@@ -79,8 +80,8 @@ button { cursor: pointer; }
 .group-h { display: flex; align-items: baseline; gap: 8px; padding: 12px 16px 8px; font-size: 15px; font-weight: 600; }
 .group-h.over { color: var(--red); }
 .group-h small { font-weight: 400; color: var(--sub); font-size: 12px; font-variant-numeric: tabular-nums; }
-.row, .thead { display: grid; grid-template-columns: 22px minmax(0,1fr) 100px 72px 72px 110px 60px; align-items: center; gap: 12px; padding: 0 16px; }
-.row.solo, .thead.solo { grid-template-columns: 22px minmax(0,1fr) 100px 72px 110px 60px; }
+.row, .thead { display: grid; grid-template-columns: 22px minmax(0,1fr) 100px 72px 72px 140px 60px; align-items: center; gap: 12px; padding: 0 16px; }
+.row.solo, .thead.solo { grid-template-columns: 22px minmax(0,1fr) 100px 72px 140px 60px; }
 .thead { min-height: 30px; background: var(--bg); color: var(--sub); font-size: 12px; }
 .row { min-height: 42px; border-top: 1px solid var(--line); cursor: pointer; }
 .thead + .row { border-top: 0; }
@@ -104,8 +105,8 @@ button { cursor: pointer; }
 .empty b { display: block; color: var(--ink); font-size: 15px; font-weight: 500; margin-bottom: 4px; }
 
 /* 循环任务行 */
-.rule { display: grid; grid-template-columns: 36px minmax(0,1fr) 100px 72px 72px 110px; align-items: center; gap: 12px; min-height: 50px; padding: 4px 16px; border-top: 1px solid var(--line); cursor: pointer; }
-.thead.rules { grid-template-columns: 36px minmax(0,1fr) 100px 72px 72px 110px; }
+.rule { display: grid; grid-template-columns: 36px minmax(0,1fr) 100px 72px 72px 140px; align-items: center; gap: 12px; min-height: 50px; padding: 4px 16px; border-top: 1px solid var(--line); cursor: pointer; }
+.thead.rules { grid-template-columns: 36px minmax(0,1fr) 100px 72px 72px 140px; }
 .thead + .rule { border-top: 0; }
 .rule:hover { background: var(--hover); }
 .rule.off .r-name, .rule.off .who, .rule.off .due { color: var(--faint); }
@@ -127,8 +128,8 @@ button { cursor: pointer; }
 .props { display: flex; flex-direction: column; }
 .p { display: grid; grid-template-columns: 72px minmax(0,1fr); align-items: center; gap: 8px; min-height: 36px; }
 .p > label, .p > .pl { font-size: 13px; color: var(--sub); }
-.p select, .p input[type="date"] { width: 100%; min-height: 32px; border: 1px solid transparent; border-radius: 6px; background: none; padding: 0 6px; margin-left: -6px; }
-.p select:hover:enabled, .p input[type="date"]:hover:enabled { background: var(--hover); }
+.p select, .p input[type="datetime-local"] { width: 100%; min-height: 32px; border: 1px solid transparent; border-radius: 6px; background: none; padding: 0 6px; margin-left: -6px; }
+.p select:hover:enabled, .p input[type="datetime-local"]:hover:enabled { background: var(--hover); }
 .p select:disabled, .p input:disabled { opacity: 1; color: var(--sub); }
 .pv { margin: -2px 0 6px 80px; font-size: 12px; color: var(--faint); line-height: 1.5; }
 .pv.warn { color: var(--amber); }
@@ -238,7 +239,6 @@ window.TODO_HOST = (() => {
   const today = () => bj(Date.now()).slice(0, 10);
   const now = () => bj(Date.now()).slice(0, 16).replace('T', ' ');
   const stamp = (v) => (v == null || v === '') ? null : bj(Number(v)).slice(0, 16).replace('T', ' ');
-  const day = (v) => (v == null || v === '') ? '' : bj(Number(v)).slice(0, 10);
   const toMs = (s) => { if (!s) return null; const x = s.length <= 10 ? `${s}T00:00:00+08:00` : `${s.replace(' ', 'T')}:00+08:00`; return Date.parse(x); };
 
   let SDK, ctx, ME = [];
@@ -378,14 +378,14 @@ window.TODO_HOST = (() => {
       S.tasks = todo.map((r) => {
         const bot = sel(r['执行方']) === c.BOT;
         const t = { id: r._id, rec: r._id, n: text(r['任务名称']), d: text(r['任务描述']), st: sel(r['状态']) || '待办', pri: sel(r['优先级']), who: bot ? c.BOT : (users(r['负责人'])[0]?.name || ''),
-          by: users(r['创建人'])[0]?.name || '', due: day(r['截止时间']), createdAt: stamp(r['创建时间']), viewedAt: stamp(r['查看时间']), doneAt: stamp(r['完成时间']), remindedAt: stamp(r['提醒请求时间']),
+          by: users(r['创建人'])[0]?.name || '', due: stamp(r['截止时间']) || '', createdAt: stamp(r['创建时间']), viewedAt: stamp(r['查看时间']), doneAt: stamp(r['完成时间']), remindedAt: stamp(r['提醒请求时间']),
           botType: sel(r['机器人类型']), src: sel(r['创建来源']), rule: text(r['规则ID']), link: linkOf(r['来源跳转']) };
         snap.set(t, taskRow(t)); return t;
       });
       S.rules = rules.filter((r) => text(r['任务名称'])).map((r) => {
         const bot = sel(r['执行方']) === c.BOT;
         const x = { id: r._id, rec: r._id, isRule: true, n: text(r['任务名称']), d: text(r['任务描述']), who: bot ? c.BOT : (users(r['负责人'])[0]?.name || ''), by: users(r['创建人'])[0]?.name || '',
-          pri: sel(r['优先级']), src: sel(r['创建来源']), botType: sel(r['机器人类型']), freq: FREQ_BACK[sel(r['重复方式'])] || '', anchor: day(r['起始日期']), due: day(r['下次截止']), lead: String(r['提前天数'] ?? 0), on: !!r['启用'] };
+          pri: sel(r['优先级']), src: sel(r['创建来源']), botType: sel(r['机器人类型']), freq: FREQ_BACK[sel(r['重复方式'])] || '', anchor: stamp(r['起始日期']) || '', due: stamp(r['下次截止']) || '', lead: String(r['提前天数'] ?? 0), on: !!r['启用'] };
         snap.set(x, ruleRow(x)); return x;
       });
       S.view = S.me === c.MANAGER || !S.me ? 'all' : 'mine';
@@ -403,6 +403,7 @@ const TODAY = HOST ? HOST.today() : '2026-11-06';
 const REAL = [];
 const JUST = '2026-11-06 23:59';
 const now = () => HOST ? HOST.now() : JUST;
+const NOW = HOST ? HOST.now() : '2026-11-06 10:30';
 let PEOPLE = ['林键春','曾舒婷','林谆强','张宇彬','王雅婷'];
 const BOT = '机器人';
 const BOT_TYPES = ['应用需求','AI 任务'];
@@ -426,11 +427,17 @@ const dow = d => new Date(d*864e5).getUTCDay();
 const wd = d => '周'+'日一二三四五六'[dow(d)];
 const md = s => s.slice(5,10).replace('-','/');
 const dmd = s => `${md(s)} ${wd(dn(s))}`;
+// 截止时间到分钟。00:00 视为只写了日期（历史数据和脚本写入的），当天结束前不算逾期
+const hasTime = s => !!s && s.length>10 && s.slice(11,16)!=='00:00';
+const tmPart = s => hasTime(s) ? ' '+s.slice(11,16) : '';
+const mins = s => s ? dn(s)*1440 + (s.length>10 ? (+s.slice(11,13))*60 + (+s.slice(14,16)) : 0) : null;
+const isOver = t => { const d=dn(t.due); return d<T0 || (d===T0 && hasTime(t.due) && mins(t.due)<mins(NOW)); };
+const dueLabel = s => `${dmd(s)}${tmPart(s)}`;
 const WEEK_END = T0 + ((7-dow(T0))%7);
-const bucket = t => { if (t.st==='已完成') return 'done'; const d=dn(t.due); if (d==null) return 'none'; if (d<T0) return 'over'; if (d===T0) return 'today'; if (d<=WEEK_END) return 'week'; return 'later'; };
+const bucket = t => { if (t.st==='已完成') return 'done'; const d=dn(t.due); if (d==null) return 'none'; if (isOver(t)) return 'over'; if (d===T0) return 'today'; if (d<=WEEK_END) return 'week'; return 'later'; };
 const GROUPS = [['over','已逾期'],['today','今天'],['week','本周'],['later','以后'],['none','没写截止']];
 const PR = {高:0,中:1,低:2};
-const cmp = (a,b) => (dn(a.due)??1e9)-(dn(b.due)??1e9) || (PR[a.pri]??3)-(PR[b.pri]??3);
+const cmp = (a,b) => (mins(a.due)??1e12)-(mins(b.due)??1e12) || (PR[a.pri]??3)-(PR[b.pri]??3);
 const pool = () => S.mode==='ex' ? S.tasks.concat(S.exTasks) : S.tasks;
 const rules = () => S.mode==='ex' ? S.rules.concat(S.exRules) : S.rules;
 const isMgr = () => S.me===MANAGER;
@@ -449,7 +456,7 @@ function addMonths(s, k, last) {
 }
 // anchor=第一次的截止日：月末被压到 30 号后，下个月仍按 31 号算，不会越算越早
 function nextDates(due, f, n, anchor) {
-  const out=[]; const b=anchor||due, a=dn(b), cur=dn(due); if (a==null||!f) return out;
+  const out=[]; const b=(anchor||due||'').slice(0,10), a=dn(b), cur=dn(due); if (a==null||!f) return out;
   for (let i=1; out.length<n && i<2000; i++) {
     let s;
     if (f==='week') s=ds(a+7*i); else if (f==='biweek') s=ds(a+14*i);
@@ -477,10 +484,10 @@ function dueHtml(t) {
   if (t.st==='已完成') { if (!t.doneAt) return `<div class="due" style="color:var(--faint)">${t.due?md(t.due):''}</div>`; const l=late(t); return `<div class="due">${t.doneAt===JUST?'刚刚':md(t.doneAt)}${l>0?` <span style="color:var(--red)">晚 ${l} 天</span>`:''}</div>`; }
   if (!t.due) return '<div class="due" style="color:var(--faint)">–</div>';
   const b=bucket(t), d=dn(t.due);
-  if (b==='over') return `<div class="due"><span class="badge b-red">逾期 ${T0-d} 天</span></div>`;
-  if (b==='today') return '<div class="due"><span class="badge b-amber">今天</span></div>';
-  if (d===T0+1) return '<div class="due">明天</div>';
-  return `<div class="due">${dmd(t.due)}</div>`;
+  if (b==='over') { const m=mins(NOW)-mins(t.due), l=d<T0?`${T0-d} 天`:m>=60?`${Math.floor(m/60)} 小时`:`${m} 分钟`; return `<div class="due" title="截止 ${esc(t.due)}"><span class="badge b-red">逾期 ${l}</span></div>`; }
+  if (b==='today') return `<div class="due"><span class="badge b-amber">今天${tmPart(t.due)}</span></div>`;
+  if (d===T0+1) return `<div class="due">明天${tmPart(t.due)}</div>`;
+  return `<div class="due">${dueLabel(t.due)}</div>`;
 }
 function ruleOf(t){ return t.rule && rules().find(r=>r.id===t.rule); }
 const remindedToday = t => t.remindedAt && dn(t.remindedAt)===T0;
@@ -507,7 +514,7 @@ function events() {
     if (inWin(t.viewedAt)) out.push({k:'查看',at:t.viewedAt,t,txt:`${t.who} 看了`});
     if (inWin(t.remindedAt)) out.push({k:'提醒',at:t.remindedAt,t,txt:`<span class="v-提醒">提醒了</span> ${t.who||'未分配'}`});
     if (inWin(t.doneAt)) out.push({k:'完成',at:t.doneAt,t,txt:`${t.who||'有人'} <span class="v-完成">${late(t)>0?`完成，晚 ${late(t)} 天`:'完成了'}</span>`});
-    if (bucket(t)==='over'&&dn(t.due)>=WIN) out.push({k:'逾期',at:t.due+' 00:00',noTime:1,t,txt:`${t.who||'未分配'} <span class="v-逾期">到期没做完</span>`});
+    if (bucket(t)==='over'&&dn(t.due)>=WIN) out.push({k:'逾期',at:t.due.length>10?t.due:t.due+' 00:00',noTime:1,t,txt:`${t.who||'未分配'} <span class="v-逾期">到期没做完</span>`});
   }
   const key=S.owner==='__none'?'':S.owner;
   return (S.owner?out.filter(e=>e.t.who===key):out).sort((a,b)=>a.at<b.at?1:a.at>b.at?-1:0);
@@ -540,14 +547,17 @@ function peopleHtml() {
 function renderTabs() {
   const open=pool().filter(t=>t.st!=='已完成');
   const L={mine:'我的待办',all:'全组',sent:'我派出的',rules:'循环任务',done:'已完成'};
-  const myOver=open.filter(t=>t.who===S.me&&bucket(t)==='over').length;
-  $('tabs').innerHTML=Object.keys(L).map(v=>`<button role="tab" data-view="${v}" aria-selected="${S.view===v}">${L[v]}${v==='mine'&&myOver?`<span class="num">${myOver}</span>`:''}</button>`).join('');
+  const num=(l,hot)=>l.length?`<span class="num ${hot?'hot':''}" title="${l.length} 条${hot?`，其中 ${l.filter(t=>bucket(t)==='over').length} 条逾期`:''}">${l.length}</span>`:'';
+  const hasOver=l=>l.some(t=>bucket(t)==='over');
+  const mine=open.filter(t=>t.who===S.me), sent=open.filter(t=>t.by===S.me), on=rules().filter(r=>r.on);
+  const N={mine:num(mine,hasOver(mine)),all:num(open,hasOver(open)),sent:num(sent,hasOver(sent)),rules:num(on,false),done:''};
+  $('tabs').innerHTML=Object.keys(L).map(v=>`<button role="tab" data-view="${v}" aria-selected="${S.view===v}">${L[v]}${N[v]}</button>`).join('');
 }
 function renderMain() {
   let h='';
   if (S.view==='rules') {
     const list=rules().filter(r=>!S.q||(r.n+r.d+r.who).includes(S.q)).sort((a,b)=>(b.on-a.on)||dn(a.due)-dn(b.due));
-    h = list.length ? `<div class="section"><div class="group-h">循环任务<small>${list.filter(r=>r.on).length} 条启用</small></div><div class="thead rules"><span></span><span>任务和频率</span><span>来源</span><span>执行人</span><span>创建人</span><span>下次截止</span></div>${list.map(r=>`<div class="rule ${r.on?'':'off'}" data-rule="${r.id}" tabindex="0" role="button">${S.batch?`<span class="pick ${S.picked.has(r.id)?'on':''}" role="checkbox" aria-checked="${S.picked.has(r.id)}">✓</span>`:`<button class="sw" role="switch" aria-checked="${r.on}" aria-label="${r.on?'暂停':'启用'} ${esc(r.n)}" data-sw="${r.id}"></button>`}<div style="min-width:0"><div class="r-name">${esc(r.n)}${r.ex?' <span class="meta ex">示例</span>':''}</div><div class="r-freq">↻ ${esc(freqLabel(r.freq,r.anchor||r.due))}${r.on?'':' · 已暂停'}</div></div><div class="c-src">${esc(r.src||'–')}</div><div class="who ${r.who===BOT?'bot':''}">${esc(r.who||'未分配')}</div><div class="c-by">${esc(r.by||'–')}</div><div class="due">${r.on?dmd(r.due):'–'}</div></div>`).join('')}</div>`
+    h = list.length ? `<div class="section"><div class="group-h">循环任务<small>${list.filter(r=>r.on).length} 条启用</small></div><div class="thead rules"><span></span><span>任务和频率</span><span>来源</span><span>执行人</span><span>创建人</span><span>下次截止</span></div>${list.map(r=>`<div class="rule ${r.on?'':'off'}" data-rule="${r.id}" tabindex="0" role="button">${S.batch?`<span class="pick ${S.picked.has(r.id)?'on':''}" role="checkbox" aria-checked="${S.picked.has(r.id)}">✓</span>`:`<button class="sw" role="switch" aria-checked="${r.on}" aria-label="${r.on?'暂停':'启用'} ${esc(r.n)}" data-sw="${r.id}"></button>`}<div style="min-width:0"><div class="r-name">${esc(r.n)}${r.ex?' <span class="meta ex">示例</span>':''}</div><div class="r-freq">↻ ${esc(freqLabel(r.freq,r.anchor||r.due))}${r.on?'':' · 已暂停'}</div></div><div class="c-src">${esc(r.src||'–')}</div><div class="who ${r.who===BOT?'bot':''}">${esc(r.who||'未分配')}</div><div class="c-by">${esc(r.by||'–')}</div><div class="due">${r.on?dueLabel(r.due):'–'}</div></div>`).join('')}</div>`
       : `<div class="empty"><b>还没有循环任务</b>点右上角「新建」，把「重复」选成每周或每月。</div>`;
   } else if (S.view==='done') {
     const list=pool().filter(inView).filter(pass);
@@ -571,7 +581,7 @@ const peopleOpts=val=>`<option value="">未分配</option>`+[...new Set([...PEOP
 function repeatPv(o) {
   if (!o.freq) return '';
   const n=nextDates(o.due,o.freq,3,o.anchor).map(md).join('、');
-  return `<div class="pv" id="pvRep">${o.isRule?'下次':'这次'} ${o.due?md(o.due):'–'}，之后 ${n}</div>`;
+  return `<div class="pv" id="pvRep">${o.isRule?'下次':'这次'} ${o.due?md(o.due):'–'}，之后 ${n}${hasTime(o.due)?`，都是 ${o.due.slice(11,16)} 截止`:''}</div>`;
 }
 function propsHtml(o, core, status, isNew) {
   const r = !o.isRule && ruleOf(o);
@@ -582,7 +592,7 @@ function propsHtml(o, core, status, isNew) {
   if(o.src&&!SOURCES[o.src]) srcs.push([o.src,o.src]);
   return `<div class="props">
     <div class="p"><label for="fWho">执行人</label><select id="fWho" ${core?'':'disabled'}>${peopleOpts(o.who)}</select></div>
-    <div class="p"><label for="fDue">${o.isRule?'下次截止':'截止'}</label><input id="fDue" type="date" value="${(o.due||'').slice(0,10)}" ${core?'':'disabled'}></div>
+    <div class="p"><label for="fDue">${o.isRule?'下次截止':'截止'}</label><input id="fDue" type="datetime-local" value="${(o.due||'').slice(0,16).replace(' ','T')}" ${core?'':'disabled'}></div>
     <div class="p" id="botRow" ${o.who===BOT?'':'hidden'}><label for="fBot">类型</label><select id="fBot" ${core?'':'disabled'}>${opt(BOT_TYPES.map(x=>[x,x]),o.botType||BOT_TYPES[0])}</select></div>
     ${repeatRow}${leadRow}
     ${o.isRule?'':`<div class="p"><label for="fSt">状态</label><select id="fSt" ${status?'':'disabled'}>${opt(['待办','进行中','已完成'].map(s=>[s,s]),o.st||'待办')}</select></div>`}
@@ -632,7 +642,7 @@ function bindProps(o,isNew) {
   const on=(id,fn)=>{ const el=$(id); if(el) el.onchange=()=>{ fn(el); refreshPv(o); sync(); }; };
   on('fName',e=>o.n=e.value); on('fDesc',e=>o.d=e.value); on('fWho',e=>{ o.who=e.value; if(o.who===BOT&&!o.botType) o.botType=BOT_TYPES[0]; }); on('fPri',e=>o.pri=e.value);
   on('fBot',e=>o.botType=e.value); on('fSrc',e=>o.src=e.value); on('fLead',e=>o.lead=e.value);
-  on('fDue',e=>{ o.due=e.value; if(o.isRule) o.anchor=e.value; const f=$('fFreq'); if(f) f.innerHTML=opt(freqOptions(o.anchor||o.due).slice(o.isRule?1:0),o.freq||''); });
+  on('fDue',e=>{ o.due=e.value.replace('T',' '); if(o.isRule) o.anchor=e.value; const f=$('fFreq'); if(f) f.innerHTML=opt(freqOptions(o.anchor||o.due).slice(o.isRule?1:0),o.freq||''); });
   on('fFreq',e=>{ o.freq=e.value; if(o.lead==null||isNew) { o.lead=({workday:'0',week:'1',biweek:'1',month:'3',monthlast:'3',quarter:'7',year:'7'})[o.freq]??'1'; const l=$('fLead'); if(l) l.value=o.lead; } });
   on('fSt',e=>{ setDone(o,e.value); });
 }
@@ -738,7 +748,7 @@ $('frame').addEventListener('click',async e=>{
     if(o.freq){
       const lead=o.lead??'1', nexts=nextDates(o.due,o.freq,1), now1=dn(o.due)-(+lead)<=T0;
       // 第一次已到出现时间：当场建好，规则的「下次」往后推一格，定时任务不会重复建
-      const rule={...base,id:'rn'+Date.now(),isRule:true,on:true,freq:o.freq,lead,anchor:o.due,due:now1?nexts[0]:o.due};
+      const rule={...base,id:'rn'+Date.now(),isRule:true,on:true,freq:o.freq,lead,anchor:o.due,due:now1?nexts[0]+(o.due.length>10?' '+o.due.slice(11,16):''):o.due};
       S.rules.unshift(rule); made.push(rule);
       if(now1){ const t=task({rule:rule.id}); S.tasks.unshift(t); made.push(t); }
       msg=`已建循环任务，下一次 ${md(rule.due)}`;
@@ -757,7 +767,7 @@ $('frame').addEventListener('click',async e=>{
 $('frame').addEventListener('keydown',e=>{ if(e.key==='Enter'&&(e.target.classList?.contains('row')||e.target.classList?.contains('rule'))) e.target.click(); if(e.key==='Escape'&&S.confirm){ S.confirm=null; renderConfirm(); return; } if(e.key==='Escape'&&(S.sel||S.draft||S.panel)){ close(); renderMain(); renderDrawer(); } });
 $('frame').addEventListener('mouseover',e=>{ S.hover=!!e.target.closest('#ticker'); });
 $('frame').addEventListener('mouseleave',()=>{ S.hover=false; });
-$('newBtn').onclick=()=>{ close(); S.draft={who:S.me===MANAGER?'':S.me,due:TODAY,pri:'中',freq:''}; renderMain(); renderDrawer(); };
+$('newBtn').onclick=()=>{ close(); S.draft={who:S.me===MANAGER?'':S.me,due:TODAY+' 18:00',pri:'中',freq:''}; renderMain(); renderDrawer(); };
 // 搜索框只建一次、不随列表重绘，避免打断中文输入法
 $('q').addEventListener('input',e=>{ if(e.isComposing) return; S.q=e.target.value.trim(); renderMain(); });
 $('q').addEventListener('compositionend',e=>{ S.q=e.target.value.trim(); renderMain(); });
