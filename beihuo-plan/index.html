@@ -137,6 +137,8 @@
   .btn:hover { border-color: var(--brand); color: var(--brand-deep); background: var(--brand-soft); }
   .btn.primary { background: linear-gradient(120deg, #ff8a3d, #f76b15); color: #fff; border-color: transparent; font-weight: 600; box-shadow: 0 3px 10px rgba(247, 107, 21, .3); }
   .btn.primary:hover { filter: brightness(1.05); color: #fff; }
+  input.note { width: 200px; height: 30px; padding: 0 8px; border: 1px solid var(--line2); border-radius: 8px; font: inherit; background: #fffdfb; }
+  input.note:focus { outline: none; border-color: var(--brand); background: #fff; box-shadow: 0 0 0 3px rgba(247, 107, 21, .15); }
   .sel { height: 30px; border: 1px solid var(--line2); border-radius: 8px; font: inherit; max-width: 320px; background: #fff; padding: 0 6px; }
 
   .params { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
@@ -721,6 +723,7 @@ function render() {
       <td><select class="sel" data-plan="${x.i}" data-f="ch">${chOpts(x.ch)}</select></td>
       <td>${m.split ? `<span class="meta">分仓 ${SPLIT_DAYS.join('/')}</span>` : `<input class="num" style="width:60px" type="number" min="0" data-plan="${x.i}" data-f="days" value="${x.days ?? ''}"> 天`}</td>
       <td>${legsHtml(x.legs)}${x.legs.some((l) => l.day > winEnd) ? '<div class="meta">部分超出日历窗口</div>' : ''}</td>
+      <td><input class="note" type="text" placeholder="备注" data-plan="${x.i}" data-f="note" value="${esc(x.note || '')}"></td>
       <td><button class="btn" data-act="delPlan" data-i="${x.i}">删除</button></td></tr>`).join('');
   const c6p = `<div class="card"><h3>⑥ 发货计划 <small>勾选的货件进入②趋势图和⑦库存日历；取消勾选就不算</small></h3>
     ${o.country === '美国' ? `<div class="splitbar"><label><input type="checkbox" id="splitOn" ${m.split ? 'checked' : ''}> 美国分仓</label>
@@ -730,12 +733,13 @@ function render() {
       <div class="btns"><button class="btn" data-act="sugAll">全部勾选</button><button class="btn" data-act="sugNone">全部取消</button><button class="btn" data-act="sugToPlan">把勾选的建议转成预发货计划</button></div>`
       : `<div class="empty">未来 ${CHART_DAYS} 天不需要再发货（现有库存 + 在途 + 预发货已经够）</div>`}
     <div class="sub-h" style="margin-top:16px">预发货计划 <small>手填，模拟真实货件：预计到仓＝发货日 + 到货天数${m.split ? '（分仓时按 5 份 ' + SPLIT_DAYS.join('/') + ' 天）' : ''}，到仓即计入库存 · 新增后默认勾选、直接进入计算，上面的建议货件会相应减少</small></div>
-    ${m.plans.length ? `<div class="scroll"><table class="tbl plan"><thead><tr><th style="width:28px"></th><th>发货日期</th><th class="num">发货数量</th><th>渠道</th><th>到货天数</th><th>预计到仓（＝入库存）</th><th></th></tr></thead><tbody>${planRows}</tbody></table></div>` : '<div class="empty">还没有预发货计划</div>'}
+    ${m.plans.length ? `<div class="scroll"><table class="tbl plan"><thead><tr><th style="width:28px"></th><th>发货日期</th><th class="num">发货数量</th><th>渠道</th><th>到货天数</th><th>预计到仓（＝入库存）</th><th>备注</th><th></th></tr></thead><tbody>${planRows}</tbody></table></div>` : '<div class="empty">还没有预发货计划</div>'}
     <div class="addrow">
       <label>发货日期 <input class="num" style="width:140px;text-align:left" type="date" id="npDate" value="${fmtFull(m.nextShip)}"></label>
       <label>发货数量 <input class="num" type="number" min="0" step="${m.box}" id="npQty" value="${m.sugs[0] ? m.sugs[0].qty : m.box}"></label>
       <label>渠道 <select class="sel" id="npCh">${chOpts(o.channel)}</select></label>
       ${m.split ? `<label>到货 <span class="meta">分仓 ${SPLIT_DAYS.join('/')} 天</span><input type="hidden" id="npDays" value="${n0(p.freight)}"></label>` : `<label>到货天数 <input class="num" style="width:60px" type="number" min="0" id="npDays" value="${n0(p.freight)}"></label>`}
+      <label>备注 <input class="note" type="text" id="npNote" placeholder="选填"></label>
       <button class="btn primary" data-act="addPlan">＋ 新增预发货</button>
     </div>
   </div>`;
@@ -826,6 +830,11 @@ document.addEventListener('change', (e) => {
   else if (t.dataset.plan != null) {
     const plans = (cur(SEL).plans || []).map((x) => ({ ...x })); const x = plans[+t.dataset.plan]; if (!x) return;
     const f = t.dataset.f;
+    if (f === 'note') {
+      x.note = t.value.trim(); setEdit(SEL, { plans }); delete SAVE_MSG[SEL.key];
+      document.querySelectorAll('.savebox .st').forEach((st) => { st.className = 'st dirty'; st.textContent = '● 有未保存的修改（现在只存在这台电脑，清缓存会丢）'; });
+      return;
+    }
     if (f === 'on') x.on = t.checked;
     else if (f === 'date') x.date = t.value;
     else if (f === 'ch') { x.ch = t.value; const c = CHANNELS.find((c) => c.name === t.value && c.country === SEL.country); if (c) x.days = c.days; }
@@ -900,7 +909,7 @@ document.addEventListener('click', (e) => {
   if (a === 'addPlan') {
     const date = $('npDate').value, qty = Number($('npQty').value), days = Number($('npDays').value);
     if (!date || !(qty > 0)) { alert('请填发货日期和发货数量'); return; }
-    setEdit(SEL, { plans: (cur(SEL).plans || []).concat([{ date, qty, ch: $('npCh').value, days: isNaN(days) ? 0 : days, on: true }]) });
+    setEdit(SEL, { plans: (cur(SEL).plans || []).concat([{ date, qty, ch: $('npCh').value, days: isNaN(days) ? 0 : days, note: $('npNote').value.trim(), on: true }]) });
   }
   if (a === 'perPreset') { e.preventDefault(); $('pfDaily').value = Math.round(SEL[b.dataset.k] * 10) / 10; return; }
   if (a === 'addPer') {
