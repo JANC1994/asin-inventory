@@ -6,19 +6,19 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="claude:viewport-fit-sides" content="cover">
 <style>
-/* 布局：白底单栏，内容居中限宽，只靠留白和细线分层；不用卡片和阴影，颜色只留给逾期和操作。 */
+/* 布局：跟应用其他插件页一致，灰底铺满宽度，顶栏固定，内容放白色卡片，任务用表格列。 */
 :root {
-  --bg: #f4f5f7; --paper: #ffffff; --ink: #1f2329; --sub: #646a73; --faint: #9aa0aa; --line: #eef0f3; --line-2: #dfe2e7; --hover: #f6f7f9;
-  --blue: #2f6bff; --blue-soft: #edf2ff; --red: #d6332c; --amber: #b86400; --green: #1f8f4a; --green-soft: #e6f6ec; --purple: #7446d8; --on-accent: #ffffff; --drawer: rgba(31,35,41,.12);
+  --bg: #f5f6f7; --paper: #ffffff; --ink: #1f2329; --sub: #646a73; --faint: #8f959e; --line: #e5e6eb; --line-2: #d0d3d6; --hover: #f5f6f7; --seg: #eceef1;
+  --blue: #3370ff; --blue-soft: #e1eaff; --red: #f54a45; --red-soft: #fde2e2; --amber: #b25e00; --amber-soft: #fff1d6; --green: #2ea121; --green-soft: #d9f5d6; --purple: #7446d8; --on-accent: #ffffff; --drawer: rgba(31,35,41,.12);
 }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
   --bg: #14161a; --paper: #1b1e23; --ink: #e8eaee; --sub: #a3a9b3; --faint: #737a85; --line: #2a2e35; --hover: #24272d; --line-2: #383d45;
-  --blue: #7ba4ff; --blue-soft: #232f49; --red: #ff7d75; --amber: #eda63f; --green: #5fd088; --green-soft: #1b3226; --purple: #b398f4; --on-accent: #10131a; --drawer: rgba(0,0,0,.45); color-scheme: dark } }
+  --blue: #7ba4ff; --seg: #2a2e35; --blue-soft: #232f49; --red: #ff7d75; --red-soft: #4a2422; --amber: #eda63f; --amber-soft: #43331a; --green: #5fd088; --green-soft: #1b3226; --purple: #b398f4; --on-accent: #10131a; --drawer: rgba(0,0,0,.45); color-scheme: dark } }
 :root[data-theme="dark"] {
   --bg: #14161a; --paper: #1b1e23; --ink: #e8eaee; --sub: #a3a9b3; --faint: #737a85; --line: #2a2e35; --hover: #24272d; --line-2: #383d45;
-  --blue: #7ba4ff; --blue-soft: #232f49; --red: #ff7d75; --amber: #eda63f; --green: #5fd088; --green-soft: #1b3226; --purple: #b398f4; --on-accent: #10131a; --drawer: rgba(0,0,0,.45); color-scheme: dark }
+  --blue: #7ba4ff; --seg: #2a2e35; --blue-soft: #232f49; --red: #ff7d75; --red-soft: #4a2422; --amber: #eda63f; --amber-soft: #43331a; --green: #5fd088; --green-soft: #1b3226; --purple: #b398f4; --on-accent: #10131a; --drawer: rgba(0,0,0,.45); color-scheme: dark }
 * { box-sizing: border-box; }
-body { background: var(--bg); color: var(--ink); font: 14px/1.5 -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; }
+body { background: var(--bg); color: var(--ink); font: 13px/1.5 -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; }
 button, input, select, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; }
 :focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; }
@@ -32,74 +32,80 @@ button { cursor: pointer; }
 .seg button { border: 0; background: none; height: 24px; padding: 0 10px; color: var(--sub); font-size: 12.5px; }
 .seg button[aria-pressed="true"] { background: var(--blue-soft); color: var(--blue); }
 
-.frame { position: relative; height: min(820px, calc(100vh - 64px)); min-height: 520px; background: var(--paper); border: 1px solid var(--line-2); border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; }
-.top { flex: none; border-bottom: 1px solid var(--line); }
-.top-in { max-width: 880px; margin: 0 auto; padding: 20px 24px 0; display: flex; flex-direction: column; gap: 12px; }
-.top-1 { display: flex; align-items: center; gap: 12px; }
-.top-1 h1 { margin: 0; font-size: 20px; font-weight: 600; }
+.frame { position: relative; height: min(820px, calc(100vh - 64px)); min-height: 520px; background: var(--bg); border: 1px solid var(--line-2); border-radius: 8px; overflow: hidden; display: flex; flex-direction: column; }
+.top { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 12px 16px 10px; }
+.top h1 { margin: 0; font-size: 17px; font-weight: 600; }
 .spacer { flex: 1; }
-.search { width: 180px; min-width: 0; height: 32px; border: 0; border-radius: 8px; background: var(--hover); padding: 0 12px; font-size: 13px; }
+.search { width: 200px; min-width: 0; height: 30px; border: 1px solid var(--line-2); border-radius: 6px; background: var(--paper); padding: 0 8px; font-size: 13px; }
 .search::placeholder { color: var(--faint); }
-.btn { height: 32px; padding: 0 14px; border: 1px solid var(--line-2); border-radius: 8px; background: var(--paper); white-space: nowrap; font-size: 13px; }
+.search:focus { outline: none; border-color: var(--blue); box-shadow: 0 0 0 2px var(--blue-soft); }
+.btn { height: 30px; padding: 0 14px; border: 1px solid var(--line-2); border-radius: 6px; background: var(--paper); white-space: nowrap; font-size: 13px; }
 .btn:hover { background: var(--hover); }
-.btn.pri { background: var(--blue); border-color: var(--blue); color: var(--on-accent); font-weight: 500; }
+.btn.pri { background: var(--blue); border-color: var(--blue); color: var(--on-accent); }
 .btn.pri:hover { background: var(--blue); opacity: .9; }
-.tabs { display: flex; gap: 24px; overflow-x: auto; scrollbar-width: none; }
-.tabs button { flex: none; border: 0; background: none; padding: 2px 0 10px; color: var(--sub); border-bottom: 2px solid transparent; font-size: 14px; }
-.tabs button:hover { color: var(--ink); }
-.tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--ink); font-weight: 600; }
+.tabs { display: flex; gap: 4px; background: var(--seg); border-radius: 8px; padding: 3px; overflow-x: auto; scrollbar-width: none; }
+.tabs button { flex: none; border: 0; background: none; padding: 4px 14px; border-radius: 6px; color: var(--sub); font-size: 13px; }
+.tabs button[aria-selected="true"] { background: var(--paper); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+.tabs .num { display: inline-block; min-width: 18px; padding: 0 5px; border-radius: 9px; background: var(--red); color: var(--on-accent); font-size: 11px; line-height: 18px; margin-left: 4px; }
 .main { flex: 1; min-height: 0; overflow: auto; }
-.main-in { max-width: 880px; margin: 0 auto; padding: 16px 24px 40px; display: flex; flex-direction: column; gap: 20px; }
+.main-in { padding: 0 16px 24px; display: flex; flex-direction: column; gap: 12px; }
+.badge { display: inline-block; border-radius: 4px; padding: 1px 8px; font-size: 12px; white-space: nowrap; }
+.b-red { background: var(--red-soft); color: var(--red); } .b-amber { background: var(--amber-soft); color: var(--amber); } .b-blue { background: var(--blue-soft); color: var(--blue); } .b-gray { background: var(--seg); color: var(--sub); }
 
 /* 一行滚动播报 */
-.ticker { display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 4px 0 12px; border-radius: 8px; background: var(--hover); font-size: 13px; }
-.t-label { flex: none; color: var(--faint); font-size: 12px; }
+.ticker { display: flex; align-items: center; gap: 10px; height: 38px; padding: 0 8px 0 16px; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); }
+.t-label { flex: none; color: var(--sub); font-size: 12px; }
 .t-view { flex: 1; min-width: 0; height: 36px; overflow: hidden; }
 .t-in { transition: transform .4s ease; }
 .t-in.noanim { transition: none; }
 .t-row { display: flex; align-items: center; gap: 8px; width: 100%; height: 36px; border: 0; background: none; padding: 0; text-align: left; font-size: 13px; }
 .t-row .tx { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .t-row .tm { flex: none; color: var(--faint); font-size: 12px; font-variant-numeric: tabular-nums; }
-.t-all { flex: none; border: 0; background: none; height: 28px; padding: 0 8px; border-radius: 6px; color: var(--sub); font-size: 12px; }
-.t-all:hover { color: var(--ink); background: var(--line-2); }
+.t-all { flex: none; border: 0; background: none; height: 28px; padding: 0 8px; border-radius: 6px; color: var(--blue); font-size: 12px; }
+.t-all:hover { background: var(--blue-soft); }
 .v-完成 { color: var(--green); } .v-逾期 { color: var(--red); } .v-提醒 { color: var(--amber); } .v-派出 { color: var(--blue); }
 
 /* 按人筛选 */
-.people { display: flex; flex-wrap: wrap; gap: 4px 6px; margin-bottom: -8px; }
-.people button { border: 0; background: none; height: 28px; padding: 0 10px; border-radius: 14px; color: var(--sub); font-size: 13px; font-variant-numeric: tabular-nums; }
-.people button:hover { background: var(--hover); }
-.people button[aria-pressed="true"] { background: var(--blue-soft); color: var(--blue); }
-.people b { font-weight: 500; margin-left: 3px; }
+.people { display: flex; flex-wrap: wrap; gap: 6px; }
+.people button { border: 1px solid var(--line); background: var(--paper); height: 28px; padding: 0 12px; border-radius: 6px; color: var(--sub); font-size: 13px; font-variant-numeric: tabular-nums; }
+.people button:hover { border-color: var(--line-2); }
+.people button[aria-pressed="true"] { background: var(--blue-soft); border-color: var(--blue); color: var(--blue); }
+.people b { font-weight: 500; margin-left: 4px; }
 .people b.hot { color: var(--red); }
 
-/* 任务行 */
-.section { display: flex; flex-direction: column; }
-.group-h { display: flex; align-items: baseline; gap: 6px; padding: 0 8px 6px; font-size: 13px; font-weight: 600; color: var(--sub); }
+/* 任务卡片和表格列 */
+.section { display: flex; flex-direction: column; background: var(--paper); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.group-h { display: flex; align-items: baseline; gap: 8px; padding: 12px 16px 8px; font-size: 15px; font-weight: 600; }
 .group-h.over { color: var(--red); }
-.group-h small { font-weight: 400; color: var(--faint); font-size: 13px; font-variant-numeric: tabular-nums; }
-.row { display: grid; grid-template-columns: 22px minmax(0,1fr) 64px 92px; align-items: center; gap: 10px; min-height: 46px; padding: 6px 8px; border-top: 1px solid var(--line); cursor: pointer; }
-.row.solo { grid-template-columns: 22px minmax(0,1fr) 92px; }
+.group-h small { font-weight: 400; color: var(--sub); font-size: 12px; font-variant-numeric: tabular-nums; }
+.row, .thead { display: grid; grid-template-columns: 22px minmax(0,1fr) 100px 72px 72px 110px 60px; align-items: center; gap: 12px; padding: 0 16px; }
+.row.solo, .thead.solo { grid-template-columns: 22px minmax(0,1fr) 100px 72px 110px 60px; }
+.thead { min-height: 30px; background: var(--bg); color: var(--sub); font-size: 12px; }
+.row { min-height: 42px; border-top: 1px solid var(--line); cursor: pointer; }
+.thead + .row { border-top: 0; }
 .row:hover { background: var(--hover); }
 .row.sel { background: var(--blue-soft); }
 .check { width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid var(--line-2); background: none; padding: 0; display: grid; place-items: center; color: transparent; font-size: 11px; line-height: 1; }
 .check:hover { border-color: var(--green); color: var(--green); }
 .check.on { background: var(--green); border-color: var(--green); color: var(--on-accent); }
 .dash { width: 18px; height: 18px; border-radius: 50%; border: 1.5px dashed var(--line-2); }
-.name { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.name { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .name > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .row.done .name > span:first-child { color: var(--sub); }
 .meta { flex: none; font-size: 12px; color: var(--faint); white-space: nowrap; }
-.meta.hi { color: var(--red); } .meta.doing { color: var(--blue); } .meta.ex { color: var(--purple); }
-.who { font-size: 13px; color: var(--sub); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.meta.ex { color: var(--purple); }
+.who, .c-by, .c-src { font-size: 13px; color: var(--sub); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .who.none { color: var(--red); }
 .who.bot { color: var(--purple); }
-.due { font-size: 13px; color: var(--sub); text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
-.due.over { color: var(--red); font-weight: 500; } .due.today { color: var(--amber); font-weight: 500; }
-.empty { padding: 56px 16px; text-align: center; color: var(--sub); font-size: 13px; }
+.due { font-size: 13px; color: var(--sub); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.c-act { white-space: nowrap; }
+.empty { padding: 56px 16px; text-align: center; color: var(--sub); font-size: 13px; background: var(--paper); border: 1px solid var(--line); border-radius: 8px; }
 .empty b { display: block; color: var(--ink); font-size: 15px; font-weight: 500; margin-bottom: 4px; }
 
 /* 循环任务行 */
-.rule { display: grid; grid-template-columns: 36px minmax(0,1fr) 64px 92px; align-items: center; gap: 10px; min-height: 54px; padding: 6px 8px; border-top: 1px solid var(--line); cursor: pointer; }
+.rule { display: grid; grid-template-columns: 36px minmax(0,1fr) 100px 72px 72px 110px; align-items: center; gap: 12px; min-height: 50px; padding: 4px 16px; border-top: 1px solid var(--line); cursor: pointer; }
+.thead.rules { grid-template-columns: 36px minmax(0,1fr) 100px 72px 72px 110px; }
+.thead + .rule { border-top: 0; }
 .rule:hover { background: var(--hover); }
 .rule.off .r-name, .rule.off .who, .rule.off .due { color: var(--faint); }
 .r-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -137,15 +143,14 @@ button { cursor: pointer; }
 .ev-row .tm { color: var(--faint); font-size: 12px; font-variant-numeric: tabular-nums; }
 .ev-row .nm { grid-column: 1 / -1; color: var(--sub); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .btn.on { background: var(--blue-soft); border-color: var(--blue); color: var(--blue); }
+.btn.on:hover { background: var(--blue-soft); }
 .btn.danger { color: var(--red); }
 .btn:disabled { opacity: .45; cursor: default; }
-.r-rem { flex: none; margin-left: auto; height: 24px; padding: 0 8px; border: 1px solid var(--line-2); border-radius: 6px; background: var(--paper); color: var(--sub); font-size: 12px; visibility: hidden; }
-.r-rem:hover { color: var(--blue); border-color: var(--blue); }
-.row:hover .r-rem, .row:focus-within .r-rem { visibility: visible; }
-@media (hover: none) { .r-rem { visibility: visible; } }
+.r-rem { border: 0; background: none; padding: 0; color: var(--blue); font-size: 13px; }
+.r-rem:hover { text-decoration: underline; }
 .pick { width: 18px; height: 18px; border-radius: 4px; border: 1.5px solid var(--line-2); display: grid; place-items: center; color: transparent; font-size: 11px; line-height: 1; }
 .pick.on { background: var(--blue); border-color: var(--blue); color: var(--on-accent); }
-.batch { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px max(24px, calc((100% - 880px) / 2 + 24px)); border-top: 1px solid var(--line-2); font-size: 13px; }
+.batch { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 16px; background: var(--paper); border-top: 1px solid var(--line-2); font-size: 13px; }
 .batch b { font-weight: 500; font-variant-numeric: tabular-nums; }
 .batch .link-btn { margin-right: 8px; }
 .frame.batching .toast { bottom: 68px; }
@@ -173,14 +178,15 @@ button { cursor: pointer; }
 
 @media (max-width: 760px) {
   .frame { height: calc(100vh - 60px); }
-  .top-in { padding: 14px 16px 0; }
-  .main-in { padding: 12px 12px 32px; }
+  .top { padding: 10px 12px 8px; }
+  .main-in { padding: 0 12px 24px; }
   .search { width: 96px; flex: 0 1 96px; }
-  .tabs { gap: 18px; }
-  .row { grid-template-columns: 22px minmax(0,1fr) auto; }
-  .row .who { display: none; }
-  .rule { grid-template-columns: 36px minmax(0,1fr) auto; }
-  .rule .who { display: none; }
+  .tabs { order: 9; width: 100%; }
+  .thead { display: none; }
+  .row, .row.solo { grid-template-columns: 22px minmax(0,1fr) auto auto; padding: 0 12px; }
+  .row .who, .row .c-by, .row .c-src { display: none; }
+  .rule { grid-template-columns: 36px minmax(0,1fr) auto; padding: 4px 12px; }
+  .rule .who, .rule .c-by, .rule .c-src { display: none; }
   .notes { grid-template-columns: minmax(0,1fr); }
   .drawer { width: 100%; }
 }
@@ -190,7 +196,7 @@ button { cursor: pointer; }
 html, body { height: 100%; margin: 0; overflow: hidden; }
 .outer { height: 100vh; max-width: none; padding: 0; gap: 0; }
 .frame { flex: 1; height: auto; min-height: 0; border: 0; border-radius: 0; }
-.savebar { display: none; flex: none; align-items: center; gap: 12px; padding: 8px 16px; background: var(--blue-soft); font-size: 13px; }
+.savebar { display: none; flex: none; align-items: center; gap: 12px; margin: 12px 16px 0; padding: 10px 14px; background: #fff7e8; border: 1px solid #ffd591; border-radius: 8px; font-size: 13px; }
 </style>
 
 </head>
@@ -198,16 +204,14 @@ html, body { height: 100%; margin: 0; overflow: hidden; }
 <div class="outer">
   <div class="savebar" id="savebar"><span>确认没问题后点右边按钮，插件才会保存到应用页面上。</span><button class="btn pri" id="saveBtn">保存到页面</button><span id="saveMsg"></span></div>
   <div class="frame" id="frame">
-    <div class="top"><div class="top-in">
-      <div class="top-1">
-        <h1>任务待办</h1>
-        <span class="spacer"></span>
-        <input id="q" class="search" type="search" placeholder="搜索" aria-label="搜索任务">
-        <button class="btn" id="batchBtn" aria-pressed="false">批量</button>
-        <button class="btn pri" id="newBtn">新建</button>
-      </div>
+    <div class="top">
+      <h1>任务待办</h1>
       <div class="tabs" role="tablist" id="tabs"></div>
-    </div></div>
+      <span class="spacer"></span>
+      <input id="q" class="search" type="search" placeholder="搜索任务、执行人、来源" aria-label="搜索任务">
+      <button class="btn" id="batchBtn" aria-pressed="false">批量</button>
+      <button class="btn pri" id="newBtn">新建</button>
+    </div>
     <div class="main" id="main"></div>
     <div id="batchSlot"></div>
     <div id="drawerSlot"></div>
@@ -472,8 +476,8 @@ function dueHtml(t) {
   if (t.st==='已完成') { if (!t.doneAt) return `<div class="due" style="color:var(--faint)">${t.due?md(t.due):''}</div>`; const l=late(t); return `<div class="due">${t.doneAt===JUST?'刚刚':md(t.doneAt)}${l>0?` <span style="color:var(--red)">晚 ${l} 天</span>`:''}</div>`; }
   if (!t.due) return '<div class="due" style="color:var(--faint)">–</div>';
   const b=bucket(t), d=dn(t.due);
-  if (b==='over') return `<div class="due over">逾期 ${T0-d} 天</div>`;
-  if (b==='today') return '<div class="due today">今天</div>';
+  if (b==='over') return `<div class="due"><span class="badge b-red">逾期 ${T0-d} 天</span></div>`;
+  if (b==='today') return '<div class="due"><span class="badge b-amber">今天</span></div>';
   if (d===T0+1) return '<div class="due">明天</div>';
   return `<div class="due">${dmd(t.due)}</div>`;
 }
@@ -482,16 +486,17 @@ const remindedToday = t => t.remindedAt && dn(t.remindedAt)===T0;
 const canRemind = t => t.st!=='已完成' && t.who && t.who!==BOT;
 function remCtl(t) {
   if (S.batch) return '';
-  if (remindedToday(t)) return '<span class="meta" style="margin-left:auto">已提醒</span>';
-  return canRemind(t)&&t.who!==S.me ? `<button class="r-rem" data-rem="${t.id}" aria-label="提醒 ${esc(t.who)}">提醒</button>` : '';
+  return canRemind(t)&&t.who!==S.me ? `<button class="r-rem" data-rem="${t.id}" aria-label="提醒 ${esc(t.who)}">${remindedToday(t)?'再提醒':'提醒'}</button>` : '';
 }
 function rowHtml(t) {
   const done=t.st==='已完成', solo=S.view==='mine', r=ruleOf(t);
   const picked=S.batch&&S.picked.has(t.id);
   const left = S.batch ? `<span class="pick ${picked?'on':''}" role="checkbox" aria-checked="${picked}">✓</span>` : t.auto ? '<span class="dash" title="系统任务，做完自动关闭"></span>' : `<button class="check ${done?'on':''}" data-check="${t.id}" aria-label="${done?'改回待办':'标为已完成'}">✓</button>`;
-  const metas = [ !done&&t.pri==='高'?'<span class="meta hi">高</span>':'', t.st==='进行中'?'<span class="meta doing">进行中</span>':'', t.src&&SOURCES[t.src]?`<span class="meta">${esc(t.src)}</span>`:'', r?'<span class="meta" title="循环任务">↻</span>':'', t.ex?'<span class="meta ex">示例</span>':'' ].join('');
-  return `<div class="row ${solo?'solo':''} ${done?'done':''} ${S.sel===t.id||picked?'sel':''}" data-id="${t.id}" tabindex="0" role="button">${left}<div class="name"><span>${esc(t.n||'（没写任务名）')}</span>${metas}${remCtl(t)}</div>${solo?'':`<div class="who ${t.who?'':'none'} ${t.who===BOT?'bot':''}">${esc(t.who||'未分配')}</div>`}${dueHtml(t)}</div>`;
+  const metas = [ !done&&t.pri==='高'?'<span class="badge b-red">高</span>':'', t.st==='进行中'?'<span class="badge b-blue">进行中</span>':'', r?'<span class="meta" title="循环任务">↻</span>':'', t.ex?'<span class="meta ex">示例</span>':'' ].join('');
+  const src = t.src&&t.src!=='手动新建' ? (SOURCES[t.src]||t.src==='循环任务' ? esc(t.src) : esc(t.src)) : '–';
+  return `<div class="row ${solo?'solo':''} ${done?'done':''} ${S.sel===t.id||picked?'sel':''}" data-id="${t.id}" tabindex="0" role="button">${left}<div class="name"><span>${esc(t.n||'（没写任务名）')}</span>${metas}</div><div class="c-src">${src}</div>${solo?'':`<div class="who ${t.who?'':'none'} ${t.who===BOT?'bot':''}">${esc(t.who||'未分配')}</div>`}<div class="c-by">${esc(t.by||'–')}</div>${dueHtml(t)}<div class="c-act">${remCtl(t)}</div></div>`;
 }
+const theadHtml = () => { const solo=S.view==='mine'; return `<div class="thead ${solo?'solo':''}"><span></span><span>任务</span><span>来源</span>${solo?'':'<span>执行人</span>'}<span>派单人</span><span>${S.view==='done'?'完成':'截止'}</span><span>操作</span></div>`; };
 
 /* 动态 */
 function events() {
@@ -534,23 +539,24 @@ function peopleHtml() {
 function renderTabs() {
   const open=pool().filter(t=>t.st!=='已完成');
   const L={mine:'我的待办',all:'全组',sent:'我派出的',rules:'循环任务',done:'已完成'};
-  $('tabs').innerHTML=Object.keys(L).map(v=>`<button role="tab" data-view="${v}" aria-selected="${S.view===v}">${L[v]}</button>`).join('');
+  const myOver=open.filter(t=>t.who===S.me&&bucket(t)==='over').length;
+  $('tabs').innerHTML=Object.keys(L).map(v=>`<button role="tab" data-view="${v}" aria-selected="${S.view===v}">${L[v]}${v==='mine'&&myOver?`<span class="num">${myOver}</span>`:''}</button>`).join('');
 }
 function renderMain() {
   let h='';
   if (S.view==='rules') {
     const list=rules().filter(r=>!S.q||(r.n+r.d+r.who).includes(S.q)).sort((a,b)=>(b.on-a.on)||dn(a.due)-dn(b.due));
-    h = list.length ? `<div class="section"><div class="group-h">循环任务<small>${list.filter(r=>r.on).length} 条启用</small></div>${list.map(r=>`<div class="rule ${r.on?'':'off'}" data-rule="${r.id}" tabindex="0" role="button">${S.batch?`<span class="pick ${S.picked.has(r.id)?'on':''}" role="checkbox" aria-checked="${S.picked.has(r.id)}">✓</span>`:`<button class="sw" role="switch" aria-checked="${r.on}" aria-label="${r.on?'暂停':'启用'} ${esc(r.n)}" data-sw="${r.id}"></button>`}<div style="min-width:0"><div class="r-name">${esc(r.n)}${r.ex?' <span class="meta ex">示例</span>':''}</div><div class="r-freq">↻ ${esc(freqLabel(r.freq,r.anchor||r.due))}${r.on?'':' · 已暂停'}</div></div><div class="who">${esc(r.who||'未分配')}</div><div class="due">${r.on?dmd(r.due):'–'}</div></div>`).join('')}</div>`
+    h = list.length ? `<div class="section"><div class="group-h">循环任务<small>${list.filter(r=>r.on).length} 条启用</small></div><div class="thead rules"><span></span><span>任务和频率</span><span>来源</span><span>执行人</span><span>创建人</span><span>下次截止</span></div>${list.map(r=>`<div class="rule ${r.on?'':'off'}" data-rule="${r.id}" tabindex="0" role="button">${S.batch?`<span class="pick ${S.picked.has(r.id)?'on':''}" role="checkbox" aria-checked="${S.picked.has(r.id)}">✓</span>`:`<button class="sw" role="switch" aria-checked="${r.on}" aria-label="${r.on?'暂停':'启用'} ${esc(r.n)}" data-sw="${r.id}"></button>`}<div style="min-width:0"><div class="r-name">${esc(r.n)}${r.ex?' <span class="meta ex">示例</span>':''}</div><div class="r-freq">↻ ${esc(freqLabel(r.freq,r.anchor||r.due))}${r.on?'':' · 已暂停'}</div></div><div class="c-src">${esc(r.src||'–')}</div><div class="who ${r.who===BOT?'bot':''}">${esc(r.who||'未分配')}</div><div class="c-by">${esc(r.by||'–')}</div><div class="due">${r.on?dmd(r.due):'–'}</div></div>`).join('')}</div>`
       : `<div class="empty"><b>还没有循环任务</b>点右上角「新建」，把「重复」选成每周或每月。</div>`;
   } else if (S.view==='done') {
     const list=pool().filter(inView).filter(pass);
     const by={}; list.forEach(t=>{const m=(t.createdAt||'').slice(0,7);(by[m]=by[m]||[]).push(t)});
-    h = Object.keys(by).sort().reverse().map(m=>`<div class="section"><div class="group-h">${+m.slice(5)} 月派出<small>${by[m].length}</small></div>${by[m].sort((a,b)=>(b.doneAt||'').localeCompare(a.doneAt||'')||(dn(b.due)??0)-(dn(a.due)??0)).map(rowHtml).join('')}</div>`).join('') || '<div class="empty"><b>没有符合条件的任务</b></div>';
+    h = Object.keys(by).sort().reverse().map(m=>`<div class="section"><div class="group-h">${+m.slice(5)} 月派出<small>${by[m].length} 条</small></div>${theadHtml()}${by[m].sort((a,b)=>(b.doneAt||'').localeCompare(a.doneAt||'')||(dn(b.due)??0)-(dn(a.due)??0)).map(rowHtml).join('')}</div>`).join('') || '<div class="empty"><b>没有符合条件的任务</b></div>';
   } else {
     if (S.view==='all') h += tickerHtml()+peopleHtml();
     const list=pool().filter(inView).filter(pass);
     let any=false;
-    for (const [k,l] of GROUPS) { const g=list.filter(t=>bucket(t)===k).sort(cmp); if(!g.length) continue; any=true; h+=`<div class="section"><div class="group-h ${k}">${l}<small>${g.length}</small></div>${g.map(rowHtml).join('')}</div>`; }
+    for (const [k,l] of GROUPS) { const g=list.filter(t=>bucket(t)===k).sort(cmp); if(!g.length) continue; any=true; h+=`<div class="section"><div class="group-h ${k}">${l}<small>${g.length} 条</small></div>${theadHtml()}${g.map(rowHtml).join('')}</div>`; }
     if (!any) h += S.q||S.owner ? '<div class="empty"><b>没有符合条件的任务</b></div>'
       : S.view==='mine' ? `<div class="empty"><b>${esc(S.me)}现在没有待办</b>新任务会出现在这里。</div>`
       : '<div class="empty"><b>都做完了</b>要派新任务，点右上角「新建」。</div>';
