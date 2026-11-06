@@ -14,7 +14,8 @@
   页面现场跑确定性规则（移植 tools/keepa/listing_rule_check.py 的规则部分），AI 规范分析字段只展示。
   可写回：文案审核状态 / 图片审核状态 / 运营审核文案 / 主管审核文案 / 运营审核图片 / 主管审核图片 / 6 个完成勾选。
   11-06 提交主管审核：卡片按钮在任务待办表 tblUp0MCrRKIVlBI 建任务（来源跳转带 lr=记录ID&t=copy|img），图片同时把状态改成待审核-主管；
-  插件读不到飞书外层网址，所以页面靠读未完成任务出顶部「待审核」条，点一下定位到那条记录。
+  插件读不到飞书外层网址，所以页面靠读未完成任务出顶部「待处理」条，点一下定位到那条记录。
+  11-06 退回：状态存成未通过 → 关审核待办 → 弹窗给运营建整改待办（链接多带 k=fix）；再提交时关整改待办，文案状态回待审核；存成通过 → 关掉该卡全部待办。
   四条硬规矩见 wiki/页面设计/概念/飞书应用自定义插件页.md。
 -->
 <style>
@@ -239,6 +240,7 @@
   .rvbar button { flex: none; height: 26px; padding: 0 10px; border: 1px solid #c7d9f7; border-radius: 13px; background: #fff; color: var(--ink); font-size: 12.5px; cursor: pointer; white-space: nowrap; }
   .rvbar button:hover { border-color: var(--blue); color: var(--blue); }
   .rvbar button.on { background: var(--blue); border-color: var(--blue); color: #fff; }
+  .rqstat.fix { color: var(--or-d); background: var(--or-soft); }
   .rqstat { font-size: 12.5px; color: var(--blue); background: var(--blue-soft); padding: 4px 10px; border-radius: 13px; white-space: nowrap; }
   .rqmask { position: fixed; inset: 0; background: rgba(20,14,8,.45); z-index: 70; display: flex; align-items: center; justify-content: center; padding: 16px; }
   .rqbox { width: 460px; max-width: 100%; background: #fff; border-radius: 12px; padding: 18px 20px; }
@@ -348,7 +350,10 @@ function norm(name, v) {
   if (name === '图片' || ATT.includes(name)) return Array.isArray(v) ? v.filter((x) => x && typeof x === 'object' && x.token) : [];
   if (DONE.includes(name)) return !!v;
   if (name === '开售时间' || name === 'listing最晚完成时间') return toDate(v);
-  if (name === '负责人') return Array.isArray(v) ? v.map((x) => x && (x.name || x.enName || x.id)).filter(Boolean) : [];
+  if (name === '负责人') {
+    if (Array.isArray(v)) for (const u of v) if (u && u.id && u.name) TODO.people[u.name] = u.id;   // 整改待办要发给负责人
+    return Array.isArray(v) ? v.map((x) => x && (x.name || x.enName || x.id)).filter(Boolean) : [];
+  }
   const c = cell(v);
   return c == null ? null : String(c);
 }
@@ -878,6 +883,8 @@ async function save(x, card) {
     x.cst = r['文案审核状态'] || '（未审）'; x.ist = r['图片审核状态'] || '（未审）';
     toast(SNAP ? `本地预览：改了 ${n} 项（未写回）` : `已写回 ${n} 项`);
     render();
+    const t = isCopy ? 'copy' : 'img';
+    if (STATUS_F[t] in ch) await afterDecision(x, t, ch[STATUS_F[t]]);
   } catch (e) {
     btn.disabled = false; msg.style.color = 'var(--red)';
     msg.textContent = '保存失败：' + (e && e.message ? e.message : e) + '（应用数据权限要对 Listing审核表 开「可编辑」，新加的备注列查字段权限）';
@@ -901,8 +908,10 @@ async function loadImages() {
 // ===== 提交主管审核（任务待办表）=====
 const REVIEW_PAGE = 'https://zcnt6ibhe9z3.feishu.cn/app/AiOrbUNtiaG6tysq5FMcBP93nbf?pageId=pge8JRO6tjqElaEj';
 const REVIEWER = '林键春', TODO_SRC = 'Listing审核', TYPE_NAME = { copy: '文案', img: '图片' };
-const reviewUrl = (rec, t) => `${REVIEW_PAGE}&lr=${rec}&t=${t}`;
-const openTask = (rec, t) => TODO.tasks.find((k) => k.rec === rec && k.t === t);
+const reviewUrl = (rec, t, kind) => `${REVIEW_PAGE}&lr=${rec}&t=${t}${kind === 'fix' ? '&k=fix' : ''}`;
+const openTask = (rec, t, kind = 'review') => TODO.tasks.find((k) => k.rec === rec && k.t === t && k.kind === kind);
+const STATUS_F = { copy: '文案审核状态', img: '图片审核状态' }, KIND_NAME = { review: '审核', fix: '整改' };
+const myName = () => Object.keys(TODO.people).find((n) => TODO.me.includes(TODO.people[n])) || '';
 const iAmKnown = () => TODO.me.some((id) => Object.values(TODO.people).includes(id));
 const isMine = (k) => TODO.me.includes(k.whoId);
 const mmdd = (ms) => ms ? ymd(dn(ms)).slice(5) : '无截止';
@@ -910,8 +919,8 @@ const segText = (v) => Array.isArray(v) ? v.map(segText).join('') : v == null ? 
 const segUser = (v) => (Array.isArray(v) ? v : v ? [v] : []).filter((u) => u && u.id);
 function reviewTarget(v) {
   const seg = Array.isArray(v) ? v.find((x) => x && x.link) : null;
-  const m = /[?&]lr=(rec\w+)&t=(copy|img)/.exec(seg ? seg.link : segText(v));
-  return m ? { rec: m[1], t: m[2] } : null;
+  const url = seg ? seg.link : segText(v), m = /[?&]lr=(rec\w+)&t=(copy|img)/.exec(url);
+  return m ? { rec: m[1], t: m[2], kind: /[?&]k=fix/.test(url) ? 'fix' : 'review' } : null;
 }
 async function readTodo() {
   try {
@@ -927,9 +936,9 @@ async function readTodo() {
         const o = {};
         for (const [id, v] of Object.entries(rec.fields)) if (nameOf[id]) o[nameOf[id]] = v;
         for (const u of [...segUser(o['负责人']), ...segUser(o['创建人'])]) if (u.name) TODO.people[u.name] = u.id;
-        const tgt = reviewTarget(o['来源跳转']), who = segUser(o['负责人'])[0];
+        const tgt = reviewTarget(o['来源跳转']), who = segUser(o['负责人'])[0], by = segUser(o['创建人'])[0];
         if (tgt && segText(o['创建来源']) === TODO_SRC && segText(o['状态']) !== '已完成')
-          TODO.tasks.push({ id: rec.recordId, ...tgt, who: who ? who.name : '', whoId: who ? who.id : '', due: o['截止时间'] || null });
+          TODO.tasks.push({ id: rec.recordId, ...tgt, who: who ? who.name : '', whoId: who ? who.id : '', by: by ? by.name : '', due: o['截止时间'] || null });
       }
       if (!res.hasMore) break;
       pageToken = res.pageToken;
@@ -947,9 +956,9 @@ function renderReviewBar() {
   const known = iAmKnown(), byId = Object.fromEntries(ITEMS.map((x) => [x.r._id, x]));
   const list = TODO.tasks.filter((k) => byId[k.rec] && (!known || isMine(k))).sort((a, b) => (a.due || Infinity) - (b.due || Infinity));
   if (!list.length) { $('rvbar').innerHTML = ''; return; }
-  $('rvbar').innerHTML = `<div class="rvbar"><b>🔔 ${known ? '待你审核' : '待审核'} ${list.length} 条</b>` + list.map((k) => {
+  $('rvbar').innerHTML = `<div class="rvbar"><b>🔔 ${known ? '待你处理' : '待处理'} ${list.length} 条</b>` + list.map((k) => {
     const x = byId[k.rec], on = state.mode === 'one' && state.cur === k.rec && state.tab === k.t;
-    return `<button class="${on ? 'on' : ''}" data-rec="${k.rec}" data-t="${k.t}" title="${esc(txt(x.r['品名']))}">${TYPE_NAME[k.t]} · ${esc(x.asin)} · ${esc(x.shop)} · ${mmdd(k.due)}${known ? '' : ' · ' + esc(k.who)}</button>`;
+    return `<button class="${on ? 'on' : ''}" data-rec="${k.rec}" data-t="${k.t}" title="${esc(txt(x.r['品名']))}">${KIND_NAME[k.kind]}${TYPE_NAME[k.t]} · ${esc(x.asin)} · ${esc(x.shop)} · ${mmdd(k.due)}${known ? '' : ' · ' + esc(k.who)}</button>`;
   }).join('') + '</div>';
   $('rvbar').querySelectorAll('button').forEach((b) => b.onclick = () => {
     Object.assign(state, { line: 'all', shop: 'all', owner: 'all', cst: 'all', ist: 'all', q: '', mode: 'one', cur: b.dataset.rec, tab: b.dataset.t });
@@ -958,7 +967,8 @@ function renderReviewBar() {
   });
 }
 function rqCtl(rec, t) {
-  const k = openTask(rec, t);
+  const k = openTask(rec, t), fix = openTask(rec, t, 'fix');
+  if (!k && fix) return `<span class="rqstat fix">${esc(fix.who || '运营')} 整改中 · 截止 ${mmdd(fix.due)}</span><button class="btn rqbtn" data-t="${t}">改好了，提交主管审核</button>`;
   if (!k) return `<button class="btn rqbtn" data-t="${t}">提交主管审核</button>`;
   const done = iAmKnown() && isMine(k) ? `<button class="btn rqdone" data-task="${k.id}">审核完成，关闭待办</button>` : '';
   return `<span class="rqstat">${esc(k.who || '主管')} 审核中 · 截止 ${mmdd(k.due)}</span>${done}`;
@@ -1018,20 +1028,96 @@ function openRequest(x, t) {
           任务名称: `审核${tn}：${x.asin} · ${x.shop}`, 任务描述: desc, 负责人: TODO.people[who], 执行方: '人', 截止时间: dueMs,
           状态: '待办', 优先级: '中', 创建来源: TODO_SRC, 来源跳转: [{ type: 'url', text: `打开 Listing审核 · ${x.asin} ${tn}`, link: url }] }) });
         if (notify) {                                                     // 勾选触发现有自动化发消息；提醒失败不影响任务本身
-          try { await TODO.table.setRecord(id, { fields: todoFields({ 提醒请求时间: Date.now(), 通知负责人: true }) }); }
-          catch (e) { warn = '，但飞书提醒没发出，请到任务待办页点提醒'; console.error('notify', e); }
+          warn = await notifyTask(id);
         }
       }
-      TODO.tasks.push({ id, rec: r._id, t, who, whoId: TODO.people[who], due: dueMs });
-      if (t === 'img') {                                                  // 图片提交审核时状态同步到「待审核-主管」；文案没有这个状态，不动
+      TODO.tasks.push({ id, rec: r._id, t, kind: 'review', who, whoId: TODO.people[who], by: myName(), due: dueMs });
+      warn += await closeTasks(r._id, t, ['fix']);                        // 再次提交 = 上一轮整改做完了
+      // 图片一律转「待审核-主管」；文案没有这个选项，只有退回过的才回到「待审核」，否则主管第二次选未通过不算状态变化
+      const next = t === 'img' ? '待审核-主管' : r['文案审核状态'] === '未通过' ? '待审核' : null;
+      if (next) {
         try {
-          if (!SNAP) await TBLS.lr.setRecord(r._id, { fields: { [FIDS.lr['图片审核状态']]: toCell('lr', '图片审核状态', '待审核-主管') } });
-          r['图片审核状态'] = '待审核-主管'; x.ist = '待审核-主管';
-          if (DRAFT[r._id]) delete DRAFT[r._id]['图片审核状态'];
-        } catch (e) { warn += '，但图片状态没改成待审核-主管，请手动选择后保存'; console.error('img status', e); }
+          if (!SNAP) await TBLS.lr.setRecord(r._id, { fields: { [FIDS.lr[STATUS_F[t]]]: toCell('lr', STATUS_F[t], next) } });
+          r[STATUS_F[t]] = next;
+          if (t === 'img') x.ist = next; else x.cst = next;
+          if (DRAFT[r._id]) delete DRAFT[r._id][STATUS_F[t]];
+        } catch (e) { warn += `，但${tn}状态没改成${next}，请手动选择后保存`; console.error('status', e); }
       }
       box.remove();
       toast(SNAP ? '本地预览：未真正生成待办' : `已生成待办给 ${who}${warn}`);
+      keepRender();
+    } catch (e) {
+      ok.disabled = false;
+      err.textContent = '生成失败：' + (e && e.message ? e.message : e) + '（应用数据权限要对 任务待办表 开「可编辑」）';
+    }
+  };
+}
+async function notifyTask(id) {
+  if (SNAP) return '';
+  try { await TODO.table.setRecord(id, { fields: todoFields({ 提醒请求时间: Date.now(), 通知负责人: true }) }); return ''; }
+  catch (e) { console.error('notify', e); return '，但飞书提醒没发出，请到任务待办页点提醒'; }
+}
+// 关掉这张卡指定类型的未完成任务；失败返回提示文字，不打断主流程
+async function closeTasks(rec, t, kinds) {
+  let failed = 0;
+  for (const k of TODO.tasks.filter((k) => k.rec === rec && k.t === t && kinds.includes(k.kind))) {
+    try {
+      if (!SNAP) await TODO.table.setRecord(k.id, { fields: todoFields({ 状态: '已完成', 完成时间: Date.now() }) });
+      TODO.tasks = TODO.tasks.filter((o) => o !== k);
+    } catch (e) { failed++; console.error('closeTasks', e); }
+  }
+  return failed ? `，但有 ${failed} 条旧待办没关掉，请到任务待办页处理` : '';
+}
+// 主管存下通过/未通过之后：审核待办到此结束；未通过再给运营建整改待办
+async function afterDecision(x, t, status) {
+  if (status !== '通过' && status !== '未通过') return;
+  if (!SNAP && !TODO.table) { toast('任务待办表读不到，待办没有同步：' + TODO.err); return; }
+  const review = openTask(x.r._id, t), by = review ? review.by : '';
+  const warn = await closeTasks(x.r._id, t, status === '通过' ? ['review', 'fix'] : ['review']);
+  keepRender();
+  if (warn) toast('已保存' + warn);
+  if (status === '未通过' && !openTask(x.r._id, t, 'fix')) openFix(x, t, by);
+}
+function fixNote(r, t) {
+  const mods = t === 'copy' ? COPY_MOD : IMG_MOD.map((m) => m[0]);
+  const lines = [txt(r[t === 'copy' ? '主管审核文案' : '主管审核图片'])];
+  for (const m of mods) if (txt(r['备注-' + m])) lines.push(`${m}：${txt(r['备注-' + m])}`);
+  return lines.filter(Boolean).join('\n');
+}
+function openFix(x, t, submitter) {
+  const r = x.r, tn = TYPE_NAME[t], me = myName();
+  const people = Object.keys(TODO.people).sort((a, b) => a.localeCompare(b, 'zh'));
+  // 谁提交发给谁；不是从页面提交的（或主管自己提交的）发负责人
+  const def = [submitter, ...x.owners].find((n) => n && n !== me && TODO.people[n]) || people[0];
+  const box = document.createElement('div');
+  box.className = 'rqmask';
+  box.innerHTML = `<div class="rqbox"><h3>${tn}未通过，通知运营整改</h3><div class="meta">${esc(x.asin)} · ${esc(x.shop)} · ${esc(x.spu)}</div>
+    <div class="rqrow"><label class="f">发给<select id="fxWho">${people.map((p) => `<option${p === def ? ' selected' : ''}>${esc(p)}</option>`).join('')}</select></label>
+      <label class="f">截止日期<input type="date" id="fxDue" value="${ymd(TODAY + 1)}"></label></div>
+    <div class="rqrow"><label class="f">要改什么（已带入主管意见和模块备注，可改）<textarea id="fxNote" placeholder="写清楚要改哪里，运营才知道怎么改…">${esc(fixNote(r, t))}</textarea></label></div>
+    <div class="err" id="fxErr"></div>
+    <div class="acts"><label class="ntf"><input type="checkbox" id="fxMake" checked>生成整改待办并飞书提醒</label><span class="grow"></span>
+      <button class="btn pri" id="fxOk">确定</button></div></div>`;
+  document.body.appendChild(box);
+  box.querySelector('#fxOk').onclick = async () => {
+    if (!box.querySelector('#fxMake').checked) { box.remove(); return; }
+    const who = box.querySelector('#fxWho').value, due = box.querySelector('#fxDue').value, note = txt(box.querySelector('#fxNote').value);
+    const err = box.querySelector('#fxErr'), ok = box.querySelector('#fxOk');
+    if (!who || !due) { err.textContent = '请选发给谁和截止日期'; return; }
+    const dueMs = Date.parse(`${due}T00:00:00+08:00`), url = reviewUrl(r._id, t, 'fix');
+    ok.disabled = true; err.textContent = '';
+    let id = 'mock' + Date.now(), warn = '';
+    try {
+      if (!SNAP) {
+        const desc = [note && `要改：${note}`, `产品：${x.spu}${txt(r['SKU']) ? ' · ' + txt(r['SKU']).split(',')[0] : ''}`, `改好后在审核页重新提交：${url}`].filter(Boolean).join('\n');
+        id = await TODO.table.addRecord({ fields: todoFields({
+          任务名称: `修改${tn}：${x.asin} · ${x.shop}`, 任务描述: desc, 负责人: TODO.people[who], 执行方: '人', 截止时间: dueMs,
+          状态: '待办', 优先级: '中', 任务类型: '整改动作', 创建来源: TODO_SRC, 来源跳转: [{ type: 'url', text: `打开 Listing审核 · ${x.asin} ${tn}`, link: url }] }) });
+        warn = await notifyTask(id);
+      }
+      TODO.tasks.push({ id, rec: r._id, t, kind: 'fix', who, whoId: TODO.people[who], by: me, due: dueMs });
+      box.remove();
+      toast(SNAP ? '本地预览：未真正生成待办' : `已通知 ${who} 整改${warn}`);
       keepRender();
     } catch (e) {
       ok.disabled = false;
