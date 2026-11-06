@@ -136,6 +136,24 @@ button { cursor: pointer; }
 .ev-row:hover .tx { color: var(--blue); }
 .ev-row .tm { color: var(--faint); font-size: 12px; font-variant-numeric: tabular-nums; }
 .ev-row .nm { grid-column: 1 / -1; color: var(--sub); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.btn.on { background: var(--blue-soft); border-color: var(--blue); color: var(--blue); }
+.btn.danger { color: var(--red); }
+.btn:disabled { opacity: .45; cursor: default; }
+.r-rem { flex: none; margin-left: auto; height: 24px; padding: 0 8px; border: 1px solid var(--line-2); border-radius: 6px; background: var(--paper); color: var(--sub); font-size: 12px; visibility: hidden; }
+.r-rem:hover { color: var(--blue); border-color: var(--blue); }
+.row:hover .r-rem, .row:focus-within .r-rem { visibility: visible; }
+@media (hover: none) { .r-rem { visibility: visible; } }
+.pick { width: 18px; height: 18px; border-radius: 4px; border: 1.5px solid var(--line-2); display: grid; place-items: center; color: transparent; font-size: 11px; line-height: 1; }
+.pick.on { background: var(--blue); border-color: var(--blue); color: var(--on-accent); }
+.batch { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px max(24px, calc((100% - 880px) / 2 + 24px)); border-top: 1px solid var(--line-2); font-size: 13px; }
+.batch b { font-weight: 500; font-variant-numeric: tabular-nums; }
+.batch .link-btn { margin-right: 8px; }
+.frame.batching .toast { bottom: 68px; }
+.scrim { position: absolute; inset: 0; z-index: 30; background: var(--drawer); display: grid; place-items: center; padding: 16px; }
+.dialog { width: 360px; max-width: 100%; background: var(--paper); border-radius: 10px; padding: 18px 20px; display: flex; flex-direction: column; gap: 8px; }
+.dialog h2 { margin: 0; font-size: 15px; font-weight: 600; }
+.dialog p { margin: 0; font-size: 13px; color: var(--sub); }
+.dialog div { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
 .toast { position: absolute; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 20; display: flex; gap: 12px; padding: 8px 14px; background: var(--ink); color: var(--paper); border-radius: 8px; font-size: 13px; white-space: nowrap; max-width: calc(100% - 24px); }
 .toast span { overflow: hidden; text-overflow: ellipsis; }
 .toast button { flex: none; border: 0; background: none; color: inherit; text-decoration: underline; padding: 0; }
@@ -185,13 +203,16 @@ html, body { height: 100%; margin: 0; overflow: hidden; }
         <h1>任务待办</h1>
         <span class="spacer"></span>
         <input id="q" class="search" type="search" placeholder="搜索" aria-label="搜索任务">
+        <button class="btn" id="batchBtn" aria-pressed="false">批量</button>
         <button class="btn pri" id="newBtn">新建</button>
       </div>
       <div class="tabs" role="tablist" id="tabs"></div>
     </div></div>
     <div class="main" id="main"></div>
+    <div id="batchSlot"></div>
     <div id="drawerSlot"></div>
     <div id="toastSlot"></div>
+    <div id="confirmSlot"></div>
   </div>
 
 </div>
@@ -314,6 +335,8 @@ window.TODO_HOST = (() => {
     }
   }
 
+  const remove = (o) => META[keyOf(o)].table.deleteRecord(o.id);
+
   function setupSave() {
     const dash = SDK.dashboard; let st = '';
     try { st = dash && dash.state; } catch (e) { st = ''; }
@@ -364,7 +387,7 @@ window.TODO_HOST = (() => {
       $('main').innerHTML = `<div class="empty"><b>读取失败，请把这段截图发回</b>卡在：${c.esc(steps[steps.length - 1] || '')}<br>${c.esc(e && e.message || e)}</div>`;
     }
   }
-  return { today, now, start, save, create };
+  return { today, now, start, save, create, remove };
 })();
 </script>
 <script>
@@ -385,7 +408,7 @@ const BASE_URL = 'https://zcnt6ibhe9z3.feishu.cn/base/JGvebyaAYapWtOslxc9cuKYXnw
 const RAW = [];
 const EX = RAW.map((t,i)=>({st:'待办',pri:'中',by:'林键春',...t,id:'ex'+i,ex:true}));
 const EX_RULES = [].map((r,i)=>({on:true,by:'林键春',pri:'中',...r,id:'r'+(i+1),isRule:true,ex:true}));
-const S = { me: MANAGER, view: 'all', mode: 'ex', q: '', owner: '', sel: null, draft: null, panel: '', tasks: REAL.map(t=>({...t})), exTasks: EX, rules: [], exRules: EX_RULES, idx: 0, hover: false };
+const S = { batch: false, picked: new Set(), confirm: null, me: MANAGER, view: 'all', mode: 'ex', q: '', owner: '', sel: null, draft: null, panel: '', tasks: REAL.map(t=>({...t})), exTasks: EX, rules: [], exRules: EX_RULES, idx: 0, hover: false };
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 // 日期一律按字符串转天序号，不受浏览器时区影响（插件页硬规矩 4）
@@ -453,11 +476,19 @@ function dueHtml(t) {
   return `<div class="due">${dmd(t.due)}</div>`;
 }
 function ruleOf(t){ return t.rule && rules().find(r=>r.id===t.rule); }
+const remindedToday = t => t.remindedAt && dn(t.remindedAt)===T0;
+const canRemind = t => t.st!=='已完成' && t.who && t.who!==BOT;
+function remCtl(t) {
+  if (S.batch) return '';
+  if (remindedToday(t)) return '<span class="meta" style="margin-left:auto">已提醒</span>';
+  return canRemind(t)&&t.who!==S.me ? `<button class="r-rem" data-rem="${t.id}" aria-label="提醒 ${esc(t.who)}">提醒</button>` : '';
+}
 function rowHtml(t) {
   const done=t.st==='已完成', solo=S.view==='mine', r=ruleOf(t);
-  const left = t.auto ? '<span class="dash" title="系统任务，做完自动关闭"></span>' : `<button class="check ${done?'on':''}" data-check="${t.id}" aria-label="${done?'改回待办':'标为已完成'}">✓</button>`;
+  const picked=S.batch&&S.picked.has(t.id);
+  const left = S.batch ? `<span class="pick ${picked?'on':''}" role="checkbox" aria-checked="${picked}">✓</span>` : t.auto ? '<span class="dash" title="系统任务，做完自动关闭"></span>' : `<button class="check ${done?'on':''}" data-check="${t.id}" aria-label="${done?'改回待办':'标为已完成'}">✓</button>`;
   const metas = [ !done&&t.pri==='高'?'<span class="meta hi">高</span>':'', t.st==='进行中'?'<span class="meta doing">进行中</span>':'', t.src&&SOURCES[t.src]?`<span class="meta">${esc(t.src)}</span>`:'', r?'<span class="meta" title="循环任务">↻</span>':'', t.ex?'<span class="meta ex">示例</span>':'' ].join('');
-  return `<div class="row ${solo?'solo':''} ${done?'done':''} ${S.sel===t.id?'sel':''}" data-id="${t.id}" tabindex="0" role="button">${left}<div class="name"><span>${esc(t.n||'（没写任务名）')}</span>${metas}</div>${solo?'':`<div class="who ${t.who?'':'none'} ${t.who===BOT?'bot':''}">${esc(t.who||'未分配')}</div>`}${dueHtml(t)}</div>`;
+  return `<div class="row ${solo?'solo':''} ${done?'done':''} ${S.sel===t.id||picked?'sel':''}" data-id="${t.id}" tabindex="0" role="button">${left}<div class="name"><span>${esc(t.n||'（没写任务名）')}</span>${metas}${remCtl(t)}</div>${solo?'':`<div class="who ${t.who?'':'none'} ${t.who===BOT?'bot':''}">${esc(t.who||'未分配')}</div>`}${dueHtml(t)}</div>`;
 }
 
 /* 动态 */
@@ -507,7 +538,7 @@ function renderMain() {
   let h='';
   if (S.view==='rules') {
     const list=rules().filter(r=>!S.q||(r.n+r.d+r.who).includes(S.q)).sort((a,b)=>(b.on-a.on)||dn(a.due)-dn(b.due));
-    h = list.length ? `<div class="section"><div class="group-h">循环任务<small>${list.filter(r=>r.on).length} 条启用</small></div>${list.map(r=>`<div class="rule ${r.on?'':'off'}" data-rule="${r.id}" tabindex="0" role="button"><button class="sw" role="switch" aria-checked="${r.on}" aria-label="${r.on?'暂停':'启用'} ${esc(r.n)}" data-sw="${r.id}"></button><div style="min-width:0"><div class="r-name">${esc(r.n)}${r.ex?' <span class="meta ex">示例</span>':''}</div><div class="r-freq">↻ ${esc(freqLabel(r.freq,r.anchor||r.due))}${r.on?'':' · 已暂停'}</div></div><div class="who">${esc(r.who||'未分配')}</div><div class="due">${r.on?dmd(r.due):'–'}</div></div>`).join('')}</div>`
+    h = list.length ? `<div class="section"><div class="group-h">循环任务<small>${list.filter(r=>r.on).length} 条启用</small></div>${list.map(r=>`<div class="rule ${r.on?'':'off'}" data-rule="${r.id}" tabindex="0" role="button">${S.batch?`<span class="pick ${S.picked.has(r.id)?'on':''}" role="checkbox" aria-checked="${S.picked.has(r.id)}">✓</span>`:`<button class="sw" role="switch" aria-checked="${r.on}" aria-label="${r.on?'暂停':'启用'} ${esc(r.n)}" data-sw="${r.id}"></button>`}<div style="min-width:0"><div class="r-name">${esc(r.n)}${r.ex?' <span class="meta ex">示例</span>':''}</div><div class="r-freq">↻ ${esc(freqLabel(r.freq,r.anchor||r.due))}${r.on?'':' · 已暂停'}</div></div><div class="who">${esc(r.who||'未分配')}</div><div class="due">${r.on?dmd(r.due):'–'}</div></div>`).join('')}</div>`
       : `<div class="empty"><b>还没有循环任务</b>点右上角「新建」，把「重复」选成每周或每月。</div>`;
   } else if (S.view==='done') {
     const list=pool().filter(inView).filter(pass);
@@ -523,6 +554,7 @@ function renderMain() {
       : '<div class="empty"><b>都做完了</b>要派新任务，点右上角「新建」。</div>';
   }
   const m=$('main'), sc=m.scrollTop; m.innerHTML=`<div class="main-in">${h}</div>`; m.scrollTop=sc;
+  renderBatch();
 }
 function find(id){ return pool().find(t=>t.id===id) || rules().find(r=>r.id===id); }
 const opt=(list,val)=>list.map(([v,l])=>`<option value="${v}" ${v===(val??'')?'selected':''}>${esc(l)}</option>`).join('');
@@ -579,7 +611,7 @@ function renderDrawer() {
       ${t.rec?`<a href="${BASE_URL}${t.rec}" target="_blank" rel="noopener">在多维表打开</a>`:''}
     </div>
   </div>
-  <div class="d-f">${t.isRule?(core?`<button class="btn" id="doPause">${t.on?'暂停':'启用'}</button>`:''):`${status&&t.st!=='已完成'?'<button class="btn pri" id="doDone">标为完成</button>':''}${t.who===BOT?'':'<button class="btn" id="doNotify">提醒</button>'}`}</div></aside>`;
+  <div class="d-f">${core?'<button class="btn danger" id="doDelete" style="order:9;margin-left:auto">删除</button>':''}${t.isRule?(core?`<button class="btn" id="doPause">${t.on?'暂停':'启用'}</button>`:''):`${status&&t.st!=='已完成'?'<button class="btn pri" id="doDone">标为完成</button>':''}${t.who===BOT?'':'<button class="btn" id="doNotify">提醒</button>'}`}</div></aside>`;
   bindProps(t,false);
 }
 function refreshPv(o){ const b=$('botRow'); if(b) b.hidden=o.who!==BOT; const s=$('repSlot'); if(s) s.innerHTML=repeatPv(o); const l=$('leadRow'); if(l) l.hidden=!o.freq; }
@@ -598,13 +630,80 @@ function bindProps(o,isNew) {
 let toastT;
 function toast(msg,undo){ clearTimeout(toastT); $('toastSlot').innerHTML=`<div class="toast" role="status"><span>${esc(msg)}</span>${undo?'<button id="undoBtn">撤销</button>':''}</div>`; if(undo) $('undoBtn').onclick=()=>{undo();$('toastSlot').innerHTML='';}; toastT=setTimeout(()=>{$('toastSlot').innerHTML='';},5000); }
 function close(){ S.sel=null; S.draft=null; S.panel=''; }
+const canEdit = t => isMgr()||t.by===S.me;
+const canStatus = t => !t.auto&&(canEdit(t)||t.who===S.me);
+function listNow(){ return S.view==='rules' ? rules().filter(r=>!S.q||(r.n+r.d+r.who).includes(S.q)) : pool().filter(inView).filter(pass); }
+function renderBatch(){
+  $('frame').classList.toggle('batching',S.batch);
+  const b=$('batchBtn'); b.classList.toggle('on',S.batch); b.setAttribute('aria-pressed',S.batch); b.textContent=S.batch?'退出批量':'批量';
+  if(!S.batch){ $('batchSlot').innerHTML=''; return; }
+  const n=S.picked.size, dis=n?'':'disabled', list=listNow(), allOn=list.length&&list.every(t=>S.picked.has(t.id));
+  const acts = S.view==='rules' ? `<button class="btn" data-b="on" ${dis}>启用</button><button class="btn" data-b="off" ${dis}>暂停</button>`
+    : S.view==='done' ? `<button class="btn" data-b="undone" ${dis}>改回待办</button>`
+    : `<button class="btn" data-b="done" ${dis}>标为完成</button><button class="btn" data-b="remind" ${dis}>提醒</button>`;
+  $('batchSlot').innerHTML=`<div class="batch"><span>已选 <b>${n}</b> 条</span><button class="link-btn" data-b="all">${allOn?'取消全选':'全选'}</button>${acts}<button class="btn danger" data-b="del" ${dis}>删除</button></div>`;
+}
+function renderConfirm(){
+  const c=S.confirm;
+  $('confirmSlot').innerHTML = c ? `<div class="scrim"><div class="dialog" role="alertdialog" aria-label="${esc(c.title)}"><h2>${esc(c.title)}</h2><p>${esc(c.msg)}</p><div><button class="btn" data-cf="no" id="cfNo">取消</button><button class="btn pri" style="background:var(--red);border-color:var(--red)" data-cf="yes">删除</button></div></div></div>` : '';
+  if(c) $('cfNo').focus();
+}
+const skipped=(n,why)=>n?`，${n} 条${why}跳过`:'';
+// 串行写回：多条同时写飞书容易丢，也方便算成功几条
+async function runBatch(kind){
+  const items=[...S.picked].map(find).filter(Boolean);
+  const pick=f=>{ const ok=items.filter(f); return [ok,items.length-ok.length]; };
+  let ok,skip,msg;
+  if(kind==='done'){ [ok,skip]=pick(t=>canStatus(t)&&t.st!=='已完成'); ok.forEach(t=>setDone(t,'已完成')); msg=`已完成 ${ok.length} 条${skipped(skip,'没权限或已完成，')}`; }
+  else if(kind==='undone'){ [ok,skip]=pick(canStatus); ok.forEach(t=>setDone(t,'待办')); msg=`已改回待办 ${ok.length} 条${skipped(skip,'没权限，')}`; }
+  else if(kind==='remind'){ [ok,skip]=pick(canRemind); const at=now(); ok.forEach(t=>{t.remindedAt=at;}); msg=`已记下 ${ok.length} 条提醒${skipped(skip,'没执行人或是机器人，')}。机器人接入后才会发消息`; }
+  else { const v=kind==='on'; [ok,skip]=pick(canEdit); ok.forEach(r=>{r.on=v;}); msg=`已${v?'启用':'暂停'} ${ok.length} 条${skipped(skip,'没权限，')}`; }
+  S.picked.clear(); S.idx=0; renderTabs(); renderMain();
+  for(const t of ok) await persist(t);
+  toast(msg);
+}
+function askDelete(items){
+  const ok=items.filter(canEdit), skip=items.length-ok.length;
+  if(!ok.length){ toast('只有创建人和主管能删除'); return; }
+  const isOne=ok.length===1, hasRule=ok.some(x=>x.isRule);
+  S.confirm={ title:isOne?`删除「${ok[0].n||'这条任务'}」？`:`删除 ${ok.length} 条？`,
+    msg:`删除后不能恢复。${hasRule?'循环任务以后不再生成，已生成的任务保留。':''}${skip?`另有 ${skip} 条没权限，会跳过。`:''}`,
+    run:async()=>{
+      let fail=0;
+      for(const o of ok){
+        try { if(HOST&&!o.ex) await HOST.remove(o); } catch(e){ fail++; console.warn(e); continue; }
+        S.tasks=S.tasks.filter(x=>x!==o); S.exTasks=S.exTasks.filter(x=>x!==o); S.rules=S.rules.filter(x=>x!==o); S.exRules=S.exRules.filter(x=>x!==o); S.picked.delete(o.id);
+        if(S.sel===o.id) S.sel=null;
+      }
+      S.idx=0; all();
+      toast(fail?`${fail} 条删除失败，多半是没有删除权限，其余已删除`:`已删除 ${ok.length-fail} 条${skipped(skip,'没权限，')}`);
+    } };
+  renderConfirm();
+}
+function remindOne(t){
+  if(!canRemind(t)){ toast('先选执行人再提醒'); return; }
+  t.remindedAt=now(); S.idx=0; renderMain(); if(S.sel===t.id) renderDrawer(); persist(t); toast('已记下。机器人接入后才会发消息，现在不发');
+}
 function all(){ renderTabs(); renderMain(); renderDrawer(); }
 function complete(t){ const prev=t.st, prevAt=t.doneAt; setDone(t,'已完成'); S.idx=0; renderTabs(); renderMain(); persist(t); const r=ruleOf(t); const nx=r&&r.due?` 下一次 ${md(r.due)}`:''; toast(`已完成${nx}`,()=>{t.st=prev;t.doneAt=prevAt;renderTabs();renderMain();persist(t);}); }
 
 $('frame').addEventListener('click',async e=>{
+  const cf=e.target.closest('[data-cf]'); if(cf){ const c=S.confirm; S.confirm=null; renderConfirm(); if(cf.dataset.cf==='yes'&&c) await c.run(); return; }
+  const rm=e.target.closest('[data-rem]'); if(rm){ remindOne(find(rm.dataset.rem)); return; }
+  if(e.target.closest('#batchBtn')){ S.batch=!S.batch; S.picked.clear(); close(); renderMain(); renderDrawer(); return; }
+  const bt=e.target.closest('[data-b]');
+  if(bt){ const k=bt.dataset.b;
+    if(k==='all'){ const l=listNow(), on=l.length&&l.every(t=>S.picked.has(t.id)); l.forEach(t=>on?S.picked.delete(t.id):S.picked.add(t.id)); renderMain(); return; }
+    if(k==='del'){ askDelete([...S.picked].map(find).filter(Boolean)); return; }
+    await runBatch(k); return; }
+  if(e.target.closest('#doDelete')){ askDelete([find(S.sel)]); return; }
+  if(S.batch&&!e.target.closest('[data-view],[data-owner]')){
+    const pr=e.target.closest('.row')||e.target.closest('[data-rule]');
+    if(pr){ const id=pr.dataset.id||pr.dataset.rule; S.picked.has(id)?S.picked.delete(id):S.picked.add(id); renderMain(); }
+    return; }
   const sw=e.target.closest('[data-sw]'); if(sw){ e.stopPropagation(); const r=find(sw.dataset.sw); if(!(isMgr()||r.by===S.me)){ toast('只有创建人和主管能暂停'); return; } r.on=!r.on; renderMain(); persist(r); toast(r.on?'已启用':'已暂停，不再生成新任务'); if(S.sel===r.id) renderDrawer(); return; }
   if(e.target.closest('#tAll')){ S.panel='feed'; S.sel=null; S.draft=null; renderDrawer(); return; }
-  const v=e.target.closest('[data-view]'); if(v){ S.view=v.dataset.view; S.owner=''; close(); all(); return; }
+  const v=e.target.closest('[data-view]'); if(v){ S.view=v.dataset.view; S.owner=''; S.picked.clear(); close(); all(); return; }
   const k=e.target.closest('[data-check]');
   if(k){ const t=find(k.dataset.check); if(!(isMgr()||t.by===S.me||t.who===S.me)){ toast('这条只有负责人、派单人和主管能改'); return; }
     if(t.st==='已完成'){ setDone(t,'待办'); renderTabs(); renderMain(); persist(t); toast('已改回待办'); } else complete(t); return; }
@@ -612,7 +711,7 @@ $('frame').addEventListener('click',async e=>{
   if(e.target.closest('[data-close]')){ close(); renderMain(); renderDrawer(); return; }
   const gr=e.target.closest('[data-goto-rule]'); if(gr){ S.sel=gr.dataset.gotoRule; renderDrawer(); return; }
   if(e.target.closest('#doDone')){ complete(find(S.sel)); renderDrawer(); return; }
-  if(e.target.closest('#doNotify')){ const t=find(S.sel); if(!t.who){ toast('先选执行人再提醒'); return; } t.remindedAt=now(); S.idx=0; renderMain(); renderDrawer(); persist(t); toast('已记下。机器人接入后才会发消息，现在不发'); return; }
+  if(e.target.closest('#doNotify')){ remindOne(find(S.sel)); return; }
   if(e.target.closest('#doPause')){ const r=find(S.sel); r.on=!r.on; renderMain(); renderDrawer(); persist(r); toast(r.on?'已启用':'已暂停'); return; }
   if(e.target.closest('#doCreate')){
     const f=$('newForm'); if(!f.reportValidity()) return;
@@ -639,7 +738,7 @@ $('frame').addEventListener('click',async e=>{
   const id=ev?ev.dataset.ev:r?r.dataset.id:ru?ru.dataset.rule:null;
   if(id){ S.sel=id; S.draft=null; S.panel=''; const t=find(id); if(t.who===S.me&&!t.isRule&&!t.viewedAt){ t.viewedAt=now(); S.idx=0; persist(t); } renderMain(); renderDrawer(); }
 });
-$('frame').addEventListener('keydown',e=>{ if(e.key==='Enter'&&(e.target.classList?.contains('row')||e.target.classList?.contains('rule'))) e.target.click(); if(e.key==='Escape'&&(S.sel||S.draft||S.panel)){ close(); renderMain(); renderDrawer(); } });
+$('frame').addEventListener('keydown',e=>{ if(e.key==='Enter'&&(e.target.classList?.contains('row')||e.target.classList?.contains('rule'))) e.target.click(); if(e.key==='Escape'&&S.confirm){ S.confirm=null; renderConfirm(); return; } if(e.key==='Escape'&&(S.sel||S.draft||S.panel)){ close(); renderMain(); renderDrawer(); } });
 $('frame').addEventListener('mouseover',e=>{ S.hover=!!e.target.closest('#ticker'); });
 $('frame').addEventListener('mouseleave',()=>{ S.hover=false; });
 $('newBtn').onclick=()=>{ close(); S.draft={who:S.me===MANAGER?'':S.me,due:TODAY,pri:'中',freq:''}; renderMain(); renderDrawer(); };
