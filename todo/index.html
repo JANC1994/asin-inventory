@@ -1,0 +1,660 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>灯具组任务待办</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* 布局：白底单栏，内容居中限宽，只靠留白和细线分层；不用卡片和阴影，颜色只留给逾期和操作。 */
+:root {
+  --bg: #f4f5f7; --paper: #ffffff; --ink: #1f2329; --sub: #646a73; --faint: #9aa0aa; --line: #eef0f3; --line-2: #dfe2e7; --hover: #f6f7f9;
+  --blue: #2f6bff; --blue-soft: #edf2ff; --red: #d6332c; --amber: #b86400; --green: #1f8f4a; --green-soft: #e6f6ec; --purple: #7446d8; --on-accent: #ffffff; --drawer: rgba(31,35,41,.12);
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #14161a; --paper: #1b1e23; --ink: #e8eaee; --sub: #a3a9b3; --faint: #737a85; --line: #2a2e35; --hover: #24272d; --line-2: #383d45;
+  --blue: #7ba4ff; --blue-soft: #232f49; --red: #ff7d75; --amber: #eda63f; --green: #5fd088; --green-soft: #1b3226; --purple: #b398f4; --on-accent: #10131a; --drawer: rgba(0,0,0,.45); color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #14161a; --paper: #1b1e23; --ink: #e8eaee; --sub: #a3a9b3; --faint: #737a85; --line: #2a2e35; --hover: #24272d; --line-2: #383d45;
+  --blue: #7ba4ff; --blue-soft: #232f49; --red: #ff7d75; --amber: #eda63f; --green: #5fd088; --green-soft: #1b3226; --purple: #b398f4; --on-accent: #10131a; --drawer: rgba(0,0,0,.45); color-scheme: dark }
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font: 14px/1.5 -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; }
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; }
+.outer { padding-block: 12px 48px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); max-width: 1280px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
+
+.review { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; font-size: 12.5px; color: var(--sub); }
+.review b { color: var(--ink); font-weight: 600; }
+.review label { display: inline-flex; align-items: center; gap: 6px; }
+.review select { height: 26px; border: 1px solid var(--line-2); border-radius: 6px; background: var(--paper); padding: 0 4px; font-size: 12.5px; }
+.seg { display: inline-flex; border: 1px solid var(--line-2); border-radius: 6px; overflow: hidden; background: var(--paper); }
+.seg button { border: 0; background: none; height: 24px; padding: 0 10px; color: var(--sub); font-size: 12.5px; }
+.seg button[aria-pressed="true"] { background: var(--blue-soft); color: var(--blue); }
+
+.frame { position: relative; height: min(820px, calc(100vh - 64px)); min-height: 520px; background: var(--paper); border: 1px solid var(--line-2); border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; }
+.top { flex: none; border-bottom: 1px solid var(--line); }
+.top-in { max-width: 880px; margin: 0 auto; padding: 20px 24px 0; display: flex; flex-direction: column; gap: 12px; }
+.top-1 { display: flex; align-items: center; gap: 12px; }
+.top-1 h1 { margin: 0; font-size: 20px; font-weight: 600; }
+.spacer { flex: 1; }
+.search { width: 180px; min-width: 0; height: 32px; border: 0; border-radius: 8px; background: var(--hover); padding: 0 12px; font-size: 13px; }
+.search::placeholder { color: var(--faint); }
+.btn { height: 32px; padding: 0 14px; border: 1px solid var(--line-2); border-radius: 8px; background: var(--paper); white-space: nowrap; font-size: 13px; }
+.btn:hover { background: var(--hover); }
+.btn.pri { background: var(--blue); border-color: var(--blue); color: var(--on-accent); font-weight: 500; }
+.btn.pri:hover { background: var(--blue); opacity: .9; }
+.tabs { display: flex; gap: 24px; overflow-x: auto; scrollbar-width: none; }
+.tabs button { flex: none; border: 0; background: none; padding: 2px 0 10px; color: var(--sub); border-bottom: 2px solid transparent; font-size: 14px; }
+.tabs button:hover { color: var(--ink); }
+.tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--ink); font-weight: 600; }
+.main { flex: 1; min-height: 0; overflow: auto; }
+.main-in { max-width: 880px; margin: 0 auto; padding: 16px 24px 40px; display: flex; flex-direction: column; gap: 20px; }
+
+/* 一行滚动播报 */
+.ticker { display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 4px 0 12px; border-radius: 8px; background: var(--hover); font-size: 13px; }
+.t-label { flex: none; color: var(--faint); font-size: 12px; }
+.t-view { flex: 1; min-width: 0; height: 36px; overflow: hidden; }
+.t-in { transition: transform .4s ease; }
+.t-in.noanim { transition: none; }
+.t-row { display: flex; align-items: center; gap: 8px; width: 100%; height: 36px; border: 0; background: none; padding: 0; text-align: left; font-size: 13px; }
+.t-row .tx { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.t-row .tm { flex: none; color: var(--faint); font-size: 12px; font-variant-numeric: tabular-nums; }
+.t-all { flex: none; border: 0; background: none; height: 28px; padding: 0 8px; border-radius: 6px; color: var(--sub); font-size: 12px; }
+.t-all:hover { color: var(--ink); background: var(--line-2); }
+.v-完成 { color: var(--green); } .v-逾期 { color: var(--red); } .v-提醒 { color: var(--amber); } .v-派出 { color: var(--blue); }
+
+/* 按人筛选 */
+.people { display: flex; flex-wrap: wrap; gap: 4px 6px; margin-bottom: -8px; }
+.people button { border: 0; background: none; height: 28px; padding: 0 10px; border-radius: 14px; color: var(--sub); font-size: 13px; font-variant-numeric: tabular-nums; }
+.people button:hover { background: var(--hover); }
+.people button[aria-pressed="true"] { background: var(--blue-soft); color: var(--blue); }
+.people b { font-weight: 500; margin-left: 3px; }
+.people b.hot { color: var(--red); }
+
+/* 任务行 */
+.section { display: flex; flex-direction: column; }
+.group-h { display: flex; align-items: baseline; gap: 6px; padding: 0 8px 6px; font-size: 13px; font-weight: 600; color: var(--sub); }
+.group-h.over { color: var(--red); }
+.group-h small { font-weight: 400; color: var(--faint); font-size: 13px; font-variant-numeric: tabular-nums; }
+.row { display: grid; grid-template-columns: 22px minmax(0,1fr) 64px 92px; align-items: center; gap: 10px; min-height: 46px; padding: 6px 8px; border-top: 1px solid var(--line); cursor: pointer; }
+.row.solo { grid-template-columns: 22px minmax(0,1fr) 92px; }
+.row:hover { background: var(--hover); }
+.row.sel { background: var(--blue-soft); }
+.check { width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid var(--line-2); background: none; padding: 0; display: grid; place-items: center; color: transparent; font-size: 11px; line-height: 1; }
+.check:hover { border-color: var(--green); color: var(--green); }
+.check.on { background: var(--green); border-color: var(--green); color: var(--on-accent); }
+.dash { width: 18px; height: 18px; border-radius: 50%; border: 1.5px dashed var(--line-2); }
+.name { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.name > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row.done .name > span:first-child { color: var(--sub); }
+.meta { flex: none; font-size: 12px; color: var(--faint); white-space: nowrap; }
+.meta.hi { color: var(--red); } .meta.doing { color: var(--blue); } .meta.ex { color: var(--purple); }
+.who { font-size: 13px; color: var(--sub); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.who.none { color: var(--red); }
+.who.bot { color: var(--purple); }
+.due { font-size: 13px; color: var(--sub); text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.due.over { color: var(--red); font-weight: 500; } .due.today { color: var(--amber); font-weight: 500; }
+.empty { padding: 56px 16px; text-align: center; color: var(--sub); font-size: 13px; }
+.empty b { display: block; color: var(--ink); font-size: 15px; font-weight: 500; margin-bottom: 4px; }
+
+/* 循环任务行 */
+.rule { display: grid; grid-template-columns: 36px minmax(0,1fr) 64px 92px; align-items: center; gap: 10px; min-height: 54px; padding: 6px 8px; border-top: 1px solid var(--line); cursor: pointer; }
+.rule:hover { background: var(--hover); }
+.rule.off .r-name, .rule.off .who, .rule.off .due { color: var(--faint); }
+.r-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.r-freq { font-size: 12px; color: var(--sub); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sw { width: 30px; height: 18px; border-radius: 9px; border: 0; background: var(--line-2); padding: 2px; display: flex; }
+.sw::after { content: ""; width: 14px; height: 14px; border-radius: 50%; background: var(--paper); }
+.sw[aria-checked="true"] { background: var(--blue); justify-content: flex-end; }
+
+/* 抽屉 */
+.drawer { position: absolute; top: 0; right: 0; bottom: 0; width: 440px; max-width: 100%; background: var(--paper); border-left: 1px solid var(--line-2); box-shadow: -12px 0 32px var(--drawer); z-index: 10; display: flex; flex-direction: column; }
+.d-h { flex: none; display: flex; align-items: center; gap: 8px; padding: 14px 20px 0; font-size: 13px; color: var(--sub); }
+.x { margin-left: auto; width: 28px; height: 28px; border: 0; background: none; border-radius: 6px; color: var(--sub); font-size: 14px; }
+.x:hover { background: var(--hover); }
+.d-b { flex: 1; min-height: 0; overflow: auto; padding: 8px 20px 20px; display: flex; flex-direction: column; gap: 14px; }
+.title-in { width: 100%; border: 0; background: none; padding: 4px 0; font-size: 18px; font-weight: 600; }
+.title-in:disabled { color: var(--ink); }
+.title-in::placeholder { color: var(--faint); font-weight: 400; }
+.props { display: flex; flex-direction: column; }
+.p { display: grid; grid-template-columns: 72px minmax(0,1fr); align-items: center; gap: 8px; min-height: 36px; }
+.p > label, .p > .pl { font-size: 13px; color: var(--sub); }
+.p select, .p input[type="date"] { width: 100%; min-height: 32px; border: 1px solid transparent; border-radius: 6px; background: none; padding: 0 6px; margin-left: -6px; }
+.p select:hover:enabled, .p input[type="date"]:hover:enabled { background: var(--hover); }
+.p select:disabled, .p input:disabled { opacity: 1; color: var(--sub); }
+.pv { margin: -2px 0 6px 80px; font-size: 12px; color: var(--faint); line-height: 1.5; }
+.pv.warn { color: var(--amber); }
+.ck { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--sub); }
+.link-btn { border: 0; background: none; padding: 0; color: var(--blue); font-size: 13px; }
+.desc { width: 100%; min-height: 96px; border: 1px solid var(--line-2); border-radius: 8px; background: none; padding: 8px 10px; resize: vertical; font-size: 13.5px; line-height: 1.6; }
+.desc:disabled { color: var(--sub); border-color: var(--line); }
+.foot-meta { font-size: 12px; color: var(--faint); display: flex; flex-direction: column; gap: 2px; }
+.foot-meta a { color: var(--blue); text-decoration: none; }
+.d-f { flex: none; display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 20px; border-top: 1px solid var(--line); }
+.ev-row { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 0 10px; width: 100%; padding: 10px 0; border: 0; border-top: 1px solid var(--line); background: none; text-align: left; font-size: 13px; }
+.ev-row:hover .tx { color: var(--blue); }
+.ev-row .tm { color: var(--faint); font-size: 12px; font-variant-numeric: tabular-nums; }
+.ev-row .nm { grid-column: 1 / -1; color: var(--sub); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.toast { position: absolute; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 20; display: flex; gap: 12px; padding: 8px 14px; background: var(--ink); color: var(--paper); border-radius: 8px; font-size: 13px; white-space: nowrap; max-width: calc(100% - 24px); }
+.toast span { overflow: hidden; text-overflow: ellipsis; }
+.toast button { flex: none; border: 0; background: none; color: inherit; text-decoration: underline; padding: 0; }
+
+/* 说明 */
+.notes { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 24px 32px; padding: 8px 8px 0; }
+.note { min-width: 0; }
+.note.wide { grid-column: 1 / -1; }
+.note h2 { margin: 0 0 8px; font-size: 14px; font-weight: 600; }
+.note ol, .note ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--sub); }
+.note li b { color: var(--ink); font-weight: 500; }
+.tbl-wrap { overflow-x: auto; }
+.tbl { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 620px; }
+.tbl th, .tbl td { padding: 6px 12px 6px 0; border-top: 1px solid var(--line-2); text-align: left; vertical-align: top; color: var(--sub); }
+.tbl th { font-weight: 400; color: var(--faint); border-top: 0; }
+.tbl td:first-child { color: var(--ink); white-space: nowrap; }
+
+@media (max-width: 760px) {
+  .frame { height: calc(100vh - 60px); }
+  .top-in { padding: 14px 16px 0; }
+  .main-in { padding: 12px 12px 32px; }
+  .search { width: 96px; flex: 0 1 96px; }
+  .tabs { gap: 18px; }
+  .row { grid-template-columns: 22px minmax(0,1fr) auto; }
+  .row .who { display: none; }
+  .rule { grid-template-columns: 36px minmax(0,1fr) auto; }
+  .rule .who { display: none; }
+  .notes { grid-template-columns: minmax(0,1fr); }
+  .drawer { width: 100%; }
+}
+@media (prefers-reduced-motion: no-preference) { .drawer { animation: sl .16s ease-out; } @keyframes sl { from { transform: translateX(16px); } } }
+
+/* 正式页：页面高度等于插件框，顶栏不动，#main 内部滚动（硬规矩 5） */
+html, body { height: 100%; margin: 0; overflow: hidden; }
+.outer { height: 100vh; max-width: none; padding: 0; gap: 0; }
+.frame { flex: 1; height: auto; min-height: 0; border: 0; border-radius: 0; }
+.savebar { display: none; flex: none; align-items: center; gap: 12px; padding: 8px 16px; background: var(--blue-soft); font-size: 13px; }
+</style>
+
+</head>
+<body>
+<div class="outer">
+  <div class="savebar" id="savebar"><span>确认没问题后点右边按钮，插件才会保存到应用页面上。</span><button class="btn pri" id="saveBtn">保存到页面</button><span id="saveMsg"></span></div>
+  <div class="frame" id="frame">
+    <div class="top"><div class="top-in">
+      <div class="top-1">
+        <h1>任务待办</h1>
+        <span class="spacer"></span>
+        <input id="q" class="search" type="search" placeholder="搜索" aria-label="搜索任务">
+        <button class="btn pri" id="newBtn">新建</button>
+      </div>
+      <div class="tabs" role="tablist" id="tabs"></div>
+    </div></div>
+    <div class="main" id="main"></div>
+    <div id="drawerSlot"></div>
+    <div id="toastSlot"></div>
+  </div>
+
+</div>
+
+<script>
+// 正式页的数据层：读写多维表，界面代码和设计稿共用 design_template.html。
+// 插件硬规矩：表按 ID 打开、串行读、日期按北京时间、saveConfig 只认第一条（规则表靠「数据授权4」组件授权）。页面里不放任何密钥。
+window.TODO_HOST = (() => {
+  const SDK_URLS = [new URL('./sdk/index.mjs', location.href).href,
+    'https://cdn.jsdelivr.net/npm/@lark-base-open/js-sdk@1.0.2/dist/index.mjs',
+    'https://unpkg.com/@lark-base-open/js-sdk@1.0.2/dist/index.mjs'];
+  const BASE_TOKEN = 'JGvebyaAYapWtOslxc9cuKYXnwd';
+  const TODO = 'tblUp0MCrRKIVlBI', RULE = 'tbldjdSCthpncMhx';
+  const PEOPLE = ['林键春', '曾舒婷', '林谆强', '张宇彬', '王雅婷'];
+  const FREQ = { workday: '每工作日', week: '每周', biweek: '每两周', month: '每月', monthlast: '每月最后一天', quarter: '每季度', year: '每年' };
+  const FREQ_BACK = Object.fromEntries(Object.entries(FREQ).map(([k, v]) => [v, k]));
+  const bj = (ms) => new Date(ms + 8 * 3600e3).toISOString();
+  const today = () => bj(Date.now()).slice(0, 10);
+  const now = () => bj(Date.now()).slice(0, 16).replace('T', ' ');
+  const stamp = (v) => (v == null || v === '') ? null : bj(Number(v)).slice(0, 16).replace('T', ' ');
+  const day = (v) => (v == null || v === '') ? '' : bj(Number(v)).slice(0, 10);
+  const toMs = (s) => { if (!s) return null; const x = s.length <= 10 ? `${s}T00:00:00+08:00` : `${s.replace(' ', 'T')}:00+08:00`; return Date.parse(x); };
+
+  let SDK, ctx, ME = [];
+  const META = {};
+  const ids = {};   // 姓名 → open_id，从表里的人员字段收集，页面不写死
+
+  const withTimeout = (p, ms, name) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error(name + ' 超时')), ms))]);
+  async function loadSdk() {
+    const errs = [];
+    for (const u of SDK_URLS) { try { return await withTimeout(import(u), 12000, u); } catch (e) { errs.push(u + ' → ' + (e && e.message || e)); } }
+    throw new Error('飞书 SDK 没加载上：' + errs.join(' ｜ '));
+  }
+  function text(v) {
+    if (v == null) return '';
+    if (typeof v === 'string' || typeof v === 'number') return String(v);
+    if (Array.isArray(v)) return v.map(text).join('');
+    return v.text ?? v.name ?? '';
+  }
+  const users = (v) => (Array.isArray(v) ? v : v ? [v] : []).filter((x) => x && x.id).map((x) => ({ id: x.id, name: x.name || x.enName || '' }));
+  const sel = (v) => Array.isArray(v) ? text(v[0]) : text(v);
+  function linkOf(v) {
+    const a = Array.isArray(v) ? v : [];
+    const seg = a.find((x) => x && x.link);
+    if (seg) return { text: seg.text || '打开来源', url: seg.link };
+    const m = /\[(.*?)\]\((.*?)\)/.exec(text(v));
+    return m ? { text: m[1], url: m[2] } : (/^https?:/.test(text(v)) ? { text: '打开来源', url: text(v) } : null);
+  }
+  async function open(key, id) {
+    const table = await SDK.bitable.base.getTableById(id);
+    const list = await table.getFieldMetaList();
+    META[key] = { table, byName: Object.fromEntries(list.map((f) => [f.name, f])), name: Object.fromEntries(list.map((f) => [f.id, f.name])) };
+  }
+  async function readAll(key) {
+    const rows = []; let pageToken;
+    for (let g = 0; g < 100; g++) {
+      const res = await META[key].table.getRecordsByPage({ pageSize: 200, pageToken });
+      for (const r of res.records) {
+        const o = { _id: r.recordId };
+        for (const [fid, v] of Object.entries(r.fields)) { const n = META[key].name[fid]; if (n) o[n] = v; }
+        rows.push(o);
+      }
+      if (!res.hasMore) break; pageToken = res.pageToken;
+    }
+    return rows;
+  }
+  // 值 → 单元格；选项写错或字段不存在时返回 undefined（不写）
+  function cellOf(key, name, v) {
+    const f = META[key].byName[name]; if (!f) return undefined;
+    if (v == null || v === '') return null;
+    switch (f.type) {
+      case 1: return [{ type: 'text', text: String(v) }];
+      case 2: return Number(v);
+      case 3: { const op = (f.property?.options || []).find((o) => o.name === v); return op ? { id: op.id, text: op.name } : undefined; }
+      case 5: return toMs(v);
+      case 7: return !!v;
+      case 11: return [{ id: v }];
+      default: return v;
+    }
+  }
+  // 对象 → 表字段（普通值，写入前再转单元格）
+  function taskRow(t) {
+    const bot = t.who === ctx.BOT;
+    return { '任务名称': t.n, '任务描述': t.d, '负责人': bot ? '' : (ids[t.who] || ''), '执行方': bot ? '机器人' : (t.who ? '人' : ''), '机器人类型': bot ? t.botType : '',
+      '截止时间': t.due, '状态': t.st, '优先级': t.pri, '创建来源': t.src, '完成时间': t.doneAt, '查看时间': t.viewedAt, '已查看': !!t.viewedAt, '提醒请求时间': t.remindedAt, '规则ID': t.rule || '' };
+  }
+  function ruleRow(r) {
+    const bot = r.who === ctx.BOT;
+    return { '任务名称': r.n, '任务描述': r.d, '负责人': bot ? '' : (ids[r.who] || ''), '执行方': bot ? '机器人' : (r.who ? '人' : ''), '机器人类型': bot ? r.botType : '',
+      '优先级': r.pri, '创建来源': r.src, '重复方式': FREQ[r.freq] || '', '起始日期': r.anchor, '下次截止': r.due, '提前天数': +r.lead, '启用': !!r.on };
+  }
+  const rowOf = (o) => o.isRule ? ruleRow(o) : taskRow(o);
+  const keyOf = (o) => o.isRule ? 'rule' : 'todo';
+  const fieldsOf = (key, row, only) => {
+    const out = {};
+    for (const [n, v] of Object.entries(row)) {
+      if (only && !only.includes(n)) continue;
+      const id = META[key].byName[n]?.id, c = cellOf(key, n, v);
+      if (id && c !== undefined) out[id] = c;
+    }
+    return out;
+  };
+  const snap = new WeakMap();
+  async function save(o) {
+    const key = keyOf(o), row = rowOf(o), old = snap.get(o) || {};
+    const changed = Object.keys(row).filter((k) => JSON.stringify(row[k] ?? '') !== JSON.stringify(old[k] ?? ''));
+    if (!changed.length) return;
+    await META[key].table.setRecord(o.id, { fields: fieldsOf(key, row, changed) });
+    snap.set(o, row);
+  }
+  async function create(list) {
+    // 规则先建，拿到记录 ID 再写进任务的「规则ID」
+    for (const o of list.slice().sort((a, b) => (b.isRule ? 1 : 0) - (a.isRule ? 1 : 0))) {
+      const prev = o.id;
+      const key = keyOf(o), row = rowOf(o);
+      const f = fieldsOf(key, row); Object.keys(f).forEach((k) => { if (f[k] === null) delete f[k]; });
+      o.id = await META[key].table.addRecord({ fields: f });
+      o.rec = o.id; snap.set(o, row);
+      if (o.isRule) list.forEach((t) => { if (t.rule === prev) t.rule = o.id; });
+    }
+  }
+
+  function setupSave() {
+    const dash = SDK.dashboard; let st = '';
+    try { st = dash && dash.state; } catch (e) { st = ''; }
+    if (dash && dash.saveConfig && st !== 'View' && st !== 'FullScreen') {
+      const bar = document.getElementById('savebar'); bar.style.display = 'flex';
+      const btn = document.getElementById('saveBtn'), msg = document.getElementById('saveMsg');
+      btn.onclick = async () => {
+        btn.disabled = true; msg.textContent = '保存中…';
+        try {
+          const ok = await dash.saveConfig({ dataConditions: [{ tableId: TODO, baseToken: BASE_TOKEN, dataRange: { type: 'ALL' }, series: 'COUNTA' }], customConfig: { page: '任务待办', version: 1 } });
+          msg.textContent = ok === false ? '保存失败，请重试' : '已保存';
+        } catch (e) { msg.textContent = '保存失败：' + (e && e.message || e); }
+        btn.disabled = false;
+      };
+    } else if (dash && dash.setRendered) dash.setRendered().catch(() => {});
+  }
+
+  async function start(c) {
+    ctx = c; const { S, $ } = c;
+    S.mode = 'real'; S.exTasks = []; S.exRules = []; S.tasks = []; S.rules = [];
+    $('main').innerHTML = '<div class="empty">正在读取任务…</div>';
+    const steps = [];
+    const step = async (name, fn) => { steps.push(name); return fn(); };
+    try {
+      await step('加载 SDK', async () => { SDK = await loadSdk(); setupSave(); });
+      const todo = await step('读任务待办表', async () => { await open('todo', TODO); return readAll('todo'); });
+      const rules = await step('读循环任务规则表（授权在数据授权4）', async () => { await open('rule', RULE); return readAll('rule'); });
+      for (const r of [...todo, ...rules]) for (const u of [...users(r['负责人']), ...users(r['创建人'])]) if (u.name) ids[u.name] = u.id;
+      for (const f of ['getUserId', 'getBaseUserId']) { try { const id = await withTimeout(SDK.bitable.bridge[f](), 8000, f); if (id) ME.push(id); } catch (e) { /* 另一个能拿到就行 */ } }
+      S.me = Object.keys(ids).find((n) => ME.includes(ids[n])) || '';
+      c.setPeople(PEOPLE.filter((p) => ids[p]));
+      S.tasks = todo.map((r) => {
+        const bot = sel(r['执行方']) === c.BOT;
+        const t = { id: r._id, rec: r._id, n: text(r['任务名称']), d: text(r['任务描述']), st: sel(r['状态']) || '待办', pri: sel(r['优先级']), who: bot ? c.BOT : (users(r['负责人'])[0]?.name || ''),
+          by: users(r['创建人'])[0]?.name || '', due: day(r['截止时间']), createdAt: stamp(r['创建时间']), viewedAt: stamp(r['查看时间']), doneAt: stamp(r['完成时间']), remindedAt: stamp(r['提醒请求时间']),
+          botType: sel(r['机器人类型']), src: sel(r['创建来源']), rule: text(r['规则ID']), link: linkOf(r['来源跳转']) };
+        snap.set(t, taskRow(t)); return t;
+      });
+      S.rules = rules.filter((r) => text(r['任务名称'])).map((r) => {
+        const bot = sel(r['执行方']) === c.BOT;
+        const x = { id: r._id, rec: r._id, isRule: true, n: text(r['任务名称']), d: text(r['任务描述']), who: bot ? c.BOT : (users(r['负责人'])[0]?.name || ''), by: users(r['创建人'])[0]?.name || '',
+          pri: sel(r['优先级']), src: sel(r['创建来源']), botType: sel(r['机器人类型']), freq: FREQ_BACK[sel(r['重复方式'])] || '', anchor: day(r['起始日期']), due: day(r['下次截止']), lead: String(r['提前天数'] ?? 0), on: !!r['启用'] };
+        snap.set(x, ruleRow(x)); return x;
+      });
+      S.view = S.me === c.MANAGER || !S.me ? 'all' : 'mine';
+      c.all();
+    } catch (e) {
+      $('main').innerHTML = `<div class="empty"><b>读取失败，请把这段截图发回</b>卡在：${c.esc(steps[steps.length - 1] || '')}<br>${c.esc(e && e.message || e)}</div>`;
+    }
+  }
+  return { today, now, start, save, create };
+})();
+</script>
+<script>
+const HOST = window.TODO_HOST || null;
+const TODAY = HOST ? HOST.today() : '2026-11-06';
+const REAL = [];
+const JUST = '2026-11-06 23:59';
+const now = () => HOST ? HOST.now() : JUST;
+let PEOPLE = ['林键春','曾舒婷','林谆强','张宇彬','王雅婷'];
+const BOT = '机器人';
+const BOT_TYPES = ['应用需求','AI 任务'];
+const APP_URL = 'https://zcnt6ibhe9z3.feishu.cn/app/AiOrbUNtiaG6tysq5FMcBP93nbf?pageId=';
+// 创建来源：预设的应用页面。接入新页面时在这里加一行，并在表字段「创建来源」加同名选项。
+const SOURCES = {'发货指令':'pgezBm4t5Wj8CxtE','采购申请':'pgeP90o0tBy7vMaj','Listing审核':'pge8JRO6tjqElaEj','季节品追踪':'pge42LqtxUf2r0eR','季节品复盘':'pge7p06DJiGtAGdj','四季品经营':'pgeP1qrCpmh5tP8m','备货计划':'pgeeet2UGtGkptsA','目标填写':'pgeft3asRJ2dztbs','清仓决策':'pge3hx9ottuGADSp'};
+const srcEntry = t => t.link ? t.link : (SOURCES[t.src] ? {text:'打开「'+t.src+'」页面',url:APP_URL+SOURCES[t.src]} : null);
+const MANAGER = '林键春';
+const BASE_URL = 'https://zcnt6ibhe9z3.feishu.cn/base/JGvebyaAYapWtOslxc9cuKYXnwd?table=tblUp0MCrRKIVlBI&record=';
+const RAW = [];
+const EX = RAW.map((t,i)=>({st:'待办',pri:'中',by:'林键春',...t,id:'ex'+i,ex:true}));
+const EX_RULES = [].map((r,i)=>({on:true,by:'林键春',pri:'中',...r,id:'r'+(i+1),isRule:true,ex:true}));
+const S = { me: MANAGER, view: 'all', mode: 'ex', q: '', owner: '', sel: null, draft: null, panel: '', tasks: REAL.map(t=>({...t})), exTasks: EX, rules: [], exRules: EX_RULES, idx: 0, hover: false };
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+// 日期一律按字符串转天序号，不受浏览器时区影响（插件页硬规矩 4）
+const dn = s => { const m = /^(\d+)-(\d+)-(\d+)/.exec(s||''); return m ? Date.UTC(+m[1],+m[2]-1,+m[3])/864e5 : null; };
+const ds = d => new Date(d*864e5).toISOString().slice(0,10);
+const T0 = dn(TODAY), WIN = T0-6;
+const dow = d => new Date(d*864e5).getUTCDay();
+const wd = d => '周'+'日一二三四五六'[dow(d)];
+const md = s => s.slice(5,10).replace('-','/');
+const dmd = s => `${md(s)} ${wd(dn(s))}`;
+const WEEK_END = T0 + ((7-dow(T0))%7);
+const bucket = t => { if (t.st==='已完成') return 'done'; const d=dn(t.due); if (d==null) return 'none'; if (d<T0) return 'over'; if (d===T0) return 'today'; if (d<=WEEK_END) return 'week'; return 'later'; };
+const GROUPS = [['over','已逾期'],['today','今天'],['week','本周'],['later','以后'],['none','没写截止']];
+const PR = {高:0,中:1,低:2};
+const cmp = (a,b) => (dn(a.due)??1e9)-(dn(b.due)??1e9) || (PR[a.pri]??3)-(PR[b.pri]??3);
+const pool = () => S.mode==='ex' ? S.tasks.concat(S.exTasks) : S.tasks;
+const rules = () => S.mode==='ex' ? S.rules.concat(S.exRules) : S.rules;
+const isMgr = () => S.me===MANAGER;
+
+/* 重复规则：以截止日期为锚点，像日历一样给出选项 */
+function freqOptions(due) {
+  const d = dn(due) ?? T0, day = +ds(d).slice(8), mon = +ds(d).slice(5,7);
+  const qm = [0,1,2,3].map(i=>((mon-1+i*3)%12)+1).sort((a,b)=>a-b).join('、');
+  return [['','不重复'],['workday','每个工作日'],['week','每'+wd(d)],['biweek','每两周的'+wd(d)],['month',`每月 ${day} 号`],['monthlast','每月最后一天'],['quarter',`每季度 ${day} 号（${qm} 月）`],['year',`每年 ${mon} 月 ${day} 日`]];
+}
+const freqLabel = (f,due) => (freqOptions(due).find(o=>o[0]===f)||['',''])[1].replace(/（.*）/,'');
+function addMonths(s, k, last) {
+  const y=+s.slice(0,4), m=+s.slice(5,7)-1+k, ny=y+Math.floor(m/12), nm=((m%12)+12)%12;
+  const len=new Date(Date.UTC(ny,nm+1,0)).getUTCDate();
+  return ds(Date.UTC(ny,nm,last?len:Math.min(+s.slice(8),len))/864e5);
+}
+// anchor=第一次的截止日：月末被压到 30 号后，下个月仍按 31 号算，不会越算越早
+function nextDates(due, f, n, anchor) {
+  const out=[]; const b=anchor||due, a=dn(b), cur=dn(due); if (a==null||!f) return out;
+  for (let i=1; out.length<n && i<2000; i++) {
+    let s;
+    if (f==='week') s=ds(a+7*i); else if (f==='biweek') s=ds(a+14*i);
+    else if (f==='workday') { const x=a+i; if ([0,6].includes(dow(x))) continue; s=ds(x); }
+    else if (f==='month') s=addMonths(b,i); else if (f==='monthlast') s=addMonths(b,i,true);
+    else if (f==='quarter') s=addMonths(b,3*i); else if (f==='year') s=addMonths(b,12*i);
+    if (dn(s)>cur) out.push(s);
+  }
+  return out;
+}
+
+function inView(t) {
+  if (S.view==='mine') return t.who===S.me && t.st!=='已完成';
+  if (S.view==='sent') return t.by===S.me && t.st!=='已完成';
+  if (S.view==='done') return t.st==='已完成';
+  return t.st!=='已完成';
+}
+function pass(t) {
+  if (S.view==='all'||S.view==='sent'||S.view==='done') { if (S.owner==='__none'?t.who:(S.owner&&t.who!==S.owner)) return false; }
+  if (S.q) { const k=S.q.toLowerCase(); if (!((t.n||'')+(t.d||'')+(t.who||'')+(t.src||'')).toLowerCase().includes(k)) return false; }
+  return true;
+}
+const late = t => (t.doneAt&&t.due) ? dn(t.doneAt)-dn(t.due) : null;
+function dueHtml(t) {
+  if (t.st==='已完成') { if (!t.doneAt) return `<div class="due" style="color:var(--faint)">${t.due?md(t.due):''}</div>`; const l=late(t); return `<div class="due">${t.doneAt===JUST?'刚刚':md(t.doneAt)}${l>0?` <span style="color:var(--red)">晚 ${l} 天</span>`:''}</div>`; }
+  if (!t.due) return '<div class="due" style="color:var(--faint)">–</div>';
+  const b=bucket(t), d=dn(t.due);
+  if (b==='over') return `<div class="due over">逾期 ${T0-d} 天</div>`;
+  if (b==='today') return '<div class="due today">今天</div>';
+  if (d===T0+1) return '<div class="due">明天</div>';
+  return `<div class="due">${dmd(t.due)}</div>`;
+}
+function ruleOf(t){ return t.rule && rules().find(r=>r.id===t.rule); }
+function rowHtml(t) {
+  const done=t.st==='已完成', solo=S.view==='mine', r=ruleOf(t);
+  const left = t.auto ? '<span class="dash" title="系统任务，做完自动关闭"></span>' : `<button class="check ${done?'on':''}" data-check="${t.id}" aria-label="${done?'改回待办':'标为已完成'}">✓</button>`;
+  const metas = [ !done&&t.pri==='高'?'<span class="meta hi">高</span>':'', t.st==='进行中'?'<span class="meta doing">进行中</span>':'', t.src&&SOURCES[t.src]?`<span class="meta">${esc(t.src)}</span>`:'', r?'<span class="meta" title="循环任务">↻</span>':'', t.ex?'<span class="meta ex">示例</span>':'' ].join('');
+  return `<div class="row ${solo?'solo':''} ${done?'done':''} ${S.sel===t.id?'sel':''}" data-id="${t.id}" tabindex="0" role="button">${left}<div class="name"><span>${esc(t.n||'（没写任务名）')}</span>${metas}</div>${solo?'':`<div class="who ${t.who?'':'none'} ${t.who===BOT?'bot':''}">${esc(t.who||'未分配')}</div>`}${dueHtml(t)}</div>`;
+}
+
+/* 动态 */
+function events() {
+  const out=[], inWin=s=>{const d=dn(s);return d!=null&&d>=WIN&&d<=T0;};
+  for (const t of pool()) {
+    if (inWin(t.createdAt)) out.push({k:'派出',at:t.createdAt,t,txt:`${t.by||'有人'} <span class="v-派出">${t.by==='系统'?'建给':'派给'}</span> ${t.who||'未分配'}`});
+    if (inWin(t.viewedAt)) out.push({k:'查看',at:t.viewedAt,t,txt:`${t.who} 看了`});
+    if (inWin(t.remindedAt)) out.push({k:'提醒',at:t.remindedAt,t,txt:`<span class="v-提醒">请求提醒</span> ${t.who||'未分配'}`});
+    if (inWin(t.doneAt)) out.push({k:'完成',at:t.doneAt,t,txt:`${t.who||'有人'} <span class="v-完成">${late(t)>0?`完成，晚 ${late(t)} 天`:'完成了'}</span>`});
+    if (bucket(t)==='over'&&dn(t.due)>=WIN) out.push({k:'逾期',at:t.due+' 00:00',noTime:1,t,txt:`${t.who||'未分配'} <span class="v-逾期">到期没做完</span>`});
+  }
+  const key=S.owner==='__none'?'':S.owner;
+  return (S.owner?out.filter(e=>e.t.who===key):out).sort((a,b)=>a.at<b.at?1:a.at>b.at?-1:0);
+}
+function tm(e) { if (e.at===JUST) return '刚刚'; const d=dn(e.at); const day=d===T0?'今天':d===T0-1?'昨天':md(e.at); return e.noTime||d<T0-1?day:`${day} ${e.at.slice(11,16)}`; }
+const T_H = 36;
+function tickerHtml() {
+  const ev=events(), n=ev.length;
+  if (!n) return `<div class="ticker"><span class="t-label">7 天动态</span><span style="color:var(--faint);font-size:13px">这段时间没有动态</span></div>`;
+  if (S.idx>=n) S.idx=0;
+  const one=e=>`<button class="t-row" data-ev="${e.t.id}"><span class="tx">${e.txt}：${esc(e.t.n)}</span><span class="tm">${tm(e)}</span></button>`;
+  const rows=ev.map(one).join('')+(n>1?one(ev[0]):'');
+  return `<div class="ticker" id="ticker"><span class="t-label">7 天动态</span><div class="t-view"><div class="t-in noanim" id="tIn" data-n="${n}" style="transform:translateY(${-S.idx*T_H}px)">${rows}</div></div><button class="t-all" id="tAll">全部 ${n}</button></div>`;
+}
+if (!matchMedia('(prefers-reduced-motion: reduce)').matches) setInterval(()=>{
+  const el=$('tIn'); if (!el||S.hover||document.hidden) return; const n=+el.dataset.n; if (n<2) return;
+  S.idx++; el.classList.remove('noanim'); el.style.transform=`translateY(${-S.idx*T_H}px)`;
+  if (S.idx>=n) setTimeout(()=>{ const i=$('tIn'); if(!i) return; S.idx=0; i.classList.add('noanim'); i.style.transform='translateY(0)'; },450);
+},3000);
+
+function peopleHtml() {
+  const open=pool().filter(t=>t.st!=='已完成');
+  const names=[...new Set(open.map(t=>t.who).filter(Boolean))];
+  const cnt=w=>open.filter(t=>t.who===w).length, ov=w=>open.filter(t=>t.who===w&&bucket(t)==='over').length;
+  names.sort((a,b)=>(a===BOT)-(b===BOT)||ov(b)-ov(a)||cnt(b)-cnt(a));
+  const un=open.filter(t=>!t.who).length;
+  const btn=(key,l,c,o)=>`<button data-owner="${key}" aria-pressed="${S.owner===key}" ${o?`title="其中 ${o} 条逾期"`:''}>${esc(l)}<b class="${o?'hot':''}">${c}</b></button>`;
+  return `<div class="people">${btn('','全部',open.length,0)}${names.map(w=>btn(w,w,cnt(w),ov(w))).join('')}${un?btn('__none','未分配',un,0):''}</div>`;
+}
+function renderTabs() {
+  const open=pool().filter(t=>t.st!=='已完成');
+  const L={mine:'我的待办',all:'全组',sent:'我派出的',rules:'循环任务',done:'已完成'};
+  $('tabs').innerHTML=Object.keys(L).map(v=>`<button role="tab" data-view="${v}" aria-selected="${S.view===v}">${L[v]}</button>`).join('');
+}
+function renderMain() {
+  let h='';
+  if (S.view==='rules') {
+    const list=rules().filter(r=>!S.q||(r.n+r.d+r.who).includes(S.q)).sort((a,b)=>(b.on-a.on)||dn(a.due)-dn(b.due));
+    h = list.length ? `<div class="section"><div class="group-h">循环任务<small>${list.filter(r=>r.on).length} 条启用</small></div>${list.map(r=>`<div class="rule ${r.on?'':'off'}" data-rule="${r.id}" tabindex="0" role="button"><button class="sw" role="switch" aria-checked="${r.on}" aria-label="${r.on?'暂停':'启用'} ${esc(r.n)}" data-sw="${r.id}"></button><div style="min-width:0"><div class="r-name">${esc(r.n)}${r.ex?' <span class="meta ex">示例</span>':''}</div><div class="r-freq">↻ ${esc(freqLabel(r.freq,r.anchor||r.due))}${r.on?'':' · 已暂停'}</div></div><div class="who">${esc(r.who||'未分配')}</div><div class="due">${r.on?dmd(r.due):'–'}</div></div>`).join('')}</div>`
+      : `<div class="empty"><b>还没有循环任务</b>点右上角「新建」，把「重复」选成每周或每月。</div>`;
+  } else if (S.view==='done') {
+    const list=pool().filter(inView).filter(pass);
+    const by={}; list.forEach(t=>{const m=(t.createdAt||'').slice(0,7);(by[m]=by[m]||[]).push(t)});
+    h = Object.keys(by).sort().reverse().map(m=>`<div class="section"><div class="group-h">${+m.slice(5)} 月派出<small>${by[m].length}</small></div>${by[m].sort((a,b)=>(b.doneAt||'').localeCompare(a.doneAt||'')||(dn(b.due)??0)-(dn(a.due)??0)).map(rowHtml).join('')}</div>`).join('') || '<div class="empty"><b>没有符合条件的任务</b></div>';
+  } else {
+    if (S.view==='all') h += tickerHtml()+peopleHtml();
+    const list=pool().filter(inView).filter(pass);
+    let any=false;
+    for (const [k,l] of GROUPS) { const g=list.filter(t=>bucket(t)===k).sort(cmp); if(!g.length) continue; any=true; h+=`<div class="section"><div class="group-h ${k}">${l}<small>${g.length}</small></div>${g.map(rowHtml).join('')}</div>`; }
+    if (!any) h += S.q||S.owner ? '<div class="empty"><b>没有符合条件的任务</b></div>'
+      : S.view==='mine' ? `<div class="empty"><b>${esc(S.me)}现在没有待办</b>新任务会出现在这里。</div>`
+      : '<div class="empty"><b>都做完了</b>要派新任务，点右上角「新建」。</div>';
+  }
+  const m=$('main'), sc=m.scrollTop; m.innerHTML=`<div class="main-in">${h}</div>`; m.scrollTop=sc;
+}
+function find(id){ return pool().find(t=>t.id===id) || rules().find(r=>r.id===id); }
+const opt=(list,val)=>list.map(([v,l])=>`<option value="${v}" ${v===(val??'')?'selected':''}>${esc(l)}</option>`).join('');
+const peopleOpts=val=>`<option value="">未分配</option>`+[...new Set([...PEOPLE,BOT,val].filter(Boolean))].map(p=>`<option ${p===val?'selected':''}>${esc(p)}</option>`).join('');
+function repeatPv(o) {
+  if (!o.freq) return '';
+  const n=nextDates(o.due,o.freq,3,o.anchor).map(md).join('、');
+  return `<div class="pv" id="pvRep">${o.isRule?'下次':'这次'} ${o.due?md(o.due):'–'}，之后 ${n}</div>`;
+}
+function propsHtml(o, core, status, isNew) {
+  const r = !o.isRule && ruleOf(o);
+  const repeatRow = o.isRule||isNew ? `<div class="p"><label for="fFreq">重复</label><select id="fFreq" ${core?'':'disabled'}>${opt(freqOptions(o.anchor||o.due).slice(o.isRule?1:0),o.freq||'')}</select></div><div id="repSlot">${repeatPv(o)}</div>`
+    : r ? `<div class="p"><span class="pl">重复</span><div><button class="link-btn" data-goto-rule="${r.id}">↻ ${esc(freqLabel(r.freq,r.anchor||r.due))}</button></div></div>` : '';
+  const leadRow = (o.isRule||isNew) ? `<div class="p" id="leadRow" ${o.freq?'':'hidden'}><label for="fLead">提前建</label><select id="fLead" ${core?'':'disabled'}>${opt([['0','当天才出现'],['1','提前 1 天出现'],['3','提前 3 天出现'],['7','提前 7 天出现']],o.lead??'1')}</select></div>` : '';
+  const srcs=[['','手动新建'],...Object.keys(SOURCES).map(k=>[k,k])];
+  if(o.src&&!SOURCES[o.src]) srcs.push([o.src,o.src]);
+  return `<div class="props">
+    <div class="p"><label for="fWho">执行人</label><select id="fWho" ${core?'':'disabled'}>${peopleOpts(o.who)}</select></div>
+    <div class="p"><label for="fDue">${o.isRule?'下次截止':'截止'}</label><input id="fDue" type="date" value="${(o.due||'').slice(0,10)}" ${core?'':'disabled'}></div>
+    <div class="p" id="botRow" ${o.who===BOT?'':'hidden'}><label for="fBot">类型</label><select id="fBot" ${core?'':'disabled'}>${opt(BOT_TYPES.map(x=>[x,x]),o.botType||BOT_TYPES[0])}</select></div>
+    ${repeatRow}${leadRow}
+    ${o.isRule?'':`<div class="p"><label for="fSt">状态</label><select id="fSt" ${status?'':'disabled'}>${opt(['待办','进行中','已完成'].map(s=>[s,s]),o.st||'待办')}</select></div>`}
+    <div class="p"><label for="fPri">优先级</label><select id="fPri" ${core?'':'disabled'}>${opt([['高','高'],['中','中'],['低','低'],['','没填']],o.pri??'')}</select></div>
+    <div class="p"><label for="fSrc">来源</label><select id="fSrc" ${core?'':'disabled'}>${opt(srcs,o.src||'')}</select></div>
+  </div>`;
+}
+function renderDrawer() {
+  const slot=$('drawerSlot');
+  if (S.panel==='feed') {
+    const ev=events();
+    slot.innerHTML=`<aside class="drawer" aria-label="最近 7 天动态"><div class="d-h"><b style="color:var(--ink);font-size:15px">最近 7 天动态</b><span>${ev.length} 条</span><button class="x" data-close aria-label="关闭">✕</button></div><div class="d-b" style="gap:0;padding-top:12px">${ev.map(e=>`<button class="ev-row" data-ev="${e.t.id}"><span class="tx">${e.txt}</span><span class="tm">${tm(e)}</span><span class="nm">${e.t.ex?'示例 · ':''}${esc(e.t.n)}</span></button>`).join('')}</div></aside>`;
+    return;
+  }
+  if (S.draft) {
+    const o=S.draft;
+    slot.innerHTML=`<aside class="drawer" aria-label="新建任务"><div class="d-h"><span>新建任务</span><button class="x" data-close aria-label="关闭">✕</button></div><form class="d-b" id="newForm"><input class="title-in" id="fName" required placeholder="一句话说清做什么" aria-label="任务名称" value="${esc(o.n||'')}">${propsHtml(o,true,true,true)}<textarea class="desc" id="fDesc" placeholder="说明（可选）。给机器人的任务要写清：要什么、用什么数据、结果放哪" aria-label="任务描述">${esc(o.d||'')}</textarea></form><div class="d-f"><button class="btn pri" id="doCreate">创建</button><button class="btn" data-close>取消</button></div></aside>`;
+    bindProps(o,true); $('fName').focus(); return;
+  }
+  const t=S.sel&&find(S.sel);
+  if (!t) { slot.innerHTML=''; return; }
+  const core = !t.auto && (isMgr()||t.by===S.me), status = !t.auto && !t.isRule && (core||t.who===S.me);
+  const f=s=>s===JUST?'刚刚':s;
+  slot.innerHTML=`<aside class="drawer" aria-label="详情"><div class="d-h"><span>${t.isRule?'循环任务':'任务'}</span>${t.ex?'<span class="meta ex">示例</span>':''}<button class="x" data-close aria-label="关闭">✕</button></div>
+  <div class="d-b">
+    <input class="title-in" id="fName" value="${esc(t.n)}" aria-label="任务名称" ${core?'':'disabled'}>
+    ${t.auto?`<div class="pv" style="margin:0">系统任务。查到「${esc(t.pass)}」后自动关闭，不用手动点完成。</div>`:''}
+    ${propsHtml(t,core,status,false)}
+    <textarea class="desc" id="fDesc" placeholder="没有说明" aria-label="任务描述" ${core?'':'disabled'}>${esc(t.d)}</textarea>
+    ${t.who===BOT&&!t.isRule?'<div class="pv" style="margin:0">机器人任务由创建人或主管关闭。</div>':''}
+    ${!core&&!t.auto&&!isMgr()?(t.who===S.me?'<div class="pv" style="margin:0">你是负责人，只能改状态。截止和负责人要改，找派单人或主管。</div>':'<div class="pv" style="margin:0">这条只有负责人、派单人和主管能改。</div>'):''}
+    <div class="foot-meta">
+      ${t.isRule?`<span>创建人 ${esc(t.by)} · 每次生成的任务都能单独改，不影响规则</span>`:`<span>${esc(t.by||'未记录')} 派出于 ${f(t.createdAt||'')}</span><span>${t.viewedAt?`负责人 ${f(t.viewedAt)} 看过`:'负责人还没打开过'}${t.remindedAt?` · ${f(t.remindedAt)} 点过提醒`:''}</span>${t.st==='已完成'?`<span>完成时间 ${t.doneAt?f(t.doneAt):'未记录'}</span>`:''}`}
+      ${srcEntry(t)?`<a href="${esc(srcEntry(t).url)}" target="_blank" rel="noopener">${esc(srcEntry(t).text)}</a>`:''}
+      ${t.rec?`<a href="${BASE_URL}${t.rec}" target="_blank" rel="noopener">在多维表打开</a>`:''}
+    </div>
+  </div>
+  <div class="d-f">${t.isRule?(core?`<button class="btn" id="doPause">${t.on?'暂停':'启用'}</button>`:''):`${status&&t.st!=='已完成'?'<button class="btn pri" id="doDone">标为完成</button>':''}${t.who===BOT?'':'<button class="btn" id="doNotify">提醒</button>'}`}</div></aside>`;
+  bindProps(t,false);
+}
+function refreshPv(o){ const b=$('botRow'); if(b) b.hidden=o.who!==BOT; const s=$('repSlot'); if(s) s.innerHTML=repeatPv(o); const l=$('leadRow'); if(l) l.hidden=!o.freq; }
+function setDone(t,st){ t.st=st; t.doneAt=st==='已完成'?now():null; }
+// 写回：设计稿里什么都不做；正式页由 TODO_HOST 写进多维表
+async function persist(o){ if(!HOST||o.ex) return; try { await HOST.save(o); } catch(e){ toast('保存失败：'+(e&&e.message||e)); } }
+function bindProps(o,isNew) {
+  const sync=()=>{ if(!isNew){ renderTabs(); renderMain(); persist(o); toast(HOST?'已保存':'已保存（预览）'); } };
+  const on=(id,fn)=>{ const el=$(id); if(el) el.onchange=()=>{ fn(el); refreshPv(o); sync(); }; };
+  on('fName',e=>o.n=e.value); on('fDesc',e=>o.d=e.value); on('fWho',e=>{ o.who=e.value; if(o.who===BOT&&!o.botType) o.botType=BOT_TYPES[0]; }); on('fPri',e=>o.pri=e.value);
+  on('fBot',e=>o.botType=e.value); on('fSrc',e=>o.src=e.value); on('fLead',e=>o.lead=e.value);
+  on('fDue',e=>{ o.due=e.value; if(o.isRule) o.anchor=e.value; const f=$('fFreq'); if(f) f.innerHTML=opt(freqOptions(o.anchor||o.due).slice(o.isRule?1:0),o.freq||''); });
+  on('fFreq',e=>{ o.freq=e.value; if(o.lead==null||isNew) { o.lead=({workday:'0',week:'1',biweek:'1',month:'3',monthlast:'3',quarter:'7',year:'7'})[o.freq]??'1'; const l=$('fLead'); if(l) l.value=o.lead; } });
+  on('fSt',e=>{ setDone(o,e.value); });
+}
+let toastT;
+function toast(msg,undo){ clearTimeout(toastT); $('toastSlot').innerHTML=`<div class="toast" role="status"><span>${esc(msg)}</span>${undo?'<button id="undoBtn">撤销</button>':''}</div>`; if(undo) $('undoBtn').onclick=()=>{undo();$('toastSlot').innerHTML='';}; toastT=setTimeout(()=>{$('toastSlot').innerHTML='';},5000); }
+function close(){ S.sel=null; S.draft=null; S.panel=''; }
+function all(){ renderTabs(); renderMain(); renderDrawer(); }
+function complete(t){ const prev=t.st, prevAt=t.doneAt; setDone(t,'已完成'); S.idx=0; renderTabs(); renderMain(); persist(t); const r=ruleOf(t); const nx=r&&r.due?` 下一次 ${md(r.due)}`:''; toast(`已完成${nx}`,()=>{t.st=prev;t.doneAt=prevAt;renderTabs();renderMain();persist(t);}); }
+
+$('frame').addEventListener('click',async e=>{
+  const sw=e.target.closest('[data-sw]'); if(sw){ e.stopPropagation(); const r=find(sw.dataset.sw); if(!(isMgr()||r.by===S.me)){ toast('只有创建人和主管能暂停'); return; } r.on=!r.on; renderMain(); persist(r); toast(r.on?'已启用':'已暂停，不再生成新任务'); if(S.sel===r.id) renderDrawer(); return; }
+  if(e.target.closest('#tAll')){ S.panel='feed'; S.sel=null; S.draft=null; renderDrawer(); return; }
+  const v=e.target.closest('[data-view]'); if(v){ S.view=v.dataset.view; S.owner=''; close(); all(); return; }
+  const k=e.target.closest('[data-check]');
+  if(k){ const t=find(k.dataset.check); if(!(isMgr()||t.by===S.me||t.who===S.me)){ toast('这条只有负责人、派单人和主管能改'); return; }
+    if(t.st==='已完成'){ setDone(t,'待办'); renderTabs(); renderMain(); persist(t); toast('已改回待办'); } else complete(t); return; }
+  const o=e.target.closest('[data-owner]'); if(o){ S.owner=S.owner===o.dataset.owner?'':o.dataset.owner; S.idx=0; renderMain(); return; }
+  if(e.target.closest('[data-close]')){ close(); renderMain(); renderDrawer(); return; }
+  const gr=e.target.closest('[data-goto-rule]'); if(gr){ S.sel=gr.dataset.gotoRule; renderDrawer(); return; }
+  if(e.target.closest('#doDone')){ complete(find(S.sel)); renderDrawer(); return; }
+  if(e.target.closest('#doNotify')){ const t=find(S.sel); if(!t.who){ toast('先选执行人再提醒'); return; } t.remindedAt=now(); S.idx=0; renderMain(); renderDrawer(); persist(t); toast('已记下。机器人接入后才会发消息，现在不发'); return; }
+  if(e.target.closest('#doPause')){ const r=find(S.sel); r.on=!r.on; renderMain(); renderDrawer(); persist(r); toast(r.on?'已启用':'已暂停'); return; }
+  if(e.target.closest('#doCreate')){
+    const f=$('newForm'); if(!f.reportValidity()) return;
+    const o=S.draft; o.n=$('fName').value.trim(); o.d=$('fDesc').value.trim();
+    const base={n:o.n,d:o.d,who:o.who,by:S.me,pri:o.pri,due:o.due,src:o.src||'',botType:o.who===BOT?(o.botType||BOT_TYPES[0]):''};
+    const task=extra=>({...base,id:'n'+Date.now(),st:'待办',createdAt:now(),...extra});
+    let msg, made=[];
+    if(o.freq){
+      const lead=o.lead??'1', nexts=nextDates(o.due,o.freq,1), now1=dn(o.due)-(+lead)<=T0;
+      // 第一次已到出现时间：当场建好，规则的「下次」往后推一格，定时任务不会重复建
+      const rule={...base,id:'rn'+Date.now(),isRule:true,on:true,freq:o.freq,lead,anchor:o.due,due:now1?nexts[0]:o.due};
+      S.rules.unshift(rule); made.push(rule);
+      if(now1){ const t=task({rule:rule.id}); S.tasks.unshift(t); made.push(t); }
+      msg=`已建循环任务，下一次 ${md(rule.due)}`;
+    } else {
+      const t=task({}); S.tasks.unshift(t); made.push(t);
+      msg=o.who?`已派给 ${o.who}`:'已建好，还没有执行人';
+    }
+    if(HOST){ try { await HOST.create(made); } catch(e){ toast('创建失败：'+(e&&e.message||e)); S.rules=S.rules.filter(x=>!made.includes(x)); S.tasks=S.tasks.filter(x=>!made.includes(x)); all(); return; } }
+    else msg+='（预览）';
+    close(); S.idx=0; all(); toast(msg); return;
+  }
+  const ev=e.target.closest('[data-ev]'), r=e.target.closest('.row'), ru=e.target.closest('[data-rule]');
+  const id=ev?ev.dataset.ev:r?r.dataset.id:ru?ru.dataset.rule:null;
+  if(id){ S.sel=id; S.draft=null; S.panel=''; const t=find(id); if(t.who===S.me&&!t.isRule&&!t.viewedAt){ t.viewedAt=now(); S.idx=0; persist(t); } renderMain(); renderDrawer(); }
+});
+$('frame').addEventListener('keydown',e=>{ if(e.key==='Enter'&&(e.target.classList?.contains('row')||e.target.classList?.contains('rule'))) e.target.click(); if(e.key==='Escape'&&(S.sel||S.draft||S.panel)){ close(); renderMain(); renderDrawer(); } });
+$('frame').addEventListener('mouseover',e=>{ S.hover=!!e.target.closest('#ticker'); });
+$('frame').addEventListener('mouseleave',()=>{ S.hover=false; });
+$('newBtn').onclick=()=>{ close(); S.draft={who:S.me===MANAGER?'':S.me,due:TODAY,pri:'中',freq:''}; renderMain(); renderDrawer(); };
+// 搜索框只建一次、不随列表重绘，避免打断中文输入法
+$('q').addEventListener('input',e=>{ if(e.isComposing) return; S.q=e.target.value.trim(); renderMain(); });
+$('q').addEventListener('compositionend',e=>{ S.q=e.target.value.trim(); renderMain(); });
+if ($('asWho')) {
+  $('asWho').innerHTML=PEOPLE.map(p=>`<option ${p===S.me?'selected':''}>${p}</option>`).join('');
+  $('asWho').onchange=e=>{ S.me=e.target.value; S.view=isMgr()?'all':'mine'; S.owner=''; close(); all(); };
+  const setMode=m=>{ S.mode=m; close(); S.owner=''; S.idx=0; $('modeReal').setAttribute('aria-pressed',m==='real'); $('modeEx').setAttribute('aria-pressed',m==='ex'); all(); };
+  $('modeReal').onclick=()=>setMode('real'); $('modeEx').onclick=()=>setMode('ex');
+}
+if (HOST) HOST.start({ S, all, setPeople:p=>{PEOPLE=p;}, MANAGER, BOT, BOT_TYPES, SOURCES, $, esc });
+else all();
+</script>
+
+</body>
+</html>
