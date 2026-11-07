@@ -141,7 +141,7 @@ const TABLES = {
       '匹配状态', '财务表核对', '提运单号', '申报金额总价c&f', '币种', 'FOB（外币）', 'FOB金额（人民币）', '发票号码', '发票认证',
       '退税日期', '退税金额', '回款日期'] },
   rpo: { id: 'tblZGnfj9md5isLj', name: '出口对账-采购合同', links: [],
-    fields: ['采购合同', '1688单号', 'SKU', '名称', '数量', '已报关数量', '对账状态', '供应商', '下单日期', '到货状态', '单据状态', '归属',
+    fields: ['采购合同', '1688单号', 'SKU', '名称', '数量', '已报关数量', '对账状态', '供应商', '下单日期', '预计到货日', '到货状态', '单据状态', '归属',
       '含税', '含税单价', '含税总价', '已报关金额', '付款状态', '采购员', '首次到货日', '最近到货日', '已到货量', '采购备注'] },
   rship: { id: 'tblJO6ZnfU62ALPz', name: '出口对账-货件明细', links: ['采购合同'],
     fields: ['货件编号', '采购合同', '合同协议号', '数量', '时间', '领星状态', '店铺', '渠道', '发货单号'] },
@@ -261,13 +261,20 @@ const LV = { red: ['逾期未到仓', 'p-red', 0], yellow: ['逾期·接收中',
 const shipNos = (v) => [...new Set(String(v || '').toUpperCase().match(/FBA[0-9A-Z]{6,}/g) || [])];
 const poNos = (v) => [...new Set((String(v || '').match(/P[O0]\d{9}/g) || []).map((x) => 'PO' + x.slice(2)))];
 
+// 交货日 = 领星 预计到货日（明细行级，一张单可能不止一个日期 → 显示 最早~最晚；领星没填则空）
+function etaText(lines, fmt = fmtFull) {
+  const ds = lines.map((l) => dayOf(l['预计到货日'])).filter((x) => x != null);
+  if (!ds.length) return '';
+  const a = fmt(Math.min(...ds)), b = fmt(Math.max(...ds));
+  return a === b ? a : `${a}~${b}`;
+}
 // 采购单 = 采购合同表里同一 PO 的各 SKU 行汇总
 function poModel(no, lines) {
   if (!lines || !lines.length) return { '采购单号': no, '领星匹配': '未找到' };
   const f = lines[0], sum = (k) => lines.reduce((a, l) => a + n0(l[k]), 0);
   const fs = lines.map((l) => dayOf(l['首次到货日'])).filter((x) => x != null);
   const ls = lines.map((l) => dayOf(l['最近到货日'])).filter((x) => x != null);
-  return { '采购单号': no, '供应商': f['供应商'], '下单日': f['下单日期'],
+  return { '采购单号': no, '供应商': f['供应商'], '下单日': f['下单日期'], '交货日': etaText(lines, fmtD),
     '首次到货日': fs.length ? fmtFull(Math.min(...fs)) : null, '最近到货日': ls.length ? fmtFull(Math.max(...ls)) : null,
     '采购量': sum('数量'), '已到货量': sum('已到货量'), '采购金额': sum('含税总价'), '含税': f['含税'], '单据状态': f['单据状态'],
     '到货状态': f['到货状态'], '付款状态': f['付款状态'], '采购员': f['采购员'], '采购备注': f['采购备注'], '领星匹配': '找到',
@@ -421,7 +428,7 @@ function poBox(p) {
     : `<span class="pill ${p['到货状态'] === '全部到货' ? 'p-green' : 'p-yellow'}">${esc(p['到货状态'] || '—')}</span>`;
   return `<div class="box"><div class="t"><b>${esc(p['采购单号'])}</b>${pill}</div>
     <div class="s" title="${esc(p['供应商'])}">${esc(p['供应商'] || '')}</div>
-    <div class="s">下单 ${fD(p['下单日']) || '—'}　到货 ${fD(p['首次到货日']) || '—'}${p['最近到货日'] && fD(p['最近到货日']) !== fD(p['首次到货日']) ? `~${fD(p['最近到货日'])}` : ''}　${fmtN(got)}/${fmtN(real)}</div>
+    <div class="s">下单 ${fD(p['下单日']) || '—'}　交货 ${p['交货日'] || '—'}　到货 ${fD(p['首次到货日']) || '—'}${p['最近到货日'] && fD(p['最近到货日']) !== fD(p['首次到货日']) ? `~${fD(p['最近到货日'])}` : ''}　${fmtN(got)}/${fmtN(real)}</div>
     <div class="s">¥${fmtN(p['采购金额'], 2)} ${esc(p['含税'] || '')}　${esc(p['单据状态'] || '')}　付款:${esc(p['付款状态'] || '—')}　${esc(p['采购员'] || '')}</div>
     ${(p._items || []).length || p['采购备注'] ? `<details><summary>SKU 明细（${(p._items || []).length}）${p['采购备注'] ? ' / 备注' : ''}</summary>
       ${(p._items || []).length ? `<table class="skut"><tr><th>SKU / 品名</th><th class="r">数量</th><th class="r">含税单价</th></tr>
@@ -505,7 +512,7 @@ async function loadRecon() {
     p.lines.sort((a, b) => (b.has - a.has) || String(a['SKU']).localeCompare(String(b['SKU'])));
     const ships = new Set(), cts = new Set();
     p.lines.forEach((l) => l.segs.forEach((s) => { ships.add(s['货件编号']); cts.add(String(s['合同协议号'])); }));
-    return { ...p, q, dq, left, st, nData: data.length, inv: invState(M.decByPo.get(p.no)), sup: f['供应商'], ord: dayOf(f['下单日期']), arr: f['到货状态'],
+    return { ...p, q, dq, left, st, nData: data.length, inv: invState(M.decByPo.get(p.no)), sup: f['供应商'], ord: dayOf(f['下单日期']), eta: etaText(p.lines), arr: f['到货状态'],
       own: [...new Set(p.lines.flatMap((l) => String(l['归属'] || '').split('、')).filter(Boolean))], ships: [...ships], cts: [...cts] };
   });
   RECON = { pos };
@@ -548,6 +555,7 @@ function poCard(p) {
   return `<div class="card">
     <div class="ch"><span class="no">${esc(p.no)}</span><span class="pill ${s[1]}">${s[0]}</span>${invPill(p.inv)}
       <span class="kv">供应商 <b>${esc(p.sup || '—')}</b></span><span class="kv">下单 <b>${p.ord != null ? fmtFull(p.ord) : '—'}</b></span>
+      <span class="kv" title="领星采购单的预计到货日">交货 <b>${esc(p.eta || '—')}</b></span>
       <span class="kv">到货 <b>${esc(p.arr || '—')}</b></span><span class="kv">归属 <b>${esc(p.own.join('、') || '—')}</b></span>
       <span class="kv">采购 <b>${fmtN(p.q)}</b></span>
       ${p.st === 'none' ? '' : `<span class="kv">已发 <b>${fmtN(p.dq)}</b></span><span class="kv">未发 <b style="color:${p.left ? 'var(--yellow)' : 'var(--green)'}">${fmtN(p.left)}</b></span>`}
