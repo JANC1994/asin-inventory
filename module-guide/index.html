@@ -186,10 +186,10 @@
 <article class="doc" id="doc-export" hidden><header><div class="dh"><h1>出口单证信息</h1><a class="kb" href="https://zcnt6ibhe9z3.feishu.cn/wiki/JGDQwZjOli1VQTkIw9KcMT32n71" target="_blank" rel="noopener">在知识库打开</a></div><div class="toc"><a href="#export-s0" data-jump="export-s0">三个页签</a><a href="#export-s1" data-jump="export-s1">几个口径</a><a href="#export-s2" data-jump="export-s2">数据什么时候更新</a><a href="#export-s3" data-jump="export-s3">常见问题</a></div></header>
 <p>把合同、采购单、货件和报关串起来查，主要给做出口对账的曾舒婷用。页面在应用的「出口单证信息」，页面标题是「出口单证追踪」，只能看，不能改。要改数据请到出口对账表。</p>
 <h2 id="export-s0">三个页签</h2>
-<div class="tblbox"><table><thead><tr><th>页签</th><th>从什么查起</th><th>能看到什么</th></tr></thead><tbody><tr><td class="nw">按合同协议号</td><td class="nw">报关合同</td><td>报关单、货件轨迹、采购单、财务信息</td></tr><tr><td class="nw">按合同单号</td><td class="nw">采购单</td><td>每个 SKU 的已发、未发和发票状态</td></tr><tr><td class="nw">按货件</td><td class="nw">FBA 货件</td><td>货件状态，以及数量对应哪份合同</td></tr></tbody></table></div>
+<div class="tblbox"><table><thead><tr><th>页签</th><th>从什么查起</th><th>能看到什么</th></tr></thead><tbody><tr><td class="nw">按合同协议号</td><td class="nw">报关合同</td><td>报关单、货件轨迹、采购单、财务信息</td></tr><tr><td class="nw">按合同单号</td><td class="nw">采购单</td><td>下单和交货日期，每个 SKU 的已发、未发和发票状态</td></tr><tr><td class="nw">按货件</td><td class="nw">FBA 货件</td><td>货件状态，以及数量对应哪份合同</td></tr></tbody></table></div>
 <p>可以用顶部搜货件号、合同号、采购单号和品名，也可以按出口月份和发票状态筛选。</p>
 <h2 id="export-s1">几个口径</h2>
-<ul><li><b>已发：</b> 按报关明细匹配到的数量算。没有报关数据的 SKU，已发和未发留空。</li><li><b>发票状态：</b> 报关明细有发票号码就算已开，分未开、部分开和已开齐。</li><li><b>货件号查不到：</b> 领星和货件明细里都没有这个货件号，多半是财务表录错了，请核对财务表。</li><li><b>逾期：</b> 预计到仓日已过且未收完。</li><li><b>货件轨迹：</b> 是领星状态时间线，不是货代的真实物流轨迹。已完结的货件只显示领星状态。</li></ul>
+<ul><li><b>交货：</b> 取领星采购单的预计到货日。同一张单有几个日期就显示最早到最晚，领星没填显示「—」。</li><li><b>已发：</b> 按报关明细匹配到的数量算。没有报关数据的 SKU，已发和未发留空。</li><li><b>发票状态：</b> 报关明细有发票号码就算已开，分未开、部分开和已开齐。</li><li><b>货件号查不到：</b> 领星和货件明细里都没有这个货件号，多半是财务表录错了，请核对财务表。</li><li><b>逾期：</b> 预计到仓日已过且未收完。</li><li><b>货件轨迹：</b> 是领星状态时间线，不是货代的真实物流轨迹。已完结的货件只显示领星状态。</li></ul>
 <h2 id="export-s2">数据什么时候更新</h2>
 <p>系统每天美西时间 18:10 同步采购单、货件和报关匹配，并从财务「出口退税」表回填发票、退税和回款。页面看到的是最近一次同步的结果。</p>
 <h2 id="export-s3">常见问题</h2>
