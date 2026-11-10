@@ -152,6 +152,13 @@ button { cursor: pointer; }
 .p > label, .p > .pl { font-size: 13px; color: var(--sub); }
 .p select, .p input[type="datetime-local"] { width: 100%; min-height: 32px; border: 1px solid transparent; border-radius: 6px; background: none; padding: 0 6px; margin-left: -6px; }
 .p select:hover:enabled, .p input[type="datetime-local"]:hover:enabled { background: var(--hover); }
+.mp { position: relative; min-width: 0; }
+.mp-btn { width: 100%; min-height: 32px; border: 1px solid transparent; border-radius: 6px; background: none; padding: 0 6px; margin-left: -6px; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mp-btn:hover:enabled { background: var(--hover); }
+.mp-btn:disabled { color: var(--sub); cursor: default; }
+.mp-pop { position: absolute; z-index: 5; top: 100%; left: -6px; right: 0; max-height: 260px; overflow: auto; padding: 4px; background: var(--paper); border: 1px solid var(--line-2); border-radius: 8px; box-shadow: 0 8px 24px var(--drawer); }
+.mp-pop label { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 6px; font-size: 13px; cursor: pointer; }
+.mp-pop label:hover { background: var(--hover); }
 .p select:disabled, .p input:disabled { opacity: 1; color: var(--sub); }
 .pv { margin: -2px 0 6px 80px; font-size: 12px; color: var(--faint); line-height: 1.5; }
 .pv.warn { color: var(--amber); }
@@ -180,6 +187,11 @@ button { cursor: pointer; }
 .batch b { font-weight: 500; font-variant-numeric: tabular-nums; }
 .batch .link-btn { margin-right: 8px; }
 .scrim { position: absolute; inset: 0; z-index: 30; background: var(--drawer); display: grid; place-items: center; padding: 16px; }
+.dialog.wide { width: 560px; max-height: calc(100% - 32px); overflow: auto; }
+.dialog pre { margin: 0; padding: 10px 12px; max-height: 220px; overflow: auto; background: var(--bg); border-radius: 6px; font: 12.5px/1.6 inherit; white-space: pre-wrap; color: var(--ink); }
+.dialog .f { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13px; color: var(--sub); }
+.dialog .f select, .dialog .f input { height: 30px; border: 1px solid var(--line-2); border-radius: 6px; background: var(--paper); padding: 0 6px; }
+.dialog hr { border: 0; border-top: 1px solid var(--line); margin: 6px 0; width: 100%; }
 .dialog { width: 360px; max-width: 100%; background: var(--paper); border-radius: 10px; padding: 18px 20px; display: flex; flex-direction: column; gap: 8px; }
 .dialog h2 { margin: 0; font-size: 15px; font-weight: 600; }
 .dialog p { margin: 0; font-size: 13px; color: var(--sub); }
@@ -236,6 +248,7 @@ html, body { height: 100%; margin: 0; overflow: hidden; }
       <div class="tabs" role="tablist" id="tabs"></div>
       <span class="spacer"></span>
       <input id="q" class="search" type="search" placeholder="搜索任务、执行人、来源" aria-label="搜索任务">
+      <button class="btn" id="sendBtn">发群</button>
       <button class="btn" id="batchBtn" aria-pressed="false">批量</button>
       <button class="btn pri" id="newBtn">新建</button>
     </div>
@@ -244,6 +257,7 @@ html, body { height: 100%; margin: 0; overflow: hidden; }
     <div id="drawerSlot"></div>
     <div id="toastSlot"></div>
     <div id="confirmSlot"></div>
+    <div id="sendSlot"></div>
   </div>
 
 </div>
@@ -319,7 +333,8 @@ window.TODO_HOST = (() => {
       case 3: { const op = (f.property?.options || []).find((o) => o.name === v); return op ? { id: op.id, text: op.name } : undefined; }
       case 5: return toMs(v);
       case 7: return !!v;
-      case 11: return [{ id: v }];
+      case 11: { const a = (Array.isArray(v) ? v : [v]).filter(Boolean); return a.length ? a.map((id) => ({ id })) : null; }
+      case 4: { const a = (Array.isArray(v) ? v : [v]).map((n) => (f.property?.options || []).find((o) => o.name === n)).filter(Boolean); return a.length ? a.map((o) => ({ id: o.id, text: o.name })) : null; }
       default: return v;
     }
   }
@@ -327,12 +342,12 @@ window.TODO_HOST = (() => {
   // 不写「已查看」：自动化 wkfdoUnOMSFfy7oU 一勾它就把任务置为已完成（询盘任务的旧规则）。打开过只记「查看时间」
   function taskRow(t) {
     const bot = t.who === ctx.BOT;
-    return { '任务名称': t.n, '任务描述': t.d, '负责人': bot ? '' : (ids[t.who] || ''), '执行方': bot ? '机器人' : (t.who ? '人' : ''), '机器人类型': bot ? t.botType : '',
+    return { '任务名称': t.n, '任务描述': t.d, '负责人': bot ? '' : (t.whos || []).map((n) => ids[n]).filter(Boolean), '执行方': bot ? '机器人' : (t.who ? '人' : ''), '机器人类型': bot ? t.botType : '',
       '截止时间': t.due, '状态': t.st, '优先级': t.pri, '创建来源': t.src, '完成时间': t.doneAt, '查看时间': t.viewedAt, '提醒请求时间': t.remindedAt, '规则ID': t.rule || '', '通知负责人': t.notify ? true : undefined };
   }
   function ruleRow(r) {
     const bot = r.who === ctx.BOT;
-    return { '任务名称': r.n, '任务描述': r.d, '负责人': bot ? '' : (ids[r.who] || ''), '执行方': bot ? '机器人' : (r.who ? '人' : ''), '机器人类型': bot ? r.botType : '',
+    return { '任务名称': r.n, '任务描述': r.d, '负责人': bot ? '' : (r.whos || []).map((n) => ids[n]).filter(Boolean), '执行方': bot ? '机器人' : (r.who ? '人' : ''), '机器人类型': bot ? r.botType : '',
       '优先级': r.pri, '创建来源': r.src, '重复方式': FREQ[r.freq] || '', '起始日期': r.anchor, '下次截止': r.due, '提前天数': +r.lead, '启用': !!r.on };
   }
   const rowOf = (o) => o.isRule ? ruleRow(o) : taskRow(o);
@@ -434,9 +449,40 @@ window.TODO_HOST = (() => {
     S.apErr = errs.length ? `读不到：${errs.join('、')}。请在应用权限里给你的角色开这张表的阅读权限，其余内容不受影响。` : '';
     // 只审批、没有待办记录的人（如采购主管）也要认得出来
     if (!S.me) { const hit = out.flatMap((a) => (a.ids || []).map((id, i) => [id, a.approvers[i]])).find(([id]) => ME.includes(id)); if (hit) S.me = hit[1]; }
-    if (out.some((a) => a.mine) && S.view !== 'ap' && !S.tasks.some((t) => t.who === S.me && t.st !== '已完成') && S.view === 'mine') S.view = 'ap';
+    if (out.some((a) => a.mine) && S.view !== 'ap' && !S.tasks.some((t) => (t.whos || []).includes(S.me) && t.st !== '已完成') && S.view === 'mine') S.view = 'ap';
     S.apAll = out.some((a) => a.mine) ? false : out.length > 0;
     ctx.all();
+  }
+
+  // 发群：页面只写请求，正文和发送由本机 X39 做（页面不放密钥）
+  const REQ = 'tblYhzQTSNhW6VgD', AUTO = 'tblNjjwfZZiclbMj';
+  async function sendNow(group, progress) {
+    if (!META.req) await open('req', REQ);
+    const id = await META.req.table.addRecord({ fields: fieldsOf('req', { '请求说明': '任务待办页「发群」', '内容': '待办清单', '群': group, '状态': '待发送' }) });
+    for (let i = 0; i < 24; i++) {
+      await new Promise((r) => setTimeout(r, 5000));
+      try {
+        const rec = await META.req.table.getRecordById(id);
+        const g = (n) => rec.fields[META.req.byName[n]?.id];
+        const st = sel(g('状态'));
+        if (st && st !== '待发送') return `${st}：${text(g('结果'))}`;
+      } catch (e) { /* 下一轮再查 */ }
+      progress && progress(`已提交，等小灯发送…（${(i + 1) * 5} 秒）`);
+    }
+    return '已提交，2 分钟内还没发出。请确认本机开着、X39 在运行；超过 30 分钟没发就作废，不会突然冒出旧消息。';
+  }
+  const WEEK = ['', '周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+  async function scheduleSend({ group, freq, day, time }) {
+    if (!META.auto) await open('auto', AUTO);
+    const n = ['每周', '每月'].includes(freq) ? Number(day) : null;
+    const when = freq === '每周' ? `每${WEEK[n]} ${time}` : freq === '每月' ? `每月 ${n} 日 ${time}` : `${freq} ${time}`;
+    const f = fieldsOf('auto', {
+      '任务键': 'T' + Date.now().toString(36), '任务名称': `待办清单发${group}群`, '动作键': 'todo_board', '动作参数': '{}', '机器人': '小灯',
+      '频率': freq, '时刻': time, '周几或几号': n, '输出': ['灯具组群'], '错过时': '跳过', '失败通知': '创建人',
+      '时间': when, '时钟': '北京固定', '输出到': '灯具组群', '说明': '全组未完成的待办按执行人分组发群（任务待办页提交）', '类型': '通知', '模块': '任务',
+      '可见范围': '全员', '来源': '页面新建', '状态': '启用', '审批状态': '待审批' });
+    Object.keys(f).forEach((k) => { if (f[k] === null) delete f[k]; });
+    await META.auto.table.addRecord({ fields: f });
   }
 
   async function start(c) {
@@ -453,18 +499,20 @@ window.TODO_HOST = (() => {
       const rules = await step('读循环任务规则表（授权在数据授权4）', async () => { await open('rule', RULE); return readAll('rule'); });
       for (const r of [...todo, ...rules]) for (const u of [...users(r['负责人']), ...users(r['创建人'])]) if (u.name) ids[u.name] = u.id;
       for (const f of ['getUserId', 'getBaseUserId']) { try { const id = await withTimeout(SDK.bitable.bridge[f](), 8000, f); if (id) ME.push(id); } catch (e) { /* 另一个能拿到就行 */ } }
+      const nameOf = Object.fromEntries(Object.entries(ids).map(([n, id]) => [id, n]));   // 有的行人员字段只带 id
+      const whoOf = (r, bot) => { const a = bot ? [c.BOT] : users(r['负责人']).map((u) => u.name || nameOf[u.id]).filter(Boolean); return { whos: a, who: a.join('、') }; };
       S.me = Object.keys(ids).find((n) => ME.includes(ids[n])) || '';
       c.setPeople(PEOPLE.filter((p) => ids[p]));
       S.tasks = todo.map((r) => {
         const bot = sel(r['执行方']) === c.BOT;
-        const t = { id: r._id, rec: r._id, n: text(r['任务名称']), d: text(r['任务描述']), st: sel(r['状态']) || '待办', pri: sel(r['优先级']), who: bot ? c.BOT : (users(r['负责人'])[0]?.name || ''),
+        const t = { id: r._id, rec: r._id, n: text(r['任务名称']), d: text(r['任务描述']), st: sel(r['状态']) || '待办', pri: sel(r['优先级']), ...whoOf(r, bot),
           by: users(r['创建人'])[0]?.name || '', due: stamp(r['截止时间']) || '', createdAt: stamp(r['创建时间']), viewedAt: stamp(r['查看时间']), doneAt: stamp(r['完成时间']), remindedAt: stamp(r['提醒请求时间']),
           botType: sel(r['机器人类型']), src: sel(r['创建来源']), rule: text(r['规则ID']), link: linkOf(r['来源跳转']) };
         snap.set(t, taskRow(t)); return t;
       });
       S.rules = rules.filter((r) => text(r['任务名称'])).map((r) => {
         const bot = sel(r['执行方']) === c.BOT;
-        const x = { id: r._id, rec: r._id, isRule: true, n: text(r['任务名称']), d: text(r['任务描述']), who: bot ? c.BOT : (users(r['负责人'])[0]?.name || ''), by: users(r['创建人'])[0]?.name || '',
+        const x = { id: r._id, rec: r._id, isRule: true, n: text(r['任务名称']), d: text(r['任务描述']), ...whoOf(r, bot), by: users(r['创建人'])[0]?.name || '',
           pri: sel(r['优先级']), src: sel(r['创建来源']), botType: sel(r['机器人类型']), freq: FREQ_BACK[sel(r['重复方式'])] || '', anchor: stamp(r['起始日期']) || '', due: stamp(r['下次截止']) || '', lead: String(r['提前天数'] ?? 0), on: !!r['启用'] };
         snap.set(x, ruleRow(x)); return x;
       });
@@ -475,7 +523,7 @@ window.TODO_HOST = (() => {
       $('main').innerHTML = `<div class="empty"><b>读取失败，请把这段截图发回</b>卡在：${c.esc(steps[steps.length - 1] || '')}<br>${c.esc(e && e.message || e)}</div>`;
     }
   }
-  return { today, now, start, save, create, remove };
+  return { today, now, start, save, create, remove, sendNow, scheduleSend };
 })();
 </script>
 <script>
@@ -491,6 +539,10 @@ const BOT_TYPES = ['应用需求','AI 任务'];
 const APP_URL = 'https://zcnt6ibhe9z3.feishu.cn/app/AiOrbUNtiaG6tysq5FMcBP93nbf?pageId=';
 // 创建来源：预设的应用页面。接入新页面时在这里加一行，并在表字段「创建来源」加同名选项。
 const SOURCES = {'发货指令':'pgezBm4t5Wj8CxtE','采购申请':'pgeP90o0tBy7vMaj','Listing审核':'pge8JRO6tjqElaEj','季节品追踪':'pge42LqtxUf2r0eR','季节品复盘':'pge7p06DJiGtAGdj','四季品经营':'pgeP1qrCpmh5tP8m','备货计划':'pgeeet2UGtGkptsA','目标填写':'pgeft3asRJ2dztbs','清仓决策':'pge3hx9ottuGADSp'};
+// 执行人可多选：whos 是名单，who 是显示用的「、」拼接；机器人只能单独选
+const whosOf = t => t.whos || (t.who ? String(t.who).split('、').filter(Boolean) : []);
+const isWho = (t,n) => !!n && whosOf(t).includes(n);
+const setWhos = (o,a) => { o.whos=a; o.who=a.join('、'); };
 const srcEntry = t => t.link ? t.link : (SOURCES[t.src] ? {text:'打开「'+t.src+'」页面',url:APP_URL+SOURCES[t.src]} : null);
 const MANAGER = '林键春';
 const BASE_URL = 'https://zcnt6ibhe9z3.feishu.cn/base/JGvebyaAYapWtOslxc9cuKYXnwd?table=tblUp0MCrRKIVlBI&record=';
@@ -551,13 +603,13 @@ function nextDates(due, f, n, anchor) {
 }
 
 function inView(t) {
-  if (S.view==='mine') return t.who===S.me && t.st!=='已完成';
+  if (S.view==='mine') return isWho(t,S.me) && t.st!=='已完成';
   if (S.view==='sent') return t.by===S.me && t.st!=='已完成';
   if (S.view==='done') return t.st==='已完成';
   return t.st!=='已完成';
 }
 function pass(t) {
-  if (S.view==='all'||S.view==='sent'||S.view==='done') { if (S.owner==='__none'?t.who:(S.owner&&t.who!==S.owner)) return false; }
+  if (S.view==='all'||S.view==='sent'||S.view==='done') { if (S.owner==='__none'?t.who:(S.owner&&!isWho(t,S.owner))) return false; }
   if (S.q) { const k=S.q.toLowerCase(); if (!((t.n||'')+(t.d||'')+(t.who||'')+(t.src||'')).toLowerCase().includes(k)) return false; }
   return true;
 }
@@ -599,7 +651,7 @@ function events() {
     if (bucket(t)==='over'&&dn(t.due)>=WIN) out.push({k:'逾期',at:t.due.length>10?t.due:t.due+' 00:00',noTime:1,t,txt:`${t.who||'未分配'} <span class="v-逾期">到期没做完</span>`});
   }
   const key=S.owner==='__none'?'':S.owner;
-  return (S.owner?out.filter(e=>e.t.who===key):out).sort((a,b)=>a.at<b.at?1:a.at>b.at?-1:0);
+  return (S.owner?out.filter(e=>key?isWho(e.t,key):!e.t.who):out).sort((a,b)=>a.at<b.at?1:a.at>b.at?-1:0);
 }
 function tm(e) { if (e.at===JUST) return '刚刚'; const d=dn(e.at); const day=d===T0?'今天':d===T0-1?'昨天':md(e.at); return e.noTime||d<T0-1?day:`${day} ${e.at.slice(11,16)}`; }
 const T_H = 36;
@@ -619,8 +671,8 @@ if (!matchMedia('(prefers-reduced-motion: reduce)').matches) setInterval(()=>{
 
 function peopleHtml() {
   const open=pool().filter(t=>t.st!=='已完成');
-  const names=[...new Set(open.map(t=>t.who).filter(Boolean))];
-  const cnt=w=>open.filter(t=>t.who===w).length, ov=w=>open.filter(t=>t.who===w&&bucket(t)==='over').length;
+  const names=[...new Set(open.flatMap(whosOf))];
+  const cnt=w=>open.filter(t=>isWho(t,w)).length, ov=w=>open.filter(t=>isWho(t,w)&&bucket(t)==='over').length;
   names.sort((a,b)=>(a===BOT)-(b===BOT)||ov(b)-ov(a)||cnt(b)-cnt(a));
   const un=open.filter(t=>!t.who).length;
   const btn=(key,l,c,o)=>`<button data-owner="${key}" aria-pressed="${S.owner===key}" ${o?`title="其中 ${o} 条逾期"`:''}>${esc(l)}<b class="${o?'hot':''}">${c}</b></button>`;
@@ -653,7 +705,7 @@ function renderTabs() {
   const L={mine:'我的待办',ap:'审批',all:'全组',sent:'我派出的',rules:'循环任务',done:'已完成'};
   const num=(l,hot)=>l.length?`<span class="num ${hot?'hot':''}" title="${l.length} 条${hot?`，其中 ${l.filter(t=>bucket(t)==='over').length} 条逾期`:''}">${l.length}</span>`:'';
   const hasOver=l=>l.some(t=>bucket(t)==='over');
-  const mine=open.filter(t=>t.who===S.me), sent=open.filter(t=>t.by===S.me), on=rules().filter(r=>r.on);
+  const mine=open.filter(t=>isWho(t,S.me)), sent=open.filter(t=>t.by===S.me), on=rules().filter(r=>r.on);
   const N={mine:num(mine,hasOver(mine)),all:num(open,hasOver(open)),sent:num(sent,hasOver(sent)),rules:num(on,false),done:'',ap:apNum()};
   $('tabs').innerHTML=Object.keys(L).map(v=>`<button role="tab" data-view="${v}" aria-selected="${S.view===v}">${L[v]}${N[v]}</button>`).join('');
 }
@@ -697,7 +749,7 @@ function propsHtml(o, core, status, isNew) {
   const srcs=[['','手动新建'],...Object.keys(SOURCES).map(k=>[k,k])];
   if(o.src&&!SOURCES[o.src]) srcs.push([o.src,o.src]);
   return `<div class="props">
-    <div class="p"><label for="fWho">执行人</label><select id="fWho" ${core?'':'disabled'}>${peopleOpts(o.who)}</select></div>
+    <div class="p"><span class="pl">执行人</span><div class="mp"><button type="button" class="mp-btn" id="fWho" ${core?'':'disabled'} aria-haspopup="true">${esc(o.who||'未分配')} <span class="meta">▾</span></button><div class="mp-pop" id="fWhoPop" hidden>${[...new Set([...PEOPLE,...whosOf(o).filter(x=>x!==BOT),BOT])].map(n=>`<label><input type="checkbox" data-whoopt="${esc(n)}" ${isWho(o,n)?'checked':''}> ${esc(n)}${n===BOT?' <span class="meta">只能单独选</span>':''}</label>`).join('')}</div></div></div>
     <div class="p"><label for="fDue">${o.isRule?'下次截止':'截止'}</label><input id="fDue" type="datetime-local" value="${(o.due||'').slice(0,16).replace(' ','T')}" ${core?'':'disabled'}></div>
     <div class="p" id="botRow" ${o.who===BOT?'':'hidden'}><label for="fBot">类型</label><select id="fBot" ${core?'':'disabled'}>${opt(BOT_TYPES.map(x=>[x,x]),o.botType||BOT_TYPES[0])}</select></div>
     ${repeatRow}${leadRow}
@@ -721,7 +773,7 @@ function drawDrawer() {
   }
   const t=S.sel&&find(S.sel);
   if (!t) { slot.innerHTML=''; return; }
-  const core = !t.auto && (isMgr()||t.by===S.me), status = !t.auto && !t.isRule && (core||t.who===S.me);
+  const core = !t.auto && (isMgr()||t.by===S.me), status = !t.auto && !t.isRule && (core||isWho(t,S.me));
   const f=s=>s===JUST?'刚刚':s;
   slot.innerHTML=`<aside class="drawer" aria-label="详情"><div class="d-h"><span>${t.isRule?'循环任务':'任务'}</span>${t.ex?'<span class="meta ex">示例</span>':''}<button class="x" data-close aria-label="关闭">✕</button></div>
   <div class="d-b">
@@ -730,7 +782,7 @@ function drawDrawer() {
     ${propsHtml(t,core,status,false)}
     <textarea class="desc" id="fDesc" placeholder="没有说明" aria-label="任务描述" ${core?'':'disabled'}>${esc(t.d)}</textarea>
     ${t.who===BOT&&!t.isRule?'<div class="pv" style="margin:0">机器人任务由创建人或主管关闭。</div>':''}
-    ${!core&&!t.auto&&!isMgr()?(t.who===S.me?'<div class="pv" style="margin:0">你是负责人，只能改状态。截止和负责人要改，找派单人或主管。</div>':'<div class="pv" style="margin:0">这条只有负责人、派单人和主管能改。</div>'):''}
+    ${!core&&!t.auto&&!isMgr()?(isWho(t,S.me)?'<div class="pv" style="margin:0">你是负责人，只能改状态。截止和负责人要改，找派单人或主管。</div>':'<div class="pv" style="margin:0">这条只有负责人、派单人和主管能改。</div>'):''}
     <div class="foot-meta">
       ${t.isRule?`<span>创建人 ${esc(t.by)} · 每次生成的任务都能单独改，不影响规则</span>`:`<span>${esc(t.by||'未记录')} 派出于 ${f(t.createdAt||'')}</span><span>${t.viewedAt?`负责人 ${f(t.viewedAt)} 看过`:'负责人还没打开过'}${t.remindedAt?` · ${f(t.remindedAt)} 点过提醒`:''}</span>${t.st==='已完成'?`<span>完成时间 ${t.doneAt?f(t.doneAt):'未记录'}</span>`:''}`}
       ${srcEntry(t)?`<a href="${esc(srcEntry(t).url)}" target="_blank" rel="noopener">${esc(srcEntry(t).text)}</a>`:''}
@@ -747,17 +799,30 @@ async function persist(o){ if(!HOST||o.ex) return true; try { await HOST.save(o)
 function bindProps(o,isNew) {
   const sync=()=>{ if(!isNew){ renderTabs(); renderMain(); persist(o); toast(HOST?'已保存':'已保存（预览）'); } };
   const on=(id,fn)=>{ const el=$(id); if(el) el.onchange=()=>{ fn(el); refreshPv(o); sync(); }; };
-  on('fName',e=>o.n=e.value); on('fDesc',e=>o.d=e.value); on('fWho',e=>{ o.who=e.value; if(o.who===BOT&&!o.botType) o.botType=BOT_TYPES[0]; }); on('fPri',e=>o.pri=e.value);
+  on('fName',e=>o.n=e.value); on('fDesc',e=>o.d=e.value); on('fPri',e=>o.pri=e.value);
   on('fBot',e=>o.botType=e.value); on('fSrc',e=>o.src=e.value); on('fLead',e=>o.lead=e.value);
   on('fDue',e=>{ o.due=e.value.replace('T',' '); if(o.isRule) o.anchor=e.value; const f=$('fFreq'); if(f) f.innerHTML=opt(freqOptions(o.anchor||o.due).slice(o.isRule?1:0),o.freq||''); });
   on('fFreq',e=>{ o.freq=e.value; if(o.lead==null||isNew) { o.lead=({workday:'0',week:'1',biweek:'1',month:'3',monthlast:'3',quarter:'7',year:'7'})[o.freq]??'1'; const l=$('fLead'); if(l) l.value=o.lead; } });
   on('fSt',e=>{ setDone(o,e.value); });
+  const wb=$('fWho'), wp=$('fWhoPop');
+  if(wb&&wp){
+    wb.onclick=()=>{ wp.hidden=!wp.hidden; };
+    wp.onchange=e=>{
+      const n=e.target.dataset.whoopt; if(!n) return;
+      let a=whosOf(o).filter(x=>x!==n);
+      if(e.target.checked) a = n===BOT ? [BOT] : [...a.filter(x=>x!==BOT), n];
+      setWhos(o,a); if(o.who===BOT&&!o.botType) o.botType=BOT_TYPES[0];
+      wp.querySelectorAll('[data-whoopt]').forEach(c=>{ c.checked=a.includes(c.dataset.whoopt); });
+      wb.innerHTML=`${esc(o.who||'未分配')} <span class="meta">▾</span>`;
+      refreshPv(o); sync();
+    };
+  }
 }
 let toastT;
 function toast(msg,undo){ clearTimeout(toastT); $('toastSlot').innerHTML=`<div class="toast" role="status"><span>${esc(msg)}</span>${undo?'<button id="undoBtn">撤销</button>':''}</div>`; if(undo) $('undoBtn').onclick=()=>{undo();$('toastSlot').innerHTML='';}; toastT=setTimeout(()=>{$('toastSlot').innerHTML='';},5000); }
 function close(){ S.sel=null; S.draft=null; S.panel=''; }
 const canEdit = t => isMgr()||t.by===S.me;
-const canStatus = t => !t.auto&&(canEdit(t)||t.who===S.me);
+const canStatus = t => !t.auto&&(canEdit(t)||isWho(t,S.me));
 function listNow(){ return S.view==='rules' ? rules().filter(r=>!S.q||(r.n+r.d+r.who).includes(S.q)) : pool().filter(inView).filter(pass); }
 function renderBatch(){
   const b=$('batchBtn'); b.hidden=S.view==='ap'; if(S.view==='ap') S.batch=false; b.classList.toggle('on',S.batch); b.setAttribute('aria-pressed',S.batch); b.textContent=S.batch?'退出批量':'批量';
@@ -767,6 +832,44 @@ function renderBatch(){
     : S.view==='done' ? `<button class="btn" data-b="undone" ${dis}>改回待办</button>`
     : `<button class="btn" data-b="done" ${dis}>标为完成</button><button class="btn" data-b="remind" ${dis}>提醒</button>`;
   $('batchSlot').innerHTML=`<div class="batch"><span>已选 <b>${n}</b> 条</span><button class="link-btn" data-b="all">${allOn?'取消全选':'全选'}</button>${acts}<button class="btn danger" data-b="del" ${dis}>删除</button></div>`;
+}
+/* 发群：正文由本机调度器（X39）发送时现查现拼，这里的预览按同样格式算 */
+const GROUP_NAMES = ['灯具组'];
+const SEND_FREQ = ['每天','工作日','每周','每月'];
+function dueText(t){
+  if(!t.due) return '没写截止';
+  const d=dn(t.due);
+  if(d<T0) return `逾期 ${T0-d} 天`;
+  if(d===T0){ if(!hasTime(t.due)) return '今天截止'; const m=mins(NOW)-mins(t.due); return m>0?(m>=60?`逾期 ${Math.floor(m/60)} 小时`:`逾期 ${m} 分钟`):`今天 ${t.due.slice(11,16)} 截止`; }
+  return `${md(t.due).replace('/','-')}${tmPart(t.due)} 截止`;
+}
+function boardText(){
+  const rows=pool().filter(t=>t.st!=='已完成'&&t.who!==BOT&&t.n);
+  if(!rows.length) return '现在没有未完成的任务，发送时不会发消息。';
+  const over=t=>dueText(t).startsWith('逾期'), by={};
+  rows.forEach(t=>(whosOf(t).length?whosOf(t):['未指定']).forEach(n=>(by[n]=by[n]||[]).push(t)));
+  const nOver=rows.filter(over).length, short=x=>x.length>40?x.slice(0,40)+'…':x;
+  const order=Object.keys(by).sort((a,b)=>(a==='未指定')-(b==='未指定')||by[b].filter(over).length-by[a].filter(over).length||by[b].length-by[a].length);
+  let out=`【待办清单】${md(NOW).replace('/','-')} ${NOW.slice(11,16)} 全组 ${rows.length} 个未完成${nOver?`，其中逾期 ${nOver} 个`:''}`;
+  for(const n of order){ const l=by[n].slice().sort((a,b)=>over(b)-over(a)||(mins(a.due)??1e12)-(mins(b.due)??1e12));
+    out+=`\n\n${n}（${l.length}）\n`+l.slice(0,8).map(t=>`${over(t)?'⚠':'  '} · ${short(t.n)}（${dueText(t)}）`).join('\n')+(l.length>8?`\n   ……还有 ${l.length-8} 条`:''); }
+  return out+`\n\n去处理：应用「任务待办」\n（${S.me||'你'} 从任务待办页发出）`;
+}
+function renderSend(){
+  const d=S.send;
+  if(!d){ $('sendSlot').innerHTML=''; return; }
+  const dayOpt = d.freq==='每周' ? `<select id="sdDay">${['周一','周二','周三','周四','周五','周六','周日'].map((w,i)=>`<option value="${i+1}" ${+d.day===i+1?'selected':''}>${w}</option>`).join('')}</select>`
+    : d.freq==='每月' ? `<select id="sdDay">${Array.from({length:31},(_,i)=>`<option value="${i+1}" ${+d.day===i+1?'selected':''}>${i+1} 号</option>`).join('')}</select>` : '';
+  $('sendSlot').innerHTML=`<div class="scrim" data-sendclose><div class="dialog wide" role="dialog" aria-label="发待办到群">
+    <h2>把待办清单发到群</h2>
+    <div class="f">发到 <select id="sdGroup">${GROUP_NAMES.map(g=>`<option ${g===d.group?'selected':''}>${g}</option>`).join('')}</select>群 <span class="meta">内容：全组未完成的任务，按执行人分组，逾期排前面（机器人任务不发）</span></div>
+    <pre>${esc(boardText())}</pre>
+    <div style="justify-content:flex-start;margin-top:0"><button class="btn pri" id="sdNow" ${d.busy?'disabled':''}>立即发送</button><span class="meta">${esc(d.msg||'由小灯发出，1 分钟内到；本机要开着')}</span></div>
+    <hr>
+    <div class="f">定时发送 <select id="sdFreq">${SEND_FREQ.map(f=>`<option ${f===d.freq?'selected':''}>${f}</option>`).join('')}</select>${dayOpt}<input id="sdTime" type="time" value="${esc(d.time)}"><button class="btn" id="sdPlan" ${d.busy?'disabled':''}>提交定时</button></div>
+    <p>定时任务进「自动化中心」，林键春审批后才开始发，到点时按当时的待办现拼。</p>
+    <div><button class="btn" data-sendclose>关闭</button></div>
+  </div></div>`;
 }
 function renderConfirm(){
   const c=S.confirm;
@@ -820,6 +923,26 @@ function all(){ renderTabs(); renderMain(); renderDrawer(); }
 function complete(t){ const prev=t.st, prevAt=t.doneAt; setDone(t,'已完成'); S.idx=0; renderTabs(); renderMain(); persist(t); const r=ruleOf(t); const nx=r&&r.due?` 下一次 ${md(r.due)}`:''; toast(`已完成${nx}`,()=>{t.st=prev;t.doneAt=prevAt;renderTabs();renderMain();persist(t);}); }
 
 $('frame').addEventListener('click',async e=>{
+  if(!e.target.closest('.mp')){ const wp=$('fWhoPop'); if(wp) wp.hidden=true; }
+  if(e.target.closest('#sendBtn')){ S.send={group:GROUP_NAMES[0],freq:'工作日',day:1,time:'09:00'}; renderSend(); return; }
+  if(S.send){
+    const sc=e.target.closest('[data-sendclose]');
+    if(sc&&(e.target===sc||e.target.matches('button[data-sendclose]'))){ S.send=null; renderSend(); return; }
+    if(e.target.closest('#sdNow')){
+      S.send.busy=true; S.send.msg='已提交，等小灯发送…'; renderSend();
+      if(!HOST){ S.send.busy=false; S.send.msg='预览：不会真的发送'; renderSend(); return; }
+      try { const r=await HOST.sendNow(S.send.group, m=>{ if(S.send){ S.send.msg=m; renderSend(); } }); if(S.send){ S.send.busy=false; S.send.msg=r; renderSend(); } }
+      catch(err){ if(S.send){ S.send.busy=false; S.send.msg='提交失败：'+(err&&err.message||err); renderSend(); } }
+      return; }
+    if(e.target.closest('#sdPlan')){
+      const t=$('sdTime').value; if(!/^\d\d:\d\d$/.test(t)){ S.send.msg='先选发送时间'; renderSend(); return; }
+      S.send.time=t; S.send.busy=true; renderSend();
+      if(!HOST){ S.send.busy=false; S.send.msg='预览：不会真的提交'; renderSend(); return; }
+      try { await HOST.scheduleSend({group:S.send.group,freq:S.send.freq,day:S.send.day,time:t}); S.send.msg=`已提交「${S.send.freq}${S.send.freq==='每周'?' 周'+'一二三四五六日'[S.send.day-1]:S.send.freq==='每月'?' '+S.send.day+' 号':''} ${t} 发${S.send.group}群」，等林键春在自动化中心审批`; }
+      catch(err){ S.send.msg='提交失败：'+(err&&err.message||err)+'（应用权限要给你开「自动化任务」可编辑）'; }
+      S.send.busy=false; renderSend(); return; }
+    return;
+  }
   const cf=e.target.closest('[data-cf]'); if(cf){ const c=S.confirm; S.confirm=null; renderConfirm(); if(cf.dataset.cf==='yes'&&c) await c.run(); return; }
   const rm=e.target.closest('[data-rem]'); if(rm){ remindOne(find(rm.dataset.rem)); return; }
   if(e.target.closest('#batchBtn')){ S.batch=!S.batch; S.picked.clear(); close(); renderMain(); renderDrawer(); return; }
@@ -837,7 +960,7 @@ $('frame').addEventListener('click',async e=>{
   if(e.target.closest('#tAll')){ S.panel='feed'; S.sel=null; S.draft=null; renderDrawer(); return; }
   const v=e.target.closest('[data-view]'); if(v){ S.view=v.dataset.view; S.owner=''; S.picked.clear(); close(); all(); return; }
   const k=e.target.closest('[data-check]');
-  if(k){ const t=find(k.dataset.check); if(!(isMgr()||t.by===S.me||t.who===S.me)){ toast('这条只有负责人、派单人和主管能改'); return; }
+  if(k){ const t=find(k.dataset.check); if(!(isMgr()||t.by===S.me||isWho(t,S.me))){ toast('这条只有负责人、派单人和主管能改'); return; }
     if(t.st==='已完成'){ setDone(t,'待办'); renderTabs(); renderMain(); persist(t); toast('已改回待办'); } else complete(t); return; }
   const apb=e.target.closest('[data-apall]'); if(apb){ S.apAll=apb.dataset.apall==='1'; renderMain(); return; }
   const o=e.target.closest('[data-owner]'); if(o){ S.owner=S.owner===o.dataset.owner?'':o.dataset.owner; S.idx=0; renderMain(); return; }
@@ -849,7 +972,7 @@ $('frame').addEventListener('click',async e=>{
   if(e.target.closest('#doCreate')){
     const f=$('newForm'); if(!f.reportValidity()) return;
     const o=S.draft; o.n=$('fName').value.trim(); o.d=$('fDesc').value.trim();
-    const base={n:o.n,d:o.d,who:o.who,by:S.me,pri:o.pri,due:o.due,src:o.src||'',botType:o.who===BOT?(o.botType||BOT_TYPES[0]):''};
+    const base={n:o.n,d:o.d,who:o.who,whos:whosOf(o),by:S.me,pri:o.pri,due:o.due,src:o.src||'',botType:o.who===BOT?(o.botType||BOT_TYPES[0]):''};
     const task=extra=>({...base,id:'n'+Date.now(),st:'待办',createdAt:now(),...extra});
     let msg, made=[];
     if(o.freq){
@@ -869,12 +992,20 @@ $('frame').addEventListener('click',async e=>{
   }
   const ev=e.target.closest('[data-ev]'), r=e.target.closest('.row'), ru=e.target.closest('[data-rule]');
   const id=ev?ev.dataset.ev:r?r.dataset.id:ru?ru.dataset.rule:null;
-  if(id){ S.sel=id; S.draft=null; S.panel=''; const t=find(id); if(t.who===S.me&&!t.isRule&&!t.viewedAt){ t.viewedAt=now(); S.idx=0; persist(t); } renderMain(); renderDrawer(); }
+  if(id){ S.sel=id; S.draft=null; S.panel=''; const t=find(id); if(isWho(t,S.me)&&!t.isRule&&!t.viewedAt){ t.viewedAt=now(); S.idx=0; persist(t); } renderMain(); renderDrawer(); }
 });
+$('frame').addEventListener('change',e=>{
+  if(!S.send) return;
+  if(e.target.id==='sdGroup'){ S.send.group=e.target.value; }
+  if(e.target.id==='sdFreq'){ S.send.freq=e.target.value; S.send.day=1; renderSend(); }
+  if(e.target.id==='sdDay'){ S.send.day=+e.target.value; }
+  if(e.target.id==='sdTime'){ S.send.time=e.target.value; }
+});
+$('frame').addEventListener('keydown',e=>{ if(e.key==='Escape'&&S.send){ S.send=null; renderSend(); return; } });
 $('frame').addEventListener('keydown',e=>{ if(e.key==='Enter'&&(e.target.classList?.contains('row')||e.target.classList?.contains('rule'))) e.target.click(); if(e.key==='Escape'&&S.confirm){ S.confirm=null; renderConfirm(); return; } if(e.key==='Escape'&&(S.sel||S.draft||S.panel)){ close(); renderMain(); renderDrawer(); } });
 $('frame').addEventListener('mouseover',e=>{ S.hover=!!e.target.closest('#ticker'); });
 $('frame').addEventListener('mouseleave',()=>{ S.hover=false; });
-$('newBtn').onclick=()=>{ close(); S.draft={who:S.me===MANAGER?'':S.me,due:TODAY+' 18:00',pri:'中',freq:''}; renderMain(); renderDrawer(); };
+$('newBtn').onclick=()=>{ close(); S.draft={who:S.me===MANAGER?'':S.me,whos:S.me===MANAGER||!S.me?[]:[S.me],due:TODAY+' 18:00',pri:'中',freq:''}; renderMain(); renderDrawer(); };
 // 搜索框只建一次、不随列表重绘，避免打断中文输入法
 $('q').addEventListener('input',e=>{ if(e.isComposing) return; S.q=e.target.value.trim(); renderMain(); });
 $('q').addEventListener('compositionend',e=>{ S.q=e.target.value.trim(); renderMain(); });
