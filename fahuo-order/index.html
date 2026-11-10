@@ -543,7 +543,7 @@ function orderFields(S) {
   return {
     '国家': c || null, '店铺': storeOf(S) || null, '发货日期': S.shipDate || null, '是否分仓': S.split, '合计箱数': s.boxes, '合计件数': s.qty,
     '摘要': grouped(S.rows).map((r) => `${P(r).n} ${P(r).m} ×${tot(r)}`).join('；').slice(0, 900),
-    '明细JSON': JSON.stringify(rows), '货件JSON': JSON.stringify(S.ships.map(({ no, ch, eta }) => ({ no, ch, eta }))), '备注': S.note || null,
+    '明细JSON': JSON.stringify(rows), '货件JSON': JSON.stringify(S.ships.map(({ no, ch, eta, rg }) => ({ no, ch, eta, rg: rg || '' }))), '备注': S.note || null,
   };
 }
 async function createOrder(S, extra = {}) {
@@ -698,12 +698,15 @@ function nextSail(c) {
   return ds(nextMon + (c === '加拿大' ? 4 : 2));
 }
 // 美国分仓 5 个货件的大区；不分仓、加拿大不显示
-const REGION = [{ n: '美西', d: '30-35天', k: 'w' }, { n: '美西', d: '30-35天', k: 'w' }, { n: '美中', d: '35-45天', k: 'm' }, { n: '美东', d: '40-50天', k: 'e' }, { n: '美东', d: '50-60天', k: 'e' }];
+// 11-10 用户定：区域不再按格子默认，由人手选（美西/美中/美东），存在货件JSON 的 rg
+const REGIONS = ['美西', '美中', '美东'], RG_K = { '美西': 'w', '美中': 'm', '美东': 'e' };
+const usSplit = (o) => o.split === '是' && countryOf(o.rows) !== '加拿大';
 function shipLabel(o, i) {
   if (o.split !== '是') return '货件';
-  const r = countryOf(o.rows) === '美国' && REGION[i];
-  return `货件${i + 1}` + (r ? ` <span class="rg rg-${r.k}">${r.n} ${r.d}</span>` : '');
+  const r = usSplit(o) && o.ships[i]?.rg;
+  return `货件${i + 1}` + (r ? ` <span class="rg rg-${RG_K[r] || 'w'}">${esc(r)}</span>` : (usSplit(o) ? ' <span class="hint" style="font-weight:normal">区域未选</span>' : ''));
 }
+const rgSelect = (attr, v) => `<select ${attr}><option value="">未选</option>${REGIONS.map((x) => `<option ${v === x ? 'selected' : ''}>${x}</option>`).join('')}</select>`;
 // 预计到达默认 = 开船日 + 天数：分仓 5 个货件 30/30/35/45/55；不分仓 美国 35、加拿大 40
 const ETA_SPLIT = [30, 30, 35, 45, 55];
 function etaOffsets(S, c) { return S.split === '是' ? ETA_SPLIT : [c === '加拿大' ? 40 : 35]; }
@@ -728,13 +731,13 @@ function render() {
   needRender = false;
   const n = (f) => ORDERS.filter(f).length, rev = isReviewer();
   const todo = n((o) => isMine(o) && (o.status === '草稿' || o.status === '已驳回')) + (rev ? n((o) => o.status === '待审核') : 0);
-  $('tabs').innerHTML = [['new', '新建指令'], ['list', '指令列表' + (todo ? `<span class="num">${todo}</span>` : '')], ['ship', `待发货 (${n((o) => o.status === '待发货')})`]]
+  $('tabs').innerHTML = [['new', '新建指令'], ['list', '指令列表' + (todo ? `<span class="num">${todo}</span>` : '')], ['ship', `待发货 (${n((o) => o.status === '待发货' && !built(o))})`], ['done', `已发货 (${n((o) => o.status === '待发货' && built(o))})`]]
     .map(([v, t]) => `<button data-v="${v}" class="${view === v ? 'on' : ''}">${t}</button>`).join('');
   $('meName').textContent = ME.name || '（第一次用，建一张单后自动识别）';
   $('meAv').textContent = (ME.name || '?').slice(-2);
   $('meRole').textContent = rev ? `· 审核人` : `· 审核人：${REVIEWER.name}`;
   const warn = Object.entries(LOADERR).map(([k, e]) => `<div class="warn">读不到「${TABLES[k].name}」：${esc(e)} —— ${k === 'po' ? '采购单号改为手填' : k === 'ch' ? '渠道改为手填、不给参考到达日' : k === 'plan' ? '待发货页看不到货件号，审核通过也写不进发货计划' : ''}（多半是应用数据权限没开这张表）</div>`).join('');
-  $('main').innerHTML = warn + (view === 'new' ? renderNew() : view === 'list' ? renderList() : renderShip());
+  $('main').innerHTML = warn + (view === 'new' ? renderNew() : view === 'list' ? renderList() : renderShip(view === 'done'));
   saveDraft();
   if (pick.scope) renderPick();
 }
@@ -769,6 +772,7 @@ function editorHTML(S, scope) {
   <div class="ships">${S.ships.slice(0, n).map((s, i) => {
     const ch = chByName[s.ch], sug = ch && ch.d && S.shipDate ? ds(dn(S.shipDate) + ch.d) : '';
     return `<div class="ship" data-i="${i}"><div class="t">${shipLabel(S, i)}</div>
+      ${usSplit(S) ? `<span>区域</span>${rgSelect('data-k="rg"', s.rg || '')}` : ''}
       <span>渠道</span><input list="ch-${scope}" data-k="ch" value="${esc(s.ch)}" placeholder="可空，搜 A6 / 普船">
       <span>预计到达${i === 0 ? ' <b style="color:var(--red);font-weight:normal">*</b>' : ''}</span><input type="date" data-k="eta" value="${s.eta}" class="${err && i === 0 && !s.eta ? 'miss' : ''}">
       <span>货件号</span><input value="${esc(s.no)}" placeholder="留空，建货件后回填" readonly>
@@ -1013,8 +1017,9 @@ function renderList() {
     ${list.length ? list.map((o) => orderCard(o, 'list')).join('') : '<div class="card empty">没有符合条件的指令</div>'}`;
 }
 
-function renderShip() {
-  let list = ORDERS.filter((o) => o.status === '待发货').sort((a, b) => (a.shipDate || '').localeCompare(b.shipDate || ''));
+// done=true：已发货页签（填了货件号就算已发货，用户 11-10 定），按开船日倒序
+function renderShip(done) {
+  let list = ORDERS.filter((o) => o.status === '待发货' && built(o) === !!done).sort((a, b) => done ? (b.shipDate || '').localeCompare(a.shipDate || '') : (a.shipDate || '').localeCompare(b.shipDate || ''));
   const due = (o) => dn(o.shipDate) - dn(TODAY);
   if (shipFilter === '7天内') list = list.filter((o) => due(o) <= 7); else if (shipFilter === '7天后') list = list.filter((o) => due(o) > 7);
   const stores0 = [...new Set(list.map(storeOf).filter(Boolean))];
@@ -1022,7 +1027,7 @@ function renderShip() {
   return `${bulkBar(list, 'ship')}<div class="filters">${['全部', '7天内', '7天后'].map((s) => `<button class="chip ${shipFilter === s ? 'on' : ''}" data-sf="${s}">${s}</button>`).join('')}
     ${storeFilter(stores0, shipStore, 'ship')}
     <span class="hint">审核通过的指令已逐行写进「出口对账-发货计划」，这里只读${isReviewer() ? '；有问题点「驳回到指令列表」' : '；有问题找审核人驳回'}。勾选多张可「合并填货件号」（共用同一批货件号）；「从领星匹配」按本单 MSKU 找领星里新建的货件。</span></div>
-    ${list.length ? shipGroups(list) : '<div class="card empty">暂无待发货</div>'}`;
+    ${list.length ? shipGroups(list) : `<div class="card empty">${done ? '暂无已发货' : '暂无待发货'}</div>`}`;
 }
 // 同一合并批次的单放进一个框，框头写「合并发货」
 function shipGroups(list) {
@@ -1059,7 +1064,7 @@ function orderCard(o, mode) {
   if (!editing && mode === 'list' && mine) acts += '<button class="btn sm ghost" data-act="copy">复制</button>';
   // 拆分：提交人拆自己的草稿/被驳回；审核人拆待审核（待发货的拆分按钮在上面审核人那组）
   if (!editing && mode === 'list' && !built(o) && ((mine && (o.status === '草稿' || o.status === '已驳回')) || (rev && o.status === '待审核'))) acts += '<button class="btn sm ghost" data-act="splitOrder">拆分</button>';
-  const st = mode === 'ship' ? `<span class="badge ${built(o) ? 'b-green' : 'b-yellow'}">${built(o) ? '已建货件' : '待建货件'}</span>` : `<span class="badge ${statusCls(o.status)}">${o.status}</span>`;
+  const st = mode === 'ship' ? `<span class="badge ${built(o) ? 'b-green' : 'b-yellow'}">${built(o) ? '已发货' : '待建货件'}</span>` : `<span class="badge ${statusCls(o.status)}">${o.status}</span>`;
   const chs = [...new Set(usedShips(S).map((x) => x.ch).filter(Boolean))];
   const pl = planOf(o), can = !editing && canSel(o, mode);
   const head = `<div class="order-head">${can ? `<input type="checkbox" data-sel ${sel.has(o.no) ? 'checked' : ''}>` : ''}<span class="no">${esc(o.no)}</span>${st}${dueBadge(S)}
@@ -1150,15 +1155,15 @@ async function openFill(os) {
   $('mBody').innerHTML = fbaWarn + `<div class="fill-orders">${os.map((o) => { const s = sumOf(o.rows); return `<span><b class="mono">${esc(o.no)}</b> ${countryOf(o.rows)} · 开船 ${md(o.shipDate)} · ${s.msku} 个MSKU · ${s.qty.toLocaleString()} 件</span>`; }).join('')}</div>
     <div class="fill-tools"><button class="btn sm" id="fillMatch">🔍 从领星匹配</button><span class="hint">按本批 MSKU 找领星里开船前 3 周内新建、没被别的指令用掉的货件，按目的仓排到 美西/美中/美东；匹配后请核对</span></div>
     <datalist id="fbaCands">${FILL.cands.map((x) => `<option value="${esc(x.no)}">${esc(x.name)} · ${esc(x.fc)}${x.region ? '(' + x.region + ')' : ''} · 命中 ${x.n} 个MSKU ${x.qty} 件</option>`).join('')}</datalist>
-    <div class="fill-slots">${slots.map((i) => `<label class="fill-slot"><span>${shipLabel(o0, i)}</span><input class="mono" data-fslot="${i}" list="fbaCands" value="${esc(cur(i))}" placeholder="FBA…"><em class="hint" data-fnote="${i}"></em></label>`).join('')}</div>
+    <div class="fill-slots">${slots.map((i) => `<label class="fill-slot"><span>${shipLabel(o0, i)}</span>${usSplit(o0) ? `<span class="hint">区域 ${rgSelect(`data-frg="${i}"`, o0.ships[i]?.rg || '')}</span>` : ''}<input class="mono" data-fslot="${i}" list="fbaCands" value="${esc(cur(i))}" placeholder="FBA…"><em class="hint" data-fnote="${i}"></em></label>`).join('')}</div>
     <div class="fill-cands">${FILL.cands.length ? `<div class="hint">领星候选货件（${FILL.cands.length}）</div>${FILL.cands.slice(0, 12).map((x) => `<div class="mono">${esc(x.no)} <span class="hint">${esc(x.name)} · ${esc(x.fc)}${x.region ? ' ' + x.region : ''} · ${x.t != null ? '建单 ' + md(ds(x.t)) : ''} · 命中 ${x.n} 个MSKU / ${x.qty} 件</span></div>`).join('')}` : '<div class="hint">领星里还没找到含这些 MSKU 的新货件（货件表每天同步一次；刚建的货件明天才有），先手填</div>'}</div>`;
   $('mFootHint').textContent = os.length > 1 ? '这几张单的货件号写成一样，并标同一个合并批次；同时写进发货计划对应行的 货件1~5' : '保存后写进本单和发货计划对应行的 货件1~5';
   $('mNo').textContent = '取消'; $('mYes').textContent = '保存货件号';
   $('modal').classList.add('show');
   $('fillMatch').onclick = () => {
-    const used = new Set(), regs = REGION.map((r) => r.n);
+    const used = new Set();
     for (const i of slots) {
-      const inp = main.ownerDocument.querySelector(`[data-fslot="${i}"]`), want = o0.split === '是' && countryOf(o0.rows) === '美国' ? regs[i] : '';
+      const inp = main.ownerDocument.querySelector(`[data-fslot="${i}"]`), want = usSplit(o0) ? (document.querySelector(`[data-frg="${i}"]`)?.value || '') : '';
       const pickC = FILL.cands.find((x) => !used.has(x.no) && (!want || x.region === want)) || FILL.cands.find((x) => !used.has(x.no));
       if (pickC) { inp.value = pickC.no; used.add(pickC.no); document.querySelector(`[data-fnote="${i}"]`).textContent = `领星匹配：${pickC.fc}${pickC.region ? ' ' + pickC.region : ''} · 命中 ${pickC.n}`; }
     }
@@ -1167,15 +1172,17 @@ async function openFill(os) {
   return new Promise((res) => {
     const done = (v) => { $('modal').classList.remove('show'); $('mYes').onclick = $('mNo').onclick = null; res(v); };
     $('mNo').onclick = () => done(null);
-    $('mYes').onclick = () => done(Object.fromEntries(slots.map((i) => [i, document.querySelector(`[data-fslot="${i}"]`).value.trim()])));
+    $('mYes').onclick = () => done({ nos: Object.fromEntries(slots.map((i) => [i, document.querySelector(`[data-fslot="${i}"]`).value.trim()])),
+      rgs: Object.fromEntries(slots.map((i) => [i, document.querySelector(`[data-frg="${i}"]`)?.value])) });
   });
 }
-async function saveFba(os, nos) {
+async function saveFba(os, { nos, rgs = {} }) {
   const merge = os.length > 1 ? 'M-' + os.map((o) => o.no).sort()[0] : '';
   for (const [k, o] of os.entries()) {
     busy(`写货件号 ${k + 1}/${os.length}：${o.no}…`);
-    const ships = clone(o.ships).map(({ no, ch, eta }) => ({ no, ch, eta }));
+    const ships = clone(o.ships).map(({ no, ch, eta, rg }) => ({ no, ch, eta, rg: rg || '' }));
     for (const [i, v] of Object.entries(nos)) if (ships[+i]) ships[+i].no = v;
+    for (const [i, v] of Object.entries(rgs)) if (ships[+i] && v != null && usSplit(o)) ships[+i].rg = v;
     await setOrder(o, { '货件JSON': JSON.stringify(ships), '合并批次': merge || (o.merge && os.length === 1 ? o.merge : null) });
     // 发货计划：本单每行的 货件1~5 = 对应货件号
     for (const r of o.rows) {
@@ -1217,7 +1224,7 @@ function splitParts(o, amt) {
 function reShips(o, split) {
   if (split === o.split) return clone(o.ships);
   const c = countryOf(o.rows), off = split === '是' ? ETA_SPLIT : [c === '加拿大' ? 40 : 35];
-  return Array.from({ length: SHIP_SLOTS }, (_, i) => ({ no: '', ch: i === 0 ? (o.ships[0]?.ch || '') : (split === '是' ? (o.ships[i]?.ch || '') : ''), eta: i < off.length && o.shipDate ? ds(dn(o.shipDate) + off[i]) : '' }));
+  return Array.from({ length: SHIP_SLOTS }, (_, i) => ({ no: '', ch: i === 0 ? (o.ships[0]?.ch || '') : (split === '是' ? (o.ships[i]?.ch || '') : ''), eta: i < off.length && o.shipDate ? ds(dn(o.shipDate) + off[i]) : '', rg: split === '是' ? (o.ships[i]?.rg || '') : '' }));
 }
 // 分仓要每个 SKU 至少 5 箱（用户 11-03 定：任一 SKU 低于 5 箱就不能分仓，不看总箱数）
 function smallSkus(rows) {
@@ -1296,7 +1303,7 @@ async function doSplit(o, choice) {
   if (!A.length) throw new Error('全部拆走等于没拆；要整单改就驳回后修改');
   const pa = splitParts(o, amt), w = [splitWarn(pa.A, splitA, '原单剩下的'), splitWarn(pa.B, splitB, '拆出的新单')].filter(Boolean);
   if (w.length) throw new Error(w[0]);
-  const shipsA = reShips(o, splitA), shipsB = reShips(o, splitB).map(({ ch, eta }) => ({ no: '', ch, eta }));
+  const shipsA = reShips(o, splitA), shipsB = reShips(o, splitB).map(({ ch, eta, rg }) => ({ no: '', ch, eta, rg }));
   const oA = { ...o, split: splitA, ships: shipsA };
   if (!shipped) {
     // 还没审核通过的单：只拆明细，新单状态同原单；整行拆走的行不带走旧的发货计划行（以前审核过又被驳回留下的），新单审核时再写
@@ -1619,7 +1626,7 @@ main.addEventListener('change', (e) => {
     S.store = t.value; render(); return;
   }
   if (t.hasAttribute('data-postore')) { pick.store = t.value; pick.poSel.clear(); renderPoPick(); return; }
-  if (t.closest('.ship') && t.dataset.k === 'ch') { render(); return; }
+  if (t.closest('.ship') && (t.dataset.k === 'ch' || t.dataset.k === 'rg')) { render(); return; }
   if (t.closest('tr[data-r]') && t.dataset.k === 'perBox') render();
   if (t.dataset.k === 'gpo') render();
 });
