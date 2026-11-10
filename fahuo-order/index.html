@@ -187,6 +187,7 @@
   .pick-err { position: sticky; top: 0; z-index: 2; background: var(--red-soft); color: var(--red); font-weight: 600; padding: 8px 12px; border-bottom: 1px solid #f9b9b7; }
   .modal { position: fixed; inset: 0; background: rgba(15,23,42,.45); z-index: 95; display: none; align-items: flex-start; justify-content: center; padding: 24px 12px; overflow: auto; }
   .modal.show { display: flex; }
+  input.sent-in { font-size: 12.5px; padding: 1px 4px; border: 1px solid var(--line); border-radius: 4px; }
   .lab-cap { font-size: 13px; margin: 0 0 8px; color: var(--sub); } .lab-cap b { color: var(--ink); }
   .modal-box.wide { width: 100%; max-width: none; } .modal-box.wide .modal-body { max-height: calc(100vh - 140px); }
   table.lab { border-collapse: collapse; font-size: 13px; background: #fff; transform-origin: 0 0; }
@@ -280,7 +281,7 @@ const BASE_TOKEN = 'JGvebyaAYapWtOslxc9cuKYXnwd';   // 灯具组-全流程
 const TABLES = {
   // 第一张 = saveConfig 第一条 dataCondition（应用只认第一条给授权）；其余表在应用页「数据授权（勿删）/数据授权2（勿删）」有列表组件引用
   ord:  { id: 'tbl83YlBQgKzooyz', name: '发货指令', core: true,
-          fields: ['指令号', '序号', '状态', '提交人', '国家', '发货日期', '是否分仓', '合计箱数', '合计件数', '摘要', '明细JSON', '货件JSON', '备注', '驳回原因', '分批计划', '合并批次', '店铺', '审核人', '审核时间', '最后修改'] },
+          fields: ['指令号', '序号', '状态', '提交人', '国家', '发货日期', '是否分仓', '合计箱数', '合计件数', '摘要', '明细JSON', '货件JSON', '备注', '驳回原因', '分批计划', '合并批次', '店铺', '审核人', '审核时间', '最后修改', '实际发货日期'] },
   pm:   { id: 'tblqksywqgYvywOT', name: '产品主表-灯类+精铺', core: true, fields: ['ASIN', '国家', '店铺', '品名', 'MSKU', 'FNSKU', '领星SKU', '单箱数量', 'SPU'] },
   shoe: { id: 'tbliQsJsOL5WwxVZ', name: '产品主表-鞋类', fields: ['ASIN', '国家', '店铺', '品名', 'MSKU', 'FNSKU', '领星SKU', 'SPU', '颜色'] },
   po:   { id: 'tblZGnfj9md5isLj', name: '出口对账-采购合同', fields: ['采购合同', 'SKU', '数量', '剩余发货数', '名称', '下单日期', '到货状态', '类型'] },
@@ -473,7 +474,7 @@ function buildOrders() {
     ORDERS.push({
       rid: r._id, no: no || `（未编号 ${r._id.slice(-4)}）`, seq: +(String(r['序号'] ?? '').match(/\d+/)?.[0] || 0), status: r['状态'] || '草稿', byId: by.id, by: by.name,
       shipDate: r['发货日期'] ? ds(dnMs(r['发货日期'])) : '', split: r['是否分仓'] || '否', rows: json(r['明细JSON'], []).map((x, i) => ({ ...x, id: ++rowSeq })),
-      ships, note: r['备注'] || '', reason: r['驳回原因'] || '', plan: r['分批计划'] || '', merge: r['合并批次'] || '', store: r['店铺'] || '', checkedAt: fmtTime(r['审核时间']), editedAt: fmtTime(r['最后修改']),
+      ships, note: r['备注'] || '', reason: r['驳回原因'] || '', plan: r['分批计划'] || '', merge: r['合并批次'] || '', store: r['店铺'] || '', sentDate: r['实际发货日期'] ? ds(dnMs(r['实际发货日期'])) : '', checkedAt: fmtTime(r['审核时间']), editedAt: fmtTime(r['最后修改']),
     });
   }
   // 认人：先拿 SDK 给的 ID 对「提交人/审核人」字段里的人；对不上的话第一次建单后会对上
@@ -581,7 +582,7 @@ async function createOrder(S, extra = {}) {
 }
 async function setOrder(o, obj) {
   await T('ord').setRecord(o.rid, { fields: fieldsOf('ord', obj) });
-  const want = {}; for (const [k, v] of Object.entries(obj)) if (['状态', '指令号', '分批计划', '合并批次', '发货日期'].includes(k)) want[k] = v;
+  const want = {}; for (const [k, v] of Object.entries(obj)) if (['状态', '指令号', '分批计划', '合并批次', '发货日期', '实际发货日期'].includes(k)) want[k] = v;
   if (Object.keys(want).length) expect('ord', o.rid, want);
 }
 async function delOrder(o) { await T('ord').deleteRecord(o.rid); expect('ord', o.rid, 'gone'); }
@@ -597,7 +598,7 @@ function seen() {
     if (!r) return false;
     return Object.entries(want).every(([k, v]) => {
       const cur = r[k];
-      if (k === '发货日期') return (cur ? ds(dnMs(cur)) : '') === (v || '');
+      if (k === '发货日期' || k === '实际发货日期') return (cur ? ds(dnMs(cur)) : '') === (v || '');
       return String(cur ?? '') === String(v ?? '');
     });
   });
@@ -1018,12 +1019,14 @@ function storeFilter(stores, cur, which) {
 }
 // 按月筛选（开船日期所在月），三个列表页签各记各的（用户 11-10 定）
 const monthF = { list: '', ship: '', done: '' };
-const monOf = (o) => (o.shipDate || '').slice(0, 7) || '未定';
+// 已发货页签按「实际发货日期」（曾舒婷 11-10 定；没填的旧单退回开船日），指令列表/待发货按开船日
+const sentOf = (o) => o.sentDate || o.shipDate || '';
+const monOf = (o, which) => ((which === 'done' ? sentOf(o) : o.shipDate) || '').slice(0, 7) || '未定';
 function monthFilter(list, which) {
-  const cur = monthF[which], ms = [...new Set(list.map(monOf))].sort().reverse();
+  const cur = monthF[which], ms = [...new Set(list.map((o) => monOf(o, which)))].sort().reverse();
   if (cur && !ms.includes(cur)) ms.unshift(cur);
-  return { list: cur ? list.filter((o) => monOf(o) === cur) : list,
-    html: `<span class="hint" style="margin-left:6px">开船月份</span><select class="store-filter ${cur ? 'on' : ''}" data-fmonth="${which}"><option value="">全部月份</option>${ms.map((m) => `<option value="${m}" ${m === cur ? 'selected' : ''}>${m === '未定' ? '开船日未定' : m.slice(0, 4) + '年' + +m.slice(5) + '月'}</option>`).join('')}</select>` };
+  return { list: cur ? list.filter((o) => monOf(o, which) === cur) : list,
+    html: `<span class="hint" style="margin-left:6px">${which === 'done' ? '发货月份' : '开船月份'}</span><select class="store-filter ${cur ? 'on' : ''}" data-fmonth="${which}"><option value="">全部月份</option>${ms.map((m) => `<option value="${m}" ${m === cur ? 'selected' : ''}>${m === '未定' ? (which === 'done' ? '发货日未定' : '开船日未定') : m.slice(0, 4) + '年' + +m.slice(5) + '月'}</option>`).join('')}</select>` };
 }
 function renderList() {
   const rev = isReviewer();
@@ -1044,7 +1047,7 @@ function renderList() {
 
 // done=true：已发货页签（填了货件号就算已发货，用户 11-10 定），按开船日倒序
 function renderShip(done) {
-  let list = ORDERS.filter((o) => o.status === '待发货' && built(o) === !!done).sort((a, b) => done ? (b.shipDate || '').localeCompare(a.shipDate || '') : (a.shipDate || '').localeCompare(b.shipDate || ''));
+  let list = ORDERS.filter((o) => o.status === '待发货' && built(o) === !!done).sort((a, b) => done ? sentOf(b).localeCompare(sentOf(a)) : (a.shipDate || '').localeCompare(b.shipDate || ''));
   const due = (o) => dn(o.shipDate) - dn(TODAY);
   if (shipFilter === '7天内') list = list.filter((o) => due(o) <= 7); else if (shipFilter === '7天后') list = list.filter((o) => due(o) > 7);
   const mf = monthFilter(list, done ? 'done' : 'ship'); list = mf.list;
@@ -1097,7 +1100,7 @@ function orderCard(o, mode) {
   const head = `<div class="order-head">${can ? `<input type="checkbox" data-sel ${sel.has(o.no) ? 'checked' : ''}>` : ''}<span class="no">${esc(o.no)}</span>${st}${dueBadge(S)}
       ${pl ? `<span class="badge b-blue" title="同一批货分批发">分批 ${pl.idx}/${pl.n} · 计划合计 ${pl.qty.toLocaleString()} 件</span>` : ''}
       <span class="kv">提交人 <b>${esc(o.by)}</b></span><span class="kv">店铺 <b>${esc(storeOf(S)) || '未定'}</b> · ${c}</span>
-      <span class="kv">开船 <b>${md(S.shipDate)}</b></span><span class="kv">${S.split === '是' ? `分仓 <b>${usedShips(S).length}</b> 个货件` : `预计到达 <b>${md(S.ships[0].eta)}</b>`}</span>
+      <span class="kv">开船 <b>${md(S.shipDate)}</b></span>${mode === 'ship' && built(o) && !editing ? `<span class="kv">实际发货 ${rev ? `<input type="date" class="sent-in" data-sent value="${esc(o.sentDate)}" title="默认=填货件号那天，可改">` : `<b>${o.sentDate ? md(o.sentDate) : '—'}</b>`}</span>` : ''}<span class="kv">${S.split === '是' ? `分仓 <b>${usedShips(S).length}</b> 个货件` : `预计到达 <b>${md(S.ships[0].eta)}</b>`}</span>
       ${S.split === '是' ? '' : `<span class="kv">渠道 <b>${esc(chs.join(' / ') || '未定')}</b></span>`}
       <span class="kv">${s.msku} 个MSKU · <b data-sumboxes>${s.boxes}</b> 箱 · <b data-sumqty>${s.qty.toLocaleString()}</b> 件</span>
       <div class="acts">${acts}</div></div>
@@ -1210,7 +1213,8 @@ async function saveFba(os, { nos, rgs = {} }) {
     const ships = clone(o.ships).map(({ no, ch, eta, rg, lo }) => ({ no, ch, eta, rg: rg || '', ...(lo != null ? { lo } : {}) }));
     for (const [i, v] of Object.entries(nos)) if (ships[+i]) ships[+i].no = v;
     for (const [i, v] of Object.entries(rgs)) if (ships[+i] && v != null && usSplit(o)) ships[+i].rg = v;
-    await setOrder(o, { '货件JSON': JSON.stringify(ships), '合并批次': merge || (o.merge && os.length === 1 ? o.merge : null) });
+    const sent = ships.some((x) => x.no) ? (o.sentDate || TODAY) : null;   // 实际发货日期默认 = 填货件号那天（已有的不动，可在已发货里改）
+    await setOrder(o, { '货件JSON': JSON.stringify(ships), '合并批次': merge || (o.merge && os.length === 1 ? o.merge : null), '实际发货日期': sent });
     // 发货计划：本单每行的 货件1~5 = 对应货件号
     for (const r of o.rows) {
       if (!r.planRec || !planById[r.planRec]) continue;
@@ -1723,6 +1727,8 @@ main.addEventListener('input', (e) => {
 main.addEventListener('change', (e) => {
   const t = e.target;
   if (t.dataset.fmonth) { monthF[t.dataset.fmonth] = t.value; sel.clear(); render(); return; }
+  if ('sent' in t.dataset) { const o = ORDERS.find((x) => x.no === t.closest('.order')?.dataset.no); if (!o) return; const v = t.value || null;
+    return act('改实际发货日期', async () => { await fresh(o, ['待发货']); await setOrder(o, { '实际发货日期': v }); expect('ord', o.rid, { '实际发货日期': v }); return `${o.no} 实际发货日期 → ${v ? md(v) : '清空'}`; }); }
   if (t.dataset.fstore) { if (t.dataset.fstore === 'list') listFilter.store = t.value; else shipStore = t.value; sel.clear(); render(); return; }
   if (t.hasAttribute('data-sel')) { const no = t.closest('[data-no]').dataset.no; t.checked ? sel.add(no) : sel.delete(no); render(); return; }
   if (t.hasAttribute('data-selall')) { main.querySelectorAll('[data-sel]').forEach((x) => { const no = x.closest('[data-no]').dataset.no; t.checked ? sel.add(no) : sel.delete(no); }); render(); return; }
