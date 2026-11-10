@@ -417,7 +417,7 @@ const TABLES = {
     '近7日均量', '阶段达成率', '正价段目标销量', '应达销量',
     '采购数量', '国内仓可用-SKU级共享', '售罄率', '预计冗余数量', '库存快照',
     ...STAGES.map((s) => s + '日均'), ...STAGES, ...STAGES.map((s) => s + '天数'), ...STAGES.map((s) => s + '目标'), '预估销量-整季', '累计销量', '销售进度', ...STAGES.map((s) => s + '实际销量'),
-    ...ANA_FIELDS, ...LOOP_FIELDS, '归档生效日'] },
+    ...ANA_FIELDS, ...LOOP_FIELDS, '归档生效日', '新品未开售'] },
   pm: { id: 'tblqksywqgYvywOT', name: '产品主表-灯类+精铺', fields: ['领星SKU', '国家文本', '图片'] },
   // 目标在「目标填写」页填，存这里；追踪表战役行的同名字段是 X21 每晚抄过去的副本（授权靠「目标总览」页插件）
   // 10-30：五个时段（6 个日期）也只认目标总表；本页可改 日均 + 时段，保存直接写目标总表（追踪表副本当晚 X21 同步）
@@ -519,6 +519,7 @@ const LIGHTS = [
   { key: 'red', label: '红灯', color: '#e5483f', match: (s) => s.includes('红') },
   { key: 'yellow', label: '黄灯', color: '#f5c518', match: (s) => s.includes('黄') },
   { key: 'green', label: '绿灯', color: '#34c759', match: (s) => s.includes('绿') },
+  { key: 'presale', label: '未开售', color: '#dfe7f2', match: (s) => s.includes('未开售') },   // ⚪未开售：运营标了 新品未开售
   { key: 'ended', label: '已结束', color: '#c9c1b8', match: (s) => s.includes('结束') || s.includes('卖完') },   // ⚪已结束 / 实际已卖完
   { key: 'none', label: '未判灯', color: '#ffffff', match: () => true },   // 当日红绿灯为空（脚本还没判）
 ];
@@ -534,7 +535,11 @@ let state = { owner:store.get('stp.owner') || '', date: null, light: 'all', seas
 const WK = '日一二三四五六';
 const archDay = (x) => (num(x.c['归档生效日']) != null ? dn(x.c['归档生效日']) : null);
 const isArchived = (x) => archDay(x) != null && state.date >= archDay(x);   // 归档生效日起并入售罄（不改 销售状态，X21 每晚会重写它）
-const isSold = (x) => String(x.c['销售状态'] || '').includes('售罄') || isArchived(x);   // 销售状态 = ⛔售罄 或 已归档不关注
+// 新品未开售（11-10）：运营点按钮勾战役行 新品未开售；X21 判 ⚪未开售 不报红黄；一旦有可售库存或出单（销售状态变成可售/在售类）X21 自动取消勾选回到追踪
+const ONSALE = ['可售', '在售', '断货', '售罄'];
+const isOnSale = (x) => ONSALE.some((k) => String(x.c['销售状态'] || '').includes(k));
+const isPresale = (x) => !!x.c['新品未开售'] && String(x.c['新品未开售']) !== 'false' && !isOnSale(x);
+const isSold = (x) => String(x.c['销售状态'] || '').includes('售罄') || isArchived(x) || isPresale(x);   // 销售状态 = ⛔售罄 或 已归档不关注 或 新品未开售
 
 // ===== 操作闭环：所选日期往前 7 天，连续相同的 计划操作 = 同一条操作（X21 会把计划逐日沿用）=====
 const ymdOf = (ms) => (num(ms) != null ? ymdTxt(dn(ms)) : '');
@@ -929,7 +934,9 @@ const hasPhrase = (text, o) => text.split(/[、，,；;\n]/).map((p) => p.trim()
 
 // ===== 归档按钮 =====
 function archBtn(x) {
-  return `<div class="arch"><button class="btn ghost" data-arch>${archDay(x) != null ? '取消归档' : '归档不关注'}</button><span class="meta" data-archmsg></span></div>`;
+  const flagged = !!x.c['新品未开售'] && String(x.c['新品未开售']) !== 'false';
+  const pre = flagged || !isOnSale(x) ? `<button class="btn ghost" data-presale title="还没开售的新品：不判红黄灯、不显示；到货可售或出单后系统自动恢复追踪">${flagged ? '取消未开售' : '新品未开售'}</button>` : '';
+  return `<div class="arch">${pre}<button class="btn ghost" data-arch>${archDay(x) != null ? '取消归档' : '归档不关注'}</button><span class="meta" data-archmsg></span></div>`;
 }
 
 // ===== 操作闭环 + 7 日计划（卡片底部通栏）=====
@@ -984,6 +991,7 @@ function bigCardHtml(x) {
   if (needReview(x)) tags += '<span class="tag todo">待复盘</span>';
   const ad = archDay(x);
   if (ad != null) tags += `<span class="tag g">${isArchived(x) ? '已归档 · 不关注' : `${fmtD(ad)} 起归档`}</span>`;
+  if (isPresale(x)) tags += '<span class="tag g" title="开售（到货可售或出单）后系统自动恢复追踪">新品未开售 · 不关注</span>';
   // 中栏：数据
   let data;
   {
@@ -1086,7 +1094,26 @@ function render() {
 }
 
 // ===== 归档不关注：写战役行 归档生效日 = 最新数据日的下一天；两步确认（iframe 里 confirm 不可靠）=====
+function bindPresale(el, x) {
+  const b = el.querySelector('[data-presale]'), msg = el.querySelector('[data-archmsg]'); if (!b) return;
+  const undo = !!x.c['新品未开售'] && String(x.c['新品未开售']) !== 'false';
+  b.onclick = async () => {
+    if (!b.dataset.sure) { b.dataset.sure = '1'; b.textContent = undo ? '确认取消' : '确认未开售'; msg.textContent = undo ? '恢复追踪和判灯' : '不判红黄、不显示；开售后自动恢复'; return; }
+    if (TBLS.track) {
+      const fid = FIDS.track['新品未开售'];
+      if (!fid) { msg.textContent = '表里找不到字段「新品未开售」'; return; }
+      b.disabled = true; msg.textContent = '保存中…';
+      try { await TBLS.track.setRecord(x.c._id, { fields: { [fid]: !undo } }); }
+      catch (e) { b.disabled = false; msg.textContent = '保存失败：' + (e && e.message ? e.message : e); return; }
+    }
+    x.c['新品未开售'] = !undo;
+    renderOwner(); render();
+    ptoast(TBLS.track ? (undo ? '已恢复追踪，今晚重新判灯' : '已标新品未开售，今晚起不判红黄；开售后自动恢复') : '预览：只在本页生效，未写回');
+  };
+}
+
 function bindArch(el, x) {
+  bindPresale(el, x);
   const b = el.querySelector('[data-arch]'), msg = el.querySelector('[data-archmsg]'); if (!b) return;
   const undo = archDay(x) != null, eff = LATEST + 1;
   b.onclick = async () => {
