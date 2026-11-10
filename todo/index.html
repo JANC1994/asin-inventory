@@ -160,6 +160,13 @@ button { cursor: pointer; }
 .mp-pop label { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 6px; font-size: 13px; cursor: pointer; }
 .mp-pop label:hover { background: var(--hover); }
 .p select:disabled, .p input:disabled { opacity: 1; color: var(--sub); }
+.rc { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: -2px 0 6px 72px; font-size: 13px; color: var(--sub); }
+.rc input[type=number] { width: 52px; min-height: 28px; border: 1px solid var(--line); border-radius: 6px; padding: 0 6px; }
+.rc select { min-height: 28px; border: 1px solid var(--line); border-radius: 6px; background: #fff; padding: 0 4px; }
+.rc .wk { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border: 1px solid var(--line); border-radius: 6px; cursor: pointer; user-select: none; background: #fff; }
+.rc .wk input { display: none; }
+.rc .wk.on { background: var(--accent, #3370ff); border-color: var(--accent, #3370ff); color: #fff; }
+.rc[aria-disabled=true] { pointer-events: none; opacity: .6; }
 .pv { margin: -2px 0 6px 80px; font-size: 12px; color: var(--faint); line-height: 1.5; }
 .pv.warn { color: var(--amber); }
 .ck { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--sub); }
@@ -348,7 +355,7 @@ window.TODO_HOST = (() => {
   function ruleRow(r) {
     const bot = r.who === ctx.BOT;
     return { '任务名称': r.n, '任务描述': r.d, '负责人': bot ? '' : (r.whos || []).map((n) => ids[n]).filter(Boolean), '执行方': bot ? '机器人' : (r.who ? '人' : ''), '机器人类型': bot ? r.botType : '',
-      '优先级': r.pri, '创建来源': r.src, '重复方式': FREQ[r.freq] || '', '起始日期': r.anchor, '下次截止': r.due, '提前天数': +r.lead, '启用': !!r.on };
+      '优先级': r.pri, '创建来源': r.src, '重复方式': String(r.freq || '').startsWith('c:') ? '自定义' : (FREQ[r.freq] || ''), '自定义重复': String(r.freq || '').startsWith('c:') ? r.freq.slice(2) : '', '起始日期': r.anchor, '下次截止': r.due, '提前天数': +r.lead, '启用': !!r.on };
   }
   const rowOf = (o) => o.isRule ? ruleRow(o) : taskRow(o);
   const keyOf = (o) => o.isRule ? 'rule' : 'todo';
@@ -515,7 +522,7 @@ window.TODO_HOST = (() => {
       S.rules = rules.filter((r) => text(r['任务名称'])).map((r) => {
         const bot = sel(r['执行方']) === c.BOT;
         const x = { id: r._id, rec: r._id, isRule: true, n: text(r['任务名称']), d: text(r['任务描述']), ...whoOf(r, bot), by: users(r['创建人'])[0]?.name || '',
-          pri: sel(r['优先级']), src: sel(r['创建来源']), botType: sel(r['机器人类型']), freq: FREQ_BACK[sel(r['重复方式'])] || '', anchor: stamp(r['起始日期']) || '', due: stamp(r['下次截止']) || '', lead: String(r['提前天数'] ?? 0), on: !!r['启用'] };
+          pri: sel(r['优先级']), src: sel(r['创建来源']), botType: sel(r['机器人类型']), freq: sel(r['重复方式']) === '自定义' && r['自定义重复'] ? 'c:' + String(r['自定义重复']).trim() : (FREQ_BACK[sel(r['重复方式'])] || ''), anchor: stamp(r['起始日期']) || '', due: stamp(r['下次截止']) || '', lead: String(r['提前天数'] ?? 0), on: !!r['启用'] };
         snap.set(x, ruleRow(x)); return x;
       });
       S.view = S.me === c.MANAGER || !S.me ? 'all' : 'mine';
@@ -582,9 +589,52 @@ const isMgr = () => S.me===MANAGER;
 function freqOptions(due) {
   const d = dn(due) ?? T0, day = +ds(d).slice(8), mon = +ds(d).slice(5,7);
   const qm = [0,1,2,3].map(i=>((mon-1+i*3)%12)+1).sort((a,b)=>a-b).join('、');
-  return [['','不重复'],['workday','每个工作日'],['week','每'+wd(d)],['biweek','每两周的'+wd(d)],['month',`每月 ${day} 号`],['monthlast','每月最后一天'],['quarter',`每季度 ${day} 号（${qm} 月）`],['year',`每年 ${mon} 月 ${day} 日`]];
+  return [['','不重复'],['workday','每个工作日'],['week','每'+wd(d)],['biweek','每两周的'+wd(d)],['month',`每月 ${day} 号`],['monthlast','每月最后一天'],['quarter',`每季度 ${day} 号（${qm} 月）`],['year',`每年 ${mon} 月 ${day} 日`],['custom','自定义…']];
 }
-const freqLabel = (f,due) => (freqOptions(due).find(o=>o[0]===f)||['',''])[1].replace(/（.*）/,'');
+/* 自定义重复：o.freq='c:'+规则码。D3=每3天 W1:5=每周五 W2:1,4=每2周的周一和周四 M1:15=每月15号 M1:L=每月最后一天 Y1=每年（起始日的月日）
+   规则码原样存进规则表「自定义重复」，X38 用同一套算法（sync_todo_recurring.py custom_match） */
+const isCustom = f => (f||'').startsWith('c:');
+function parseC(f){ const m=/^c:([DWMY])(\d+)(?::(.*))?$/.exec(f||''); if(!m) return null; return {u:m[1],n:Math.max(1,+m[2]),x:m[3]||''}; }
+const iso = d => dow(d)||7;
+const lastDay = d => new Date(Date.UTC(+ds(d).slice(0,4),+ds(d).slice(5,7),0)).getUTCDate();
+const mIdx = d => +ds(d).slice(0,4)*12 + +ds(d).slice(5,7)-1;
+function specOk(c,x,a){
+  const day=+ds(x).slice(8);
+  if(c.u==='W'){ const set=c.x?c.x.split(',').map(Number):[iso(a)]; return set.includes(iso(x)); }
+  if(c.u==='M'){ const t=c.x==='L'?lastDay(x):Math.min(+c.x||+ds(a).slice(8),lastDay(x)); return day===t; }
+  if(c.u==='Y') return ds(x).slice(5,7)===ds(a).slice(5,7) && day===Math.min(+ds(a).slice(8),lastDay(x));
+  return true;
+}
+const wIdx = v => Math.floor((v-(iso(v)-1)+3)/7);   // 按周一开始的周序号
+function customMatch(c,x,a){
+  if(x<a) return false;
+  if(c.u==='D') return (x-a)%c.n===0;
+  if(c.u==='W' && (wIdx(x)-wIdx(a))%c.n) return false;
+  if(c.u==='M' && (mIdx(x)-mIdx(a))%c.n) return false;
+  if(c.u==='Y' && (Math.floor(mIdx(x)/12)-Math.floor(mIdx(a)/12))%c.n) return false;
+  return specOk(c,x,a);
+}
+// 选好自定义规则后，截止日挪到第一个符合规则的日子（时刻不变）
+function snapDue(o){
+  const c=parseC(o.freq), d=dn(o.base||o.due); if(!c||d==null) return;   // 从用户自己选的日子往后找，换规则不会越挪越远
+  for(let x=d;x<d+800;x++) if(specOk(c,x,x)){ o.due=ds(x)+(o.due.length>10?o.due.slice(10):''); o.anchor=o.due; return; }
+}
+function customLabel(f,due){
+  const c=parseC(f); if(!c) return '自定义';
+  if(c.u==='D') return c.n===1?'每天':`每 ${c.n} 天`;
+  if(c.u==='W'){ const set=(c.x?c.x.split(',').map(Number):[iso(dn(due)??T0)]).sort((a,b)=>a-b); const w='周'+set.map(i=>'一二三四五六日'[i-1]).join('、'); return (c.n===1?'每':c.n===2?'每两周的':`每 ${c.n} 周的`)+w; }
+  if(c.u==='M'){ const d=c.x==='L'?'最后一天':(c.x||+(due||'').slice(8,10))+' 号'; return (c.n===1?'每月':c.n===2?'每两个月的':`每 ${c.n} 个月的`)+(c.n===1&&c.x!=='L'?' ':'')+d; }
+  return (c.n===1?'每年':`每 ${c.n} 年`)+` ${+(due||'').slice(5,7)} 月 ${+(due||'').slice(8,10)} 日`;
+}
+const freqLabel = (f,due) => isCustom(f) ? customLabel(f,due) : (freqOptions(due).find(o=>o[0]===f)||['',''])[1].replace(/（.*）/,'');
+function customRow(o,core){
+  const c=parseC(o.freq); if(!c) return '';
+  const a=dn(o.anchor||o.due)??T0, set=c.u==='W'?(c.x?c.x.split(',').map(Number):[iso(a)]):[];
+  const extra = c.u==='W' ? '<span>的</span>'+[1,2,3,4,5,6,7].map(i=>`<label class="wk ${set.includes(i)?'on':''}" title="周${'一二三四五六日'[i-1]}"><input type="checkbox" data-rcwk="${i}" ${set.includes(i)?'checked':''}>${'一二三四五六日'[i-1]}</label>`).join('')
+    : c.u==='M' ? `<span>的</span><select data-rc="x" aria-label="几号">${opt([...Array.from({length:31},(_,i)=>[String(i+1),(i+1)+' 号']),['L','最后一天']],c.x||String(+ds(a).slice(8)))}</select>`
+    : c.u==='Y' ? `<span>按截止日的月日</span>` : '';
+  return `<div class="rc" id="rcRow" ${core?'':'aria-disabled="true"'}><span>每</span><input type="number" min="1" max="99" data-rc="n" value="${c.n}" aria-label="间隔"><select data-rc="u" aria-label="单位">${opt([['D','天'],['W','周'],['M','个月'],['Y','年']],c.u)}</select>${extra}</div>`;
+}
 function addMonths(s, k, last) {
   const y=+s.slice(0,4), m=+s.slice(5,7)-1+k, ny=y+Math.floor(m/12), nm=((m%12)+12)%12;
   const len=new Date(Date.UTC(ny,nm+1,0)).getUTCDate();
@@ -599,6 +649,7 @@ function nextDates(due, f, n, anchor) {
     else if (f==='workday') { const x=a+i; if ([0,6].includes(dow(x))) continue; s=ds(x); }
     else if (f==='month') s=addMonths(b,i); else if (f==='monthlast') s=addMonths(b,i,true);
     else if (f==='quarter') s=addMonths(b,3*i); else if (f==='year') s=addMonths(b,12*i);
+    else if (isCustom(f)) { const c=parseC(f); if(!c) return out; for(let x=cur+1;out.length<n&&x<cur+366*6;x++) if(customMatch(c,x,a)) out.push(ds(x)); return out; }
     if (dn(s)>cur) out.push(s);
   }
   return out;
@@ -745,7 +796,7 @@ function repeatPv(o) {
 }
 function propsHtml(o, core, status, isNew) {
   const r = !o.isRule && ruleOf(o);
-  const repeatRow = o.isRule||isNew ? `<div class="p"><label for="fFreq">重复</label><select id="fFreq" ${core?'':'disabled'}>${opt(freqOptions(o.anchor||o.due).slice(o.isRule?1:0),o.freq||'')}</select></div><div id="repSlot">${repeatPv(o)}</div>`
+  const repeatRow = o.isRule||isNew ? `<div class="p"><label for="fFreq">重复</label><select id="fFreq" ${core?'':'disabled'}>${opt(freqOptions(o.anchor||o.due).slice(o.isRule?1:0),isCustom(o.freq)?'custom':o.freq||'')}</select></div><div id="rcSlot">${customRow(o,core)}</div><div id="repSlot">${repeatPv(o)}</div>`
     : r ? `<div class="p"><span class="pl">重复</span><div><button class="link-btn" data-goto-rule="${r.id}">↻ ${esc(freqLabel(r.freq,r.anchor||r.due))}</button></div></div>` : '';
   const leadRow = (o.isRule||isNew) ? `<div class="p" id="leadRow" ${o.freq?'':'hidden'}><label for="fLead">提前建</label><select id="fLead" ${core?'':'disabled'}>${opt([['0','当天才出现'],['1','提前 1 天出现'],['3','提前 3 天出现'],['7','提前 7 天出现']],o.lead??'1')}</select></div>` : '';
   const srcs=[['','手动新建'],...Object.keys(SOURCES).map(k=>[k,k])];
@@ -803,8 +854,19 @@ function bindProps(o,isNew) {
   const on=(id,fn)=>{ const el=$(id); if(el) el.onchange=()=>{ fn(el); refreshPv(o); sync(); }; };
   on('fName',e=>o.n=e.value); on('fDesc',e=>o.d=e.value); on('fPri',e=>o.pri=e.value);
   on('fBot',e=>o.botType=e.value); on('fSrc',e=>o.src=e.value); on('fLead',e=>o.lead=e.value);
-  on('fDue',e=>{ o.due=e.value.replace('T',' '); if(o.isRule) o.anchor=e.value; const f=$('fFreq'); if(f) f.innerHTML=opt(freqOptions(o.anchor||o.due).slice(o.isRule?1:0),o.freq||''); });
-  on('fFreq',e=>{ o.freq=e.value; if(o.lead==null||isNew) { o.lead=({workday:'0',week:'1',biweek:'1',month:'3',monthlast:'3',quarter:'7',year:'7'})[o.freq]??'1'; const l=$('fLead'); if(l) l.value=o.lead; } });
+  on('fDue',e=>{ o.due=e.value.replace('T',' '); o.base=o.due; if(o.isRule) o.anchor=o.due; if(isCustom(o.freq)){ snapDue(o); e.value=o.due.slice(0,16).replace(' ','T'); const s=$('rcSlot'); if(s) s.innerHTML=customRow(o,true); } const f=$('fFreq'); if(f) f.innerHTML=opt(freqOptions(o.anchor||o.due).slice(o.isRule?1:0),isCustom(o.freq)?'custom':o.freq||''); });
+  const rcs=$('rcSlot');
+  if(rcs) rcs.onchange=e=>{
+    const c=parseC(o.freq); if(!c) return; const a=dn(o.anchor||o.due)??T0;
+    if(e.target.dataset.rcwk){ let set=c.x?c.x.split(',').map(Number):[iso(a)]; const i=+e.target.dataset.rcwk; set=e.target.checked?[...new Set([...set,i])]:set.filter(x=>x!==i); if(!set.length) set=[i]; c.x=set.sort((p,q)=>p-q).join(','); }
+    else if(e.target.dataset.rc==='n') c.n=Math.min(99,Math.max(1,parseInt(e.target.value)||1));
+    else if(e.target.dataset.rc==='x') c.x=e.target.value;
+    else if(e.target.dataset.rc==='u'){ c.u=e.target.value; c.x = c.u==='W'?String(iso(a)) : c.u==='M'?String(+ds(a).slice(8)) : ''; }
+    o.freq=`c:${c.u}${c.n}${c.x?':'+c.x:''}`;
+    snapDue(o); const d=$('fDue'); if(d) d.value=o.due.slice(0,16).replace(' ','T');
+    rcs.innerHTML=customRow(o,true); refreshPv(o); sync();
+  };
+  on('fFreq',e=>{ if(e.value==='custom'){ o.base=o.base||o.due; o.freq='c:W1:'+iso(dn(o.due)??T0); o.anchor=o.due; } else o.freq=e.value; const s=$('rcSlot'); if(s) s.innerHTML=customRow(o,true); if(o.lead==null||isNew) { o.lead=({workday:'0',week:'1',biweek:'1',month:'3',monthlast:'3',quarter:'7',year:'7','c:D':'0','c:W':'1','c:M':'3','c:Y':'7'})[isCustom(o.freq)?o.freq.slice(0,3):o.freq]??'1'; const l=$('fLead'); if(l) l.value=o.lead; } });
   on('fSt',e=>{ setDone(o,e.value); });
   const wb=$('fWho'), wp=$('fWhoPop');
   if(wb&&wp){
