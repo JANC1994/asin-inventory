@@ -187,6 +187,16 @@
   .pick-err { position: sticky; top: 0; z-index: 2; background: var(--red-soft); color: var(--red); font-weight: 600; padding: 8px 12px; border-bottom: 1px solid #f9b9b7; }
   .modal { position: fixed; inset: 0; background: rgba(15,23,42,.45); z-index: 95; display: none; align-items: flex-start; justify-content: center; padding: 24px 12px; overflow: auto; }
   .modal.show { display: flex; }
+  .lab-cap { font-size: 13px; margin: 0 0 8px; color: var(--sub); } .lab-cap b { color: var(--ink); }
+  table.lab { border-collapse: collapse; font-size: 13px; background: #fff; }
+  table.lab th, table.lab td { border: 1px solid #d9dde3; padding: 5px 8px; white-space: nowrap; }
+  table.lab th { background: #fcefc7; font-weight: 600; text-align: center; }
+  table.lab th small { display: block; font-weight: normal; color: var(--sub); font-size: 11px; }
+  table.lab td.n { text-align: center; } table.lab td.bad { background: #fde2e2; }
+  table.lab tr.sum td { font-weight: 600; background: #fafbfc; }
+  table.lab input { width: 46px; text-align: center; font-size: 13px; padding: 2px; }
+  table.lab td.mv button { border: 1px solid var(--line); background: #fff; border-radius: 4px; cursor: pointer; padding: 0 6px; margin: 0 1px; }
+  .lab-tools { display: flex; gap: 10px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
   .modal-box { background: #fff; border-radius: 10px; width: min(980px, 100%); box-shadow: 0 12px 40px rgba(0,0,0,.25); }
   .modal-box > h3 { margin: 0; padding: 14px 18px; border-bottom: 1px solid var(--line); font-size: 16px; }
   .modal-body { padding: 12px 18px; max-height: 70vh; overflow: auto; }
@@ -1001,18 +1011,28 @@ function storeFilter(stores, cur, which) {
   return `<span class="hint" style="margin-left:6px">店铺</span><select class="store-filter ${cur ? 'on' : ''}" data-fstore="${which}"><option value="">全部店铺（${stores.length}）</option>${Object.entries(g).filter(([, ss]) => ss.length)
     .map(([c, ss]) => `<optgroup label="${c}">${ss.map((s) => `<option value="${esc(s)}" ${s === cur ? 'selected' : ''}>${esc(s)}</option>`).join('')}</optgroup>`).join('')}</select>`;
 }
+// 按月筛选（开船日期所在月），三个列表页签各记各的（用户 11-10 定）
+const monthF = { list: '', ship: '', done: '' };
+const monOf = (o) => (o.shipDate || '').slice(0, 7) || '未定';
+function monthFilter(list, which) {
+  const cur = monthF[which], ms = [...new Set(list.map(monOf))].sort().reverse();
+  if (cur && !ms.includes(cur)) ms.unshift(cur);
+  return { list: cur ? list.filter((o) => monOf(o) === cur) : list,
+    html: `<span class="hint" style="margin-left:6px">开船月份</span><select class="store-filter ${cur ? 'on' : ''}" data-fmonth="${which}"><option value="">全部月份</option>${ms.map((m) => `<option value="${m}" ${m === cur ? 'selected' : ''}>${m === '未定' ? '开船日未定' : m.slice(0, 4) + '年' + +m.slice(5) + '月'}</option>`).join('')}</select>` };
+}
 function renderList() {
   const rev = isReviewer();
   let list = ORDERS.filter((o) => o.status !== '待发货');
   if (listFilter.mine && !rev) list = list.filter(isMine);
   if (listFilter.st !== '全部') list = list.filter((o) => o.status === listFilter.st);
+  const mf = monthFilter(list, 'list'); list = mf.list;
   const stores0 = [...new Set(list.map(storeOf).filter(Boolean))];
   if (listFilter.store) list = list.filter((o) => storeOf(o) === listFilter.store);
   list = sortPlans(list);
   return `${bulkBar(list, 'list')}<div class="filters">
       ${!rev ? `<button class="chip ${listFilter.mine ? 'on' : ''}" data-f="mine">只看我提交的</button>` : '<span class="hint">审核人视角：看全部人的指令</span>'}
       <span class="hint" style="margin-left:6px">状态</span>${['全部', '草稿', '待审核', '已驳回'].map((s) => `<button class="chip ${listFilter.st === s ? 'on' : ''}" data-st="${s}">${s}</button>`).join('')}
-      ${storeFilter(stores0, listFilter.store, 'list')}
+      ${mf.html}${storeFilter(stores0, listFilter.store, 'list')}
       <span class="hint" style="margin-left:auto">只有提交人能改自己的草稿/被驳回的单；审核人：${esc(REVIEWER.name)}</span></div>
     ${list.length ? list.map((o) => orderCard(o, 'list')).join('') : '<div class="card empty">没有符合条件的指令</div>'}`;
 }
@@ -1022,10 +1042,11 @@ function renderShip(done) {
   let list = ORDERS.filter((o) => o.status === '待发货' && built(o) === !!done).sort((a, b) => done ? (b.shipDate || '').localeCompare(a.shipDate || '') : (a.shipDate || '').localeCompare(b.shipDate || ''));
   const due = (o) => dn(o.shipDate) - dn(TODAY);
   if (shipFilter === '7天内') list = list.filter((o) => due(o) <= 7); else if (shipFilter === '7天后') list = list.filter((o) => due(o) > 7);
+  const mf = monthFilter(list, done ? 'done' : 'ship'); list = mf.list;
   const stores0 = [...new Set(list.map(storeOf).filter(Boolean))];
   if (shipStore) list = list.filter((o) => storeOf(o) === shipStore);
   return `${bulkBar(list, 'ship')}<div class="filters">${['全部', '7天内', '7天后'].map((s) => `<button class="chip ${shipFilter === s ? 'on' : ''}" data-sf="${s}">${s}</button>`).join('')}
-    ${storeFilter(stores0, shipStore, 'ship')}
+    ${mf.html}${storeFilter(stores0, shipStore, 'ship')}
     <span class="hint">审核通过的指令已逐行写进「出口对账-发货计划」，这里只读${isReviewer() ? '；有问题点「驳回到指令列表」' : '；有问题找审核人驳回'}。勾选多张可「合并填货件号」（共用同一批货件号）；「从领星匹配」按本单 MSKU 找领星里新建的货件。</span></div>
     ${list.length ? shipGroups(list) : `<div class="card empty">${done ? '暂无已发货' : '暂无待发货'}</div>`}`;
 }
@@ -1062,6 +1083,7 @@ function orderCard(o, mode) {
     if (rev && o.status === '待审核') acts += '<button class="btn sm green" data-act="approve">审核通过</button><button class="btn sm red" data-act="reject">驳回</button>';
   } else if (rev) acts += `<button class="btn sm" data-act="fillFba">${built(o) ? '改货件号' : '填货件号'}</button><button class="btn sm ghost" data-act="fillPo">${o.rows.every((r) => r.po) ? '改采购单' : '填采购单'}</button>${built(o) ? '' : '<button class="btn sm ghost" data-act="splitOrder">拆分</button>'}<button class="btn sm red" data-act="reject">驳回到指令列表</button>`;
   if (!editing && mode === 'list' && mine) acts += '<button class="btn sm ghost" data-act="copy">复制</button>';
+  if (!editing && mode === 'ship') acts = '<button class="btn sm ghost" data-act="labelSheet" title="各货件箱数分配，给供应商贴标用">📋 贴标单</button>' + acts;
   // 拆分：提交人拆自己的草稿/被驳回；审核人拆待审核（待发货的拆分按钮在上面审核人那组）
   if (!editing && mode === 'list' && !built(o) && ((mine && (o.status === '草稿' || o.status === '已驳回')) || (rev && o.status === '待审核'))) acts += '<button class="btn sm ghost" data-act="splitOrder">拆分</button>';
   const st = mode === 'ship' ? `<span class="badge ${built(o) ? 'b-green' : 'b-yellow'}">${built(o) ? '已发货' : '待建货件'}</span>` : `<span class="badge ${statusCls(o.status)}">${o.status}</span>`;
@@ -1192,6 +1214,55 @@ async function saveFba(os, { nos, rgs = {} }) {
     }
   }
   return `${os.map((o) => o.no).join('、')} 已写货件号` + (merge ? `（合并批次 ${merge}）` : '');
+}
+
+// ---- 贴标单（用户 11-10 定）：一单一张表，列出每行产品在各货件的箱数，曾舒婷截图发供应商 ----
+// 箱数分配存在明细JSON 每行的 alloc {货件格序号: 箱数}；没存过的按箱数平均分到用到的货件（多出的给前面的货件）
+// 行顺序 = 贴标顺序，审核人可上下调；保存时按新顺序写回明细JSON
+function labelDefault(r, slots) {
+  const b = byBox(r) ? +r.boxes : 0, n = slots.length, out = {};
+  slots.forEach((i, k) => { out[i] = b ? Math.floor(b / n) + (k < b % n ? 1 : 0) : ''; });
+  return out;
+}
+function openLabel(o) {
+  const can = isReviewer(), slots = usedShips(o).map((x) => x.i);
+  const rows = clone(o.rows).map((r) => ({ ...r, alloc: r.alloc && slots.every((i) => i in r.alloc) ? { ...r.alloc } : labelDefault(r, slots) }));
+  let shot = !can;
+  const sumA = (r) => slots.reduce((s, i) => s + (+r.alloc[i] || 0), 0);
+  const draw = () => {
+    const c = countryOf(o.rows) === '加拿大' ? 'CA' : 'US';
+    const head = slots.map((i) => { const sh = o.ships[i] || {}, no = slotNo(o, i);
+      return `<th>${o.split === '是' ? '货件' + (i + 1) : '货件'}${sh.rg || no ? `<small>${esc(sh.rg || '')}${sh.rg && no ? ' · ' : ''}${esc(no)}</small>` : ''}</th>`; }).join('');
+    const body = rows.map((r, k) => { const p = P(r), bad = byBox(r) && sumA(r) !== +r.boxes;
+      return `<tr><td>${esc(p.n)}${p.size ? ' ' + esc(p.size) : ''}</td><td class="mono">${esc(p.fn)}</td><td class="mono">${esc(r.po)}</td>
+        <td class="n">${tot(r)}</td><td class="n">${byBox(r) ? esc(r.perBox) : ''}</td><td class="n ${bad ? 'bad' : ''}" ${bad ? `title="各货件合计 ${sumA(r)} 箱，和箱数对不上"` : ''}>${byBox(r) ? esc(r.boxes) : ''}</td><td>${c}</td>
+        ${slots.map((i) => `<td class="n">${shot ? esc(r.alloc[i]) : `<input type="number" min="0" data-al="${k}:${i}" value="${esc(r.alloc[i])}">`}</td>`).join('')}
+        <td class="n">${k + 1}</td>${shot ? '' : `<td class="mv"><button type="button" data-mv="${k}:-1" ${k ? '' : 'disabled'}>▲</button><button type="button" data-mv="${k}:1" ${k < rows.length - 1 ? '' : 'disabled'}>▼</button></td>`}</tr>`; }).join('');
+    const S = (f) => rows.reduce((s, r) => s + f(r), 0);
+    const foot = `<tr class="sum"><td colspan="3"></td><td class="n">${S(tot)}</td><td></td><td class="n">${S((r) => byBox(r) ? +r.boxes : 0)}</td><td></td>
+      ${slots.map((i) => `<td class="n">${S((r) => +r.alloc[i] || 0)}</td>`).join('')}<td></td>${shot ? '' : '<td class="mv"></td>'}</tr>`;
+    const bad = rows.filter((r) => byBox(r) && sumA(r) !== +r.boxes).length;
+    $('mBody').innerHTML = `${can ? `<div class="lab-tools"><button type="button" class="btn sm ${shot ? '' : 'ghost'}" data-shot>${shot ? '✏️ 回到调整' : '📷 截图模式（隐藏输入框和箭头）'}</button>
+        <span class="hint">${shot ? '截图模式：直接截下面这张表' : '▲▼ 调贴标顺序；各货件箱数默认按箱数平均分，可改'}${bad ? `；<b style="color:var(--red)">${bad} 行各货件合计和箱数对不上（标红）</b>` : ''}</span></div>` : ''}
+      <div class="lab-cap"><b>${esc(o.no)}</b> · ${esc(storeOf(o))} · 开船 ${md(o.shipDate)}</div>
+      <table class="lab"><thead><tr><th>品名</th><th>FNSKU</th><th>采购单号</th><th>数量</th><th>每箱数量</th><th>箱数</th><th>国家</th>${head}<th>贴标顺序</th>${shot ? '' : '<th></th>'}</tr></thead>
+      <tbody>${body}${foot}</tbody></table>`;
+  };
+  const p = modal(`${o.no} · 贴标单`, '', can ? '调好后点「保存」，下次打开还是这个顺序和分配；截图前点「截图模式」' : '只读；顺序和分配由审核人调整', can ? '保存' : '关闭', () => can ? rows : null, can ? '取消' : '关闭');
+  draw();
+  $('mBody').onclick = (e) => {
+    const t = e.target.closest('button'); if (!t) return;
+    if ('shot' in t.dataset) { shot = !shot; draw(); return; }
+    if (t.dataset.mv) { const [k, d] = t.dataset.mv.split(':').map(Number), j = k + d; if (j < 0 || j >= rows.length) return; [rows[k], rows[j]] = [rows[j], rows[k]]; draw(); }
+  };
+  $('mBody').oninput = (e) => { const t = e.target; if (!t.dataset.al) return; const [k, i] = t.dataset.al.split(':').map(Number); rows[k].alloc[i] = t.value === '' ? '' : +t.value; };
+  $('mBody').onchange = (e) => { if (e.target.dataset.al) draw(); };
+  return p.then((v) => { $('mBody').onchange = null; return v && act('保存贴标单', async () => {
+    await fresh(o, ['待发货']);
+    const js = JSON.stringify(v.map(({ id, ...r }) => r));
+    await setOrder(o, { '明细JSON': js }); expect('ord', o.rid, { '明细JSON': js });
+    return `${o.no} 贴标单已保存`;
+  }); });
 }
 
 // 通用弹窗：确定时调 collect() 取结果（返回 false 表示不关窗）；取消 → null
@@ -1525,6 +1596,7 @@ main.addEventListener('click', (e) => {
   if (a === 'del') return act('删除中', async () => { await fresh(o, ['草稿', '已驳回']); await delOrder(o); return `${o.no} 已删除`; });
   if (a === 'fillPo') return openPoFill(o).then((m) => m && act('写采购单号', () => savePo(o, m)));
   if (a === 'splitOrder') return openSplit(o).then((c) => c && act('拆分中', () => doSplit(o, c)));
+  if (a === 'labelSheet') return openLabel(o);
   if (a === 'fillFba') return openFill([o]).then((nos) => nos && act('写货件号', () => saveFba([o], nos)));
   if (a === 'approve') return act('审核中（写入发货计划）', async () => `${o.no} 审核通过 → 已写入发货计划 ${await approve(o)} 行`);
   if (a === 'reject') { rejecting = o.no; render(); $('rejReason')?.focus(); return; }
@@ -1615,6 +1687,7 @@ main.addEventListener('input', (e) => {
 });
 main.addEventListener('change', (e) => {
   const t = e.target;
+  if (t.dataset.fmonth) { monthF[t.dataset.fmonth] = t.value; sel.clear(); render(); return; }
   if (t.dataset.fstore) { if (t.dataset.fstore === 'list') listFilter.store = t.value; else shipStore = t.value; sel.clear(); render(); return; }
   if (t.hasAttribute('data-sel')) { const no = t.closest('[data-no]').dataset.no; t.checked ? sel.add(no) : sel.delete(no); render(); return; }
   if (t.hasAttribute('data-selall')) { main.querySelectorAll('[data-sel]').forEach((x) => { const no = x.closest('[data-no]').dataset.no; t.checked ? sel.add(no) : sel.delete(no); }); render(); return; }
