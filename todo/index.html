@@ -456,9 +456,11 @@ window.TODO_HOST = (() => {
 
   // 发群：页面只写请求，正文和发送由本机 X39 做（页面不放密钥）
   const REQ = 'tblYhzQTSNhW6VgD', AUTO = 'tblNjjwfZZiclbMj';
-  async function sendNow(group, progress) {
+  async function sendNow(group, ids, progress) {
     if (!META.req) await open('req', REQ);
-    const id = await META.req.table.addRecord({ fields: fieldsOf('req', { '请求说明': '任务待办页「发群」', '内容': '待办清单', '群': group, '状态': '待发送' }) });
+    const id = await META.req.table.addRecord({ fields: fieldsOf('req', ids && ids.length
+      ? { '请求说明': '任务待办页批量「发群」', '内容': '指定任务', '任务ID': ids.join(','), '群': group, '状态': '待发送' }
+      : { '请求说明': '任务待办页「发群」', '内容': '待办清单', '群': group, '状态': '待发送' }) });
     for (let i = 0; i < 24; i++) {
       await new Promise((r) => setTimeout(r, 5000));
       try {
@@ -830,7 +832,7 @@ function renderBatch(){
   const n=S.picked.size, dis=n?'':'disabled', list=listNow(), allOn=list.length&&list.every(t=>S.picked.has(t.id));
   const acts = S.view==='rules' ? `<button class="btn" data-b="on" ${dis}>启用</button><button class="btn" data-b="off" ${dis}>暂停</button>`
     : S.view==='done' ? `<button class="btn" data-b="undone" ${dis}>改回待办</button>`
-    : `<button class="btn" data-b="done" ${dis}>标为完成</button><button class="btn" data-b="remind" ${dis}>提醒</button>`;
+    : `<button class="btn" data-b="done" ${dis}>标为完成</button><button class="btn" data-b="remind" ${dis}>提醒</button><button class="btn" data-b="send" ${dis}>发群</button>`;
   $('batchSlot').innerHTML=`<div class="batch"><span>已选 <b>${n}</b> 条</span><button class="link-btn" data-b="all">${allOn?'取消全选':'全选'}</button>${acts}<button class="btn danger" data-b="del" ${dis}>删除</button></div>`;
 }
 /* 发群：正文由本机调度器（X39）发送时现查现拼，这里的预览按同样格式算 */
@@ -842,6 +844,11 @@ function dueText(t){
   if(d<T0) return `逾期 ${T0-d} 天`;
   if(d===T0){ if(!hasTime(t.due)) return '今天截止'; const m=mins(NOW)-mins(t.due); return m>0?(m>=60?`逾期 ${Math.floor(m/60)} 小时`:`逾期 ${m} 分钟`):`今天 ${t.due.slice(11,16)} 截止`; }
   return `${md(t.due).replace('/','-')}${tmPart(t.due)} 截止`;
+}
+function pickedText(ids){
+  const rows=ids.map(find).filter(t=>t&&t.n);
+  const lines=rows.map(t=>{ const st=t.st==='已完成'?'已完成':dueText(t); const mark=st.startsWith('逾期')?'⚠':st==='已完成'?'✓':'  '; const n=t.n.length>40?t.n.slice(0,40)+'…':t.n; return `${mark} · ${n}（${t.who||'未指定'}，${st}）`; });
+  return `【待办提醒】${S.me||'你'} 挑了 ${rows.length} 个任务：\n${lines.join('\n')}\n\n去处理：应用「任务待办」`;
 }
 function boardText(){
   const rows=pool().filter(t=>t.st!=='已完成'&&t.who!==BOT&&t.n);
@@ -860,6 +867,16 @@ function renderSend(){
   if(!d){ $('sendSlot').innerHTML=''; return; }
   const dayOpt = d.freq==='每周' ? `<select id="sdDay">${['周一','周二','周三','周四','周五','周六','周日'].map((w,i)=>`<option value="${i+1}" ${+d.day===i+1?'selected':''}>${w}</option>`).join('')}</select>`
     : d.freq==='每月' ? `<select id="sdDay">${Array.from({length:31},(_,i)=>`<option value="${i+1}" ${+d.day===i+1?'selected':''}>${i+1} 号</option>`).join('')}</select>` : '';
+  if(d.ids){
+    $('sendSlot').innerHTML=`<div class="scrim" data-sendclose><div class="dialog wide" role="dialog" aria-label="把勾选的任务发到群">
+    <h2>把勾选的 ${d.ids.length} 个任务发到群</h2>
+    <div class="f">发到 <select id="sdGroup">${GROUP_NAMES.map(g=>`<option ${g===d.group?'selected':''}>${g}</option>`).join('')}</select>群 <span class="meta">发送时按表里当时的内容拼，你改过的会带上</span></div>
+    <pre>${esc(pickedText(d.ids))}</pre>
+    <div style="justify-content:flex-start;margin-top:0"><button class="btn pri" id="sdNow" ${d.busy?'disabled':''}>发送</button><span class="meta">${esc(d.msg||'由小灯发出，1 分钟内到；本机要开着')}</span></div>
+    <div><button class="btn" data-sendclose>关闭</button></div>
+  </div></div>`;
+    return;
+  }
   $('sendSlot').innerHTML=`<div class="scrim" data-sendclose><div class="dialog wide" role="dialog" aria-label="发待办到群">
     <h2>把待办清单发到群</h2>
     <div class="f">发到 <select id="sdGroup">${GROUP_NAMES.map(g=>`<option ${g===d.group?'selected':''}>${g}</option>`).join('')}</select>群 <span class="meta">内容：全组未完成的任务，按执行人分组，逾期排前面（机器人任务不发）</span></div>
@@ -931,7 +948,7 @@ $('frame').addEventListener('click',async e=>{
     if(e.target.closest('#sdNow')){
       S.send.busy=true; S.send.msg='已提交，等小灯发送…'; renderSend();
       if(!HOST){ S.send.busy=false; S.send.msg='预览：不会真的发送'; renderSend(); return; }
-      try { const r=await HOST.sendNow(S.send.group, m=>{ if(S.send){ S.send.msg=m; renderSend(); } }); if(S.send){ S.send.busy=false; S.send.msg=r; renderSend(); } }
+      try { const r=await HOST.sendNow(S.send.group, S.send.ids, m=>{ if(S.send){ S.send.msg=m; renderSend(); } }); if(S.send){ S.send.busy=false; S.send.msg=r; renderSend(); } }
       catch(err){ if(S.send){ S.send.busy=false; S.send.msg='提交失败：'+(err&&err.message||err); renderSend(); } }
       return; }
     if(e.target.closest('#sdPlan')){
@@ -950,6 +967,9 @@ $('frame').addEventListener('click',async e=>{
   if(bt){ const k=bt.dataset.b;
     if(k==='all'){ const l=listNow(), on=l.length&&l.every(t=>S.picked.has(t.id)); l.forEach(t=>on?S.picked.delete(t.id):S.picked.add(t.id)); renderMain(); return; }
     if(k==='del'){ askDelete([...S.picked].map(find).filter(Boolean)); return; }
+    if(k==='send'){ const ids=[...S.picked].filter(id=>{ const t=find(id); return t&&!t.isRule; });
+      if(ids.length>30){ toast('一次最多发 30 条，请少选一些'); return; }
+      S.send={group:GROUP_NAMES[0],ids}; renderSend(); return; }
     await runBatch(k); return; }
   if(e.target.closest('#doDelete')){ askDelete([find(S.sel)]); return; }
   if(S.batch&&!e.target.closest('[data-view],[data-owner]')){
