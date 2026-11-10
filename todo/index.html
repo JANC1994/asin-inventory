@@ -350,7 +350,7 @@ window.TODO_HOST = (() => {
   function taskRow(t) {
     const bot = t.who === ctx.BOT;
     return { '任务名称': t.n, '任务描述': t.d, '负责人': bot ? '' : (t.whos || []).map((n) => ids[n]).filter(Boolean), '执行方': bot ? '机器人' : (t.who ? '人' : ''), '机器人类型': bot ? t.botType : '',
-      '截止时间': t.due, '状态': t.st, '优先级': t.pri, '创建来源': t.src, '完成时间': t.doneAt, '查看时间': t.viewedAt, '提醒请求时间': t.remindedAt, '规则ID': t.rule || '', '通知负责人': t.notify ? true : undefined };
+      '截止时间': t.due, '状态': t.st, '优先级': t.pri, '创建来源': t.src, '完成时间': t.doneAt, '查看时间': t.viewedAt, '提醒请求时间': t.remindedAt, '规则ID': t.rule || '', '已完成人': (t.doneBy || []).map((n) => ids[n]).filter(Boolean), '通知负责人': t.notify ? true : undefined };
   }
   function ruleRow(r) {
     const bot = r.who === ctx.BOT;
@@ -369,7 +369,22 @@ window.TODO_HOST = (() => {
     return out;
   };
   const snap = new WeakMap();
+  // 多人任务点完成：先读表里最新的「已完成人」再合并，两个人同时点不会互相覆盖
+  async function mergeDone(o) {
+    const op = o.doneOp; o.doneOp = null;
+    const fid = META.todo.byName['已完成人']?.id; if (!fid) return;
+    const rec = await META.todo.table.getRecordById(o.id);
+    const nameOf = Object.fromEntries(Object.entries(ids).map(([n, id]) => [id, n]));
+    const ws = (o.whos || []).filter((x) => x !== ctx.BOT);
+    let d = users(rec?.fields?.[fid]).map((u) => u.name || nameOf[u.id]).filter((n) => n && ws.includes(n) && n !== op.who);
+    if (op.add) d.push(op.who);
+    const full = ws.every((x) => d.includes(x)), was = o.st === '已完成';
+    o.doneBy = d;
+    if (full) { if (!was) { o.st = '已完成'; o.doneAt = now(); } }
+    else if (was) { o.st = '待办'; o.doneAt = null; }
+  }
   async function save(o) {
+    if (o.doneOp && !o.isRule) await mergeDone(o);
     const key = keyOf(o), row = rowOf(o), old = snap.get(o) || {};
     const changed = Object.keys(row).filter((k) => JSON.stringify(row[k] ?? '') !== JSON.stringify(old[k] ?? ''));
     if (!changed.length) return;
@@ -516,7 +531,7 @@ window.TODO_HOST = (() => {
         const bot = sel(r['执行方']) === c.BOT;
         const t = { id: r._id, rec: r._id, n: text(r['任务名称']), d: text(r['任务描述']), st: sel(r['状态']) || '待办', pri: sel(r['优先级']), ...whoOf(r, bot),
           by: users(r['创建人'])[0]?.name || '', due: stamp(r['截止时间']) || '', createdAt: stamp(r['创建时间']), viewedAt: stamp(r['查看时间']), doneAt: stamp(r['完成时间']), remindedAt: stamp(r['提醒请求时间']),
-          botType: sel(r['机器人类型']), src: sel(r['创建来源']), rule: text(r['规则ID']), link: linkOf(r['来源跳转']) };
+          botType: sel(r['机器人类型']), src: sel(r['创建来源']), rule: text(r['规则ID']), doneBy: users(r['已完成人']).map((u) => u.name || nameOf[u.id]).filter(Boolean), link: linkOf(r['来源跳转']) };
         snap.set(t, taskRow(t)); return t;
       });
       S.rules = rules.filter((r) => text(r['任务名称'])).map((r) => {
@@ -552,6 +567,13 @@ const SOURCES = {'发货指令':'pgezBm4t5Wj8CxtE','采购申请':'pgeP90o0tBy7v
 const whosOf = t => t.whos || (t.who ? String(t.who).split('、').filter(Boolean) : []);
 const isWho = (t,n) => !!n && whosOf(t).includes(n);
 const setWhos = (o,a) => { o.whos=a; o.who=a.join('、'); };
+/* 多人任务（用户 11-10 定）：每个执行人各点各的完成，记进「已完成人」，全员点完整条才算已完成；
+   派单人/主管不是执行人时点完成 = 整条关掉 */
+const humans = t => whosOf(t).filter(x=>x!==BOT);
+const multi = t => humans(t).length>1;
+const doneBy = t => (t.doneBy||[]).filter(x=>humans(t).includes(x));
+const mineDone = t => multi(t) && doneBy(t).includes(S.me);
+const leftOf = t => humans(t).filter(x=>!doneBy(t).includes(x));
 const srcEntry = t => t.link ? t.link : (SOURCES[t.src] ? {text:'打开「'+t.src+'」页面',url:APP_URL+SOURCES[t.src]} : null);
 const MANAGER = '林键春';
 const BASE_URL = 'https://zcnt6ibhe9z3.feishu.cn/base/JGvebyaAYapWtOslxc9cuKYXnwd?table=tblUp0MCrRKIVlBI&record=';
@@ -666,7 +688,7 @@ function nextDates(due, f, n, anchor) {
 }
 
 function inView(t) {
-  if (S.view==='mine') return isWho(t,S.me) && t.st!=='已完成';
+  if (S.view==='mine') return isWho(t,S.me) && t.st!=='已完成' && !mineDone(t);
   if (S.view==='sent') return t.by===S.me && t.st!=='已完成';
   if (S.view==='done') return t.st==='已完成';
   return t.st!=='已完成';
@@ -696,10 +718,11 @@ function remCtl(t) {
 function rowHtml(t) {
   const done=t.st==='已完成', solo=S.view==='mine', r=ruleOf(t);
   const picked=S.batch&&S.picked.has(t.id);
-  const left = S.batch ? `<span class="pick ${picked?'on':''}" role="checkbox" aria-checked="${picked}">✓</span>` : t.auto ? '<span class="dash" title="系统任务，做完自动关闭"></span>' : `<button class="check ${done?'on':''}" data-check="${t.id}" aria-label="${done?'改回待办':'标为已完成'}">✓</button>`;
-  const metas = [ !done&&t.pri==='高'?'<span class="badge b-red">高</span>':'', t.st==='进行中'?'<span class="badge b-blue">进行中</span>':'', r?'<span class="meta" title="循环任务">↻</span>':'', t.ex?'<span class="meta ex">示例</span>':'' ].join('');
+  const md1=mineDone(t)&&!done;
+  const left = S.batch ? `<span class="pick ${picked?'on':''}" role="checkbox" aria-checked="${picked}">✓</span>` : t.auto ? '<span class="dash" title="系统任务，做完自动关闭"></span>' : `<button class="check ${done||md1?'on':''}" data-check="${t.id}" aria-label="${done?'改回待办':md1?'我这份改回待办':multi(t)&&isWho(t,S.me)?'我这份完成':'标为已完成'}" title="${md1?'你这份已完成，还差 '+esc(leftOf(t).join('、')):''}">✓</button>`;
+  const metas = [ !done&&t.pri==='高'?'<span class="badge b-red">高</span>':'', t.st==='进行中'?'<span class="badge b-blue">进行中</span>':'', !done&&multi(t)&&doneBy(t).length?`<span class="badge b-blue" title="还差 ${esc(leftOf(t).join('、'))}">${doneBy(t).length}/${humans(t).length} 完成</span>`:'', r?'<span class="meta" title="循环任务">↻</span>':'', t.ex?'<span class="meta ex">示例</span>':'' ].join('');
   const src = t.src&&t.src!=='手动新建' ? (SOURCES[t.src]||t.src==='循环任务' ? esc(t.src) : esc(t.src)) : '–';
-  return `<div class="row ${solo?'solo':''} ${done?'done':''} ${S.sel===t.id||picked?'sel':''}" data-id="${t.id}" tabindex="0" role="button">${left}<div class="name"><span>${esc(t.n||'（没写任务名）')}</span>${metas}</div><div class="c-src">${src}</div>${solo?'':`<div class="who ${t.who?'':'none'} ${t.who===BOT?'bot':''}">${esc(t.who||'未分配')}</div>`}<div class="c-by">${esc(t.by||'–')}</div>${dueHtml(t)}<div class="c-act">${remCtl(t)}</div></div>`;
+  return `<div class="row ${solo?'solo':''} ${done?'done':''} ${S.sel===t.id||picked?'sel':''}" data-id="${t.id}" tabindex="0" role="button">${left}<div class="name"><span>${esc(t.n||'（没写任务名）')}</span>${metas}</div><div class="c-src">${src}</div>${solo?'':`<div class="who ${t.who?'':'none'} ${t.who===BOT?'bot':''}">${multi(t)&&!done?whosOf(t).map(n=>doneBy(t).includes(n)?`<span style="color:var(--faint)" title="${esc(n)} 已完成">${esc(n)}✓</span>`:esc(n)).join('、'):esc(t.who||'未分配')}</div>`}<div class="c-by">${esc(t.by||'–')}</div>${dueHtml(t)}<div class="c-act">${remCtl(t)}</div></div>`;
 }
 const theadHtml = () => { const solo=S.view==='mine'; return `<div class="thead ${solo?'solo':''}"><span></span><span>任务</span><span class="c-src">来源</span>${solo?'':'<span>执行人</span>'}<span class="c-by">派单人</span><span>${S.view==='done'?'完成':'截止'}</span><span>操作</span></div>`; };
 
@@ -735,7 +758,8 @@ if (!matchMedia('(prefers-reduced-motion: reduce)').matches) setInterval(()=>{
 function peopleHtml() {
   const open=pool().filter(t=>t.st!=='已完成');
   const names=[...new Set(open.flatMap(whosOf))];
-  const cnt=w=>open.filter(t=>isWho(t,w)).length, ov=w=>open.filter(t=>isWho(t,w)&&bucket(t)==='over').length;
+  const has=(t,w)=>isWho(t,w)&&!doneBy(t).includes(w);   // 自己那份做完了就不算他的待办
+  const cnt=w=>open.filter(t=>has(t,w)).length, ov=w=>open.filter(t=>has(t,w)&&bucket(t)==='over').length;
   names.sort((a,b)=>(a===BOT)-(b===BOT)||ov(b)-ov(a)||cnt(b)-cnt(a));
   const un=open.filter(t=>!t.who).length;
   const btn=(key,l,c,o)=>`<button data-owner="${key}" aria-pressed="${S.owner===key}" ${o?`title="其中 ${o} 条逾期"`:''}>${esc(l)}<b class="${o?'hot':''}">${c}</b></button>`;
@@ -768,7 +792,7 @@ function renderTabs() {
   const L={mine:'我的待办',ap:'审批',all:'全组',sent:'我派出的',rules:'循环任务',done:'已完成'};
   const num=(l,hot)=>l.length?`<span class="num ${hot?'hot':''}" title="${l.length} 条${hot?`，其中 ${l.filter(t=>bucket(t)==='over').length} 条逾期`:''}">${l.length}</span>`:'';
   const hasOver=l=>l.some(t=>bucket(t)==='over');
-  const mine=open.filter(t=>isWho(t,S.me)), sent=open.filter(t=>t.by===S.me), on=rules().filter(r=>r.on);
+  const mine=open.filter(t=>isWho(t,S.me)&&!mineDone(t)), sent=open.filter(t=>t.by===S.me), on=rules().filter(r=>r.on);
   const N={mine:num(mine,hasOver(mine)),all:num(open,hasOver(open)),sent:num(sent,hasOver(sent)),rules:num(on,false),done:'',ap:apNum()};
   $('tabs').innerHTML=Object.keys(L).map(v=>`<button role="tab" data-view="${v}" aria-selected="${S.view===v}">${L[v]}${N[v]}</button>`).join('');
 }
@@ -845,6 +869,7 @@ function drawDrawer() {
     ${propsHtml(t,core,status,false)}
     <textarea class="desc" id="fDesc" placeholder="没有说明" aria-label="任务描述" ${core?'':'disabled'}>${esc(t.d)}</textarea>
     ${t.who===BOT&&!t.isRule?'<div class="pv" style="margin:0">机器人任务由创建人或主管关闭。</div>':''}
+    ${!t.isRule&&multi(t)?`<div class="pv" style="margin:0">多人任务，每人各点各的完成，都点了才算完成：${humans(t).map(n=>doneBy(t).includes(n)?esc(n)+' ✓':esc(n)+' 未完成').join(' · ')}${(isMgr()||t.by===S.me)&&!isWho(t,S.me)?'。你是派单人，点完成会整条关掉':''}</div>`:''}
     ${!core&&!t.auto&&!isMgr()?(isWho(t,S.me)?'<div class="pv" style="margin:0">你是负责人，只能改状态。截止和负责人要改，找派单人或主管。</div>':'<div class="pv" style="margin:0">这条只有负责人、派单人和主管能改。</div>'):''}
     <div class="foot-meta">
       ${t.isRule?`<span>创建人 ${esc(t.by)} · 每次生成的任务都能单独改，不影响规则</span>`:`<span>${esc(t.by||'未记录')} 派出于 ${f(t.createdAt||'')}</span><span>${t.viewedAt?`负责人 ${f(t.viewedAt)} 看过`:'负责人还没打开过'}${t.remindedAt?` · ${f(t.remindedAt)} 点过提醒`:''}</span>${t.st==='已完成'?`<span>完成时间 ${t.doneAt?f(t.doneAt):'未记录'}</span>`:''}`}
@@ -852,13 +877,24 @@ function drawDrawer() {
       ${t.rec?`<a href="${BASE_URL}${t.rec}" target="_blank" rel="noopener">在多维表打开</a>`:''}
     </div>
   </div>
-  <div class="d-f">${core?'<button class="btn danger" id="doDelete" style="order:9;margin-left:auto">删除</button>':''}${t.isRule?(core?`<button class="btn" id="doPause">${t.on?'暂停':'启用'}</button>`:''):`${status&&t.st!=='已完成'?'<button class="btn pri" id="doDone">标为完成</button>':''}${canRemind(t)?'<button class="btn" id="doNotify">提醒</button>':''}`}</div></aside>`;
+  <div class="d-f">${core?'<button class="btn danger" id="doDelete" style="order:9;margin-left:auto">删除</button>':''}${t.isRule?(core?`<button class="btn" id="doPause">${t.on?'暂停':'启用'}</button>`:''):`${status&&t.st!=='已完成'&&!mineDone(t)?`<button class="btn pri" id="doDone">${multi(t)&&isWho(t,S.me)?'我这份完成':'标为完成'}</button>`:''}${canRemind(t)?'<button class="btn" id="doNotify">提醒</button>':''}`}</div></aside>`;
   bindProps(t,false);
 }
 function refreshPv(o){ const b=$('botRow'); if(b) b.hidden=o.who!==BOT; const s=$('repSlot'); if(s) s.innerHTML=repeatPv(o); const l=$('leadRow'); if(l) l.hidden=!o.freq; }
-function setDone(t,st){ t.st=st; t.doneAt=st==='已完成'?now():null; }
+function setDone(t,st){
+  const ws=humans(t), wasDone=t.st==='已完成';
+  if(ws.length>1 && ws.includes(S.me)){   // 执行人点：只改自己那份
+    const d=doneBy(t).filter(x=>x!==S.me); if(st==='已完成') d.push(S.me);
+    t.doneBy=d; t.doneOp={who:S.me,add:st==='已完成'};
+    const full=ws.every(x=>d.includes(x));
+    t.st = full ? '已完成' : st==='已完成' ? (wasDone?'待办':t.st) : st;
+    t.doneAt = full ? (wasDone&&t.doneAt?t.doneAt:now()) : null;
+    return;
+  }
+  t.st=st; t.doneAt=st==='已完成'?now():null; t.doneBy=st==='已完成'?ws:[]; t.doneOp=null;
+}
 // 写回：设计稿里什么都不做；正式页由 TODO_HOST 写进多维表
-async function persist(o){ if(!HOST||o.ex) return true; try { await HOST.save(o); return true; } catch(e){ toast('保存失败：'+(e&&e.message||e)); return false; } }
+async function persist(o){ if(!HOST||o.ex) return true; try { const merge=!!o.doneOp, before=o.st; await HOST.save(o); if(merge){ renderTabs(); renderMain(); if(before!=='已完成'&&o.st==='已完成') toast('其他人也都做完了，整条任务已完成'); } return true; } catch(e){ toast('保存失败：'+(e&&e.message||e)); return false; } }
 function bindProps(o,isNew) {
   const sync=()=>{ if(!isNew){ renderTabs(); renderMain(); persist(o); toast(HOST?'已保存':'已保存（预览）'); } };
   const on=(id,fn)=>{ const el=$(id); if(el) el.onchange=()=>{ fn(el); refreshPv(o); sync(); }; };
@@ -922,7 +958,7 @@ function dueText(t){
 }
 function pickedText(ids){
   const rows=ids.map(find).filter(t=>t&&t.n);
-  const lines=rows.map(t=>{ const st=t.st==='已完成'?'已完成':dueText(t); const mark=st.startsWith('逾期')?'⚠':st==='已完成'?'✓':'  '; const n=t.n.length>40?t.n.slice(0,40)+'…':t.n; return `${mark} · ${n}（${t.who||'未指定'}，${st}）`; });
+  const lines=rows.map(t=>{ const st=t.st==='已完成'?'已完成':dueText(t)+(multi(t)&&doneBy(t).length?`，${doneBy(t).length}/${humans(t).length} 完成`:''); const mark=st.startsWith('逾期')?'⚠':st==='已完成'?'✓':'  '; const n=t.n.length>40?t.n.slice(0,40)+'…':t.n; return `${mark} · ${n}（${t.who||'未指定'}，${st}）`; });
   return `【待办提醒】${S.me||'你'} 挑了 ${rows.length} 个任务：\n${lines.join('\n')}\n\n去处理：应用「任务待办」`;
 }
 function boardText(){
@@ -974,7 +1010,7 @@ async function runBatch(kind){
   const items=[...S.picked].map(find).filter(Boolean);
   const pick=f=>{ const ok=items.filter(f); return [ok,items.length-ok.length]; };
   let ok,skip,msg;
-  if(kind==='done'){ [ok,skip]=pick(t=>canStatus(t)&&t.st!=='已完成'); ok.forEach(t=>setDone(t,'已完成')); msg=`已完成 ${ok.length} 条${skipped(skip,'没权限或已完成，')}`; }
+  if(kind==='done'){ [ok,skip]=pick(t=>canStatus(t)&&t.st!=='已完成'&&!mineDone(t)); ok.forEach(t=>setDone(t,'已完成')); msg=`已完成 ${ok.length} 条${skipped(skip,'没权限或已完成，')}`; }
   else if(kind==='undone'){ [ok,skip]=pick(canStatus); ok.forEach(t=>setDone(t,'待办')); msg=`已改回待办 ${ok.length} 条${skipped(skip,'没权限，')}`; }
   else if(kind==='remind'){ [ok,skip]=pick(t=>canRemind(t)&&!cooling(t)); const at=now(); ok.forEach(t=>markRemind(t,at)); msg=`已发 ${ok.length} 条飞书提醒${skipped(skip,'没执行人、是机器人或刚提醒过，')}${HOST?'':'（预览，未真发）'}`; }
   else { const v=kind==='on'; [ok,skip]=pick(canEdit); ok.forEach(r=>{r.on=v;}); msg=`已${v?'启用':'暂停'} ${ok.length} 条${skipped(skip,'没权限，')}`; }
@@ -1012,7 +1048,9 @@ async function remindOne(t){
   if(ok) toast(HOST?`已发飞书提醒给 ${t.who}`:`已提醒 ${t.who}（预览，未真发）`);
 }
 function all(){ renderTabs(); renderMain(); renderDrawer(); }
-function complete(t){ const prev=t.st, prevAt=t.doneAt; setDone(t,'已完成'); S.idx=0; renderTabs(); renderMain(); persist(t); const r=ruleOf(t); const nx=r&&r.due?` 下一次 ${md(r.due)}`:''; toast(`已完成${nx}`,()=>{t.st=prev;t.doneAt=prevAt;renderTabs();renderMain();persist(t);}); }
+function complete(t){ const prev=t.st, prevAt=t.doneAt, prevBy=t.doneBy; setDone(t,'已完成'); S.idx=0; renderTabs(); renderMain(); persist(t); const r=ruleOf(t); const nx=r&&r.due?` 下一次 ${md(r.due)}`:'';
+  const msg = t.st!=='已完成' ? `你这份已完成，还差 ${leftOf(t).join('、')}` : `已完成${nx}`;
+  toast(msg,()=>{ if(t.doneOp) setDone(t,prev==='已完成'?'待办':prev); else { t.st=prev; t.doneAt=prevAt; t.doneBy=prevBy; } renderTabs();renderMain();persist(t);}); }
 
 $('frame').addEventListener('click',async e=>{
   if(!e.target.closest('.mp')){ const wp=$('fWhoPop'); if(wp) wp.hidden=true; }
@@ -1056,7 +1094,7 @@ $('frame').addEventListener('click',async e=>{
   const v=e.target.closest('[data-view]'); if(v){ S.view=v.dataset.view; S.owner=''; S.picked.clear(); close(); all(); return; }
   const k=e.target.closest('[data-check]');
   if(k){ const t=find(k.dataset.check); if(!(isMgr()||t.by===S.me||isWho(t,S.me))){ toast('这条只有负责人、派单人和主管能改'); return; }
-    if(t.st==='已完成'){ setDone(t,'待办'); renderTabs(); renderMain(); persist(t); toast('已改回待办'); } else complete(t); return; }
+    if(t.st==='已完成'||mineDone(t)){ const mine=mineDone(t); setDone(t,'待办'); renderTabs(); renderMain(); persist(t); toast(mine&&multi(t)&&isWho(t,S.me)?'你这份已改回待办':'已改回待办'); } else complete(t); return; }
   const apb=e.target.closest('[data-apall]'); if(apb){ S.apAll=apb.dataset.apall==='1'; renderMain(); return; }
   const o=e.target.closest('[data-owner]'); if(o){ S.owner=S.owner===o.dataset.owner?'':o.dataset.owner; S.idx=0; renderMain(); return; }
   if(e.target.closest('[data-close]')){ close(); renderMain(); renderDrawer(); return; }
