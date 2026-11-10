@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>贴标单</title>
+<!--
+  发货指令页 · 贴标单「新窗口打开」版（11-10）
+  数据全在网址 # 后面（发货指令页按当前调整生成），本页只显示，不读写多维表、不带任何密钥。
+  表格自动缩放到窗口宽度，方便一屏截图发供应商。
+-->
+<style>
+  html, body { margin: 0; background: #fff; font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; color: #1f2329; }
+  .wrap { padding: 14px 16px; }
+  .cap { font-size: 14px; margin: 0 0 8px; color: #646a73; } .cap b { color: #1f2329; }
+  table { border-collapse: collapse; font-size: 14px; background: #fff; }
+  th, td { border: 1px solid #c9cdd4; padding: 6px 9px; white-space: nowrap; }
+  th { background: #fcefc7; font-weight: 600; text-align: center; }
+  th small { display: block; font-weight: normal; color: #646a73; font-size: 12px; }
+  td.n { text-align: center; } td.nm { white-space: normal; min-width: 160px; max-width: 240px; }
+  td.mono { font-family: Consolas, Menlo, monospace; font-size: 13px; }
+  tr.sum td { font-weight: 600; background: #fafbfc; }
+  .tip { font-size: 12px; color: #8f959e; margin-top: 10px; }
+  .err { color: #d03050; padding: 20px; }
+</style>
+</head>
+<body>
+<div class="wrap" id="root"></div>
+<script>
+(function () {
+  var esc = function (v) { return String(v == null ? '' : v).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
+  var root = document.getElementById('root'), d;
+  try { d = JSON.parse(decodeURIComponent(location.hash.slice(1))); } catch (e) { d = null; }
+  if (!d || !d.h) { root.innerHTML = '<div class="err">没有贴标单数据：请从发货指令页的「贴标单 → 新窗口打开」进来。</div>'; return; }
+  document.title = '贴标单 ' + (d.cap || '').split(' · ')[0];
+  var numCol = function (j) { return j >= 3; }, mono = function (j) { return j === 1 || j === 2; };
+  var head = d.h.map(function (h) { return Array.isArray(h) ? '<th>' + esc(h[0]) + (h[1] ? '<small>' + esc(h[1]) + '</small>' : '') + (h[2] ? '<small>' + esc(h[2]) + '</small>' : '') + '</th>' : '<th>' + esc(h) + '</th>'; }).join('');
+  var td = function (v, j) { return '<td class="' + (j === 0 ? 'nm' : mono(j) ? 'mono' : (numCol(j) && j !== 6) ? 'n' : '') + '">' + esc(v) + '</td>'; };
+  var body = d.r.map(function (r) { return '<tr>' + r.map(td).join('') + '</tr>'; }).join('');
+  var foot = '<tr class="sum">' + d.f.map(function (v, j) { return '<td class="' + (j >= 3 ? 'n' : '') + '">' + esc(v) + '</td>'; }).join('') + '</tr>';
+  root.innerHTML = '<div class="cap"><b>' + esc(d.cap) + '</b></div><table id="t"><thead><tr>' + head + '</tr></thead><tbody>' + body + foot + '</tbody></table>' +
+    '<div class="tip">表格自动缩放到窗口宽度；窗口拉大/最大化后表格跟着放大。顺序和分配要改，回发货指令页调整后重新点「新窗口打开」。</div>';
+  var fit = function () { var t = document.getElementById('t'); t.style.zoom = ''; var k = (document.documentElement.clientWidth - 34) / t.scrollWidth; if (k < 1) t.style.zoom = Math.max(k, 0.4).toFixed(3); };
+  fit(); window.addEventListener('resize', fit);
+})();
+</script>
+</body>
+</html>

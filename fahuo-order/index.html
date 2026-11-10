@@ -194,6 +194,8 @@
   table.lab td.nm { white-space: normal; min-width: 150px; max-width: 220px; }
   table.lab td.auto { color: #2563eb; }
   table.lab th { background: #fcefc7; font-weight: 600; text-align: center; }
+  table.lab th .lr { display: block; margin-top: 3px; } table.lab th .lr button { border: 1px solid var(--line); background: #fff; border-radius: 4px; cursor: pointer; padding: 0 5px; font-size: 11px; margin: 0 1px; }
+  .lab-tools a.btn { text-decoration: none; }
   table.lab th small { display: block; font-weight: normal; color: var(--sub); font-size: 11px; }
   table.lab td.n { text-align: center; } table.lab td.bad { background: #fde2e2; }
   table.lab tr.sum td { font-weight: 600; background: #fafbfc; }
@@ -556,7 +558,7 @@ function orderFields(S) {
   return {
     '国家': c || null, '店铺': storeOf(S) || null, '发货日期': S.shipDate || null, '是否分仓': S.split, '合计箱数': s.boxes, '合计件数': s.qty,
     '摘要': grouped(S.rows).map((r) => `${P(r).n} ${P(r).m} ×${tot(r)}`).join('；').slice(0, 900),
-    '明细JSON': JSON.stringify(rows), '货件JSON': JSON.stringify(S.ships.map(({ no, ch, eta, rg }) => ({ no, ch, eta, rg: rg || '' }))), '备注': S.note || null,
+    '明细JSON': JSON.stringify(rows), '货件JSON': JSON.stringify(S.ships.map(({ no, ch, eta, rg, lo }) => ({ no, ch, eta, rg: rg || '', ...(lo != null ? { lo } : {}) }))), '备注': S.note || null,
   };
 }
 async function createOrder(S, extra = {}) {
@@ -1205,7 +1207,7 @@ async function saveFba(os, { nos, rgs = {} }) {
   const merge = os.length > 1 ? 'M-' + os.map((o) => o.no).sort()[0] : '';
   for (const [k, o] of os.entries()) {
     busy(`写货件号 ${k + 1}/${os.length}：${o.no}…`);
-    const ships = clone(o.ships).map(({ no, ch, eta, rg }) => ({ no, ch, eta, rg: rg || '' }));
+    const ships = clone(o.ships).map(({ no, ch, eta, rg, lo }) => ({ no, ch, eta, rg: rg || '', ...(lo != null ? { lo } : {}) }));
     for (const [i, v] of Object.entries(nos)) if (ships[+i]) ships[+i].no = v;
     for (const [i, v] of Object.entries(rgs)) if (ships[+i] && v != null && usSplit(o)) ships[+i].rg = v;
     await setOrder(o, { '货件JSON': JSON.stringify(ships), '合并批次': merge || (o.merge && os.length === 1 ? o.merge : null) });
@@ -1231,57 +1233,69 @@ function labelDefault(r, slots) {
   return out;
 }
 function openLabel(o) {
-  const can = isReviewer(), slots = usedShips(o).map((x) => x.i);
-  const rows = clone(o.rows).map((r) => ({ ...r, alloc: r.alloc && slots.every((i) => i in r.alloc) ? { ...r.alloc } : labelDefault(r, slots) }));
+  const can = isReviewer(), used = usedShips(o).map((x) => x.i);
+  // 货件列顺序（用户 11-10 定可左右调）：存在货件JSON 每格的 lo（列位置），没存过按货件1~5
+  let cols = [...used].sort((a, b) => (o.ships[a]?.lo ?? a) - (o.ships[b]?.lo ?? b));
+  const rows = clone(o.rows).map((r) => ({ ...r, alloc: r.alloc && used.every((i) => i in r.alloc) ? { ...r.alloc } : labelDefault(r, cols) }));
   let shot = !can;
-  const sumA = (r) => slots.reduce((s, i) => s + (+r.alloc[i] || 0), 0);
+  const sumA = (r) => cols.reduce((s, i) => s + (+r.alloc[i] || 0), 0);
   const isBad = (r) => lbBoxes(r) > 0 && sumA(r) !== lbBoxes(r);
   const mb = $('mBody'), box = mb.closest('.modal-box');
-  // 整张表缩放到弹窗宽度，截图一屏截全（飞书插件框比较窄）
-  // 宽度一定缩到放得下；截图模式再按高度缩，但最多缩到 75%（再小看不清，行多时把插件拉高）
   const fit = () => { const t = mb.querySelector('table.lab'); if (!t) return; t.style.zoom = '';
     const kw = (mb.clientWidth - 6) / t.scrollWidth, kh = shot ? (mb.clientHeight - (t.getBoundingClientRect().top - mb.getBoundingClientRect().top + mb.scrollTop) - 8) / t.offsetHeight : 1;
     const k = Math.min(kw, Math.max(kh, 0.75)); if (k < 1) t.style.zoom = Math.max(k, 0.45).toFixed(3); mb.scrollLeft = 0; };
+  const c = countryOf(o.rows) === '加拿大' ? 'CA' : 'US';
+  const colName = (i) => o.split === '是' ? '货件' + (i + 1) : '货件';
+  const cap = () => `${o.no} · ${storeOf(o)} · 开船 ${md(o.shipDate)}`;
+  // 新窗口版（label.html）：只带纯数据，那边铺满整个窗口显示，不受插件框大小限制
+  const snap = () => ({ cap: cap(),
+    h: ['品名', 'FNSKU', '采购单号', '数量', '每箱数量', '箱数', '国家', ...cols.map((i) => [colName(i), o.ships[i]?.rg || '', slotNo(o, i)]), '贴标顺序'],
+    r: rows.map((r, k) => { const p = P(r); return [p.n + (p.size ? ' ' + p.size : ''), p.fn || '', r.po || '', tot(r), lbBox(r) || '', lbBoxes(r) || '', c, ...cols.map((i) => r.alloc[i] ?? ''), k + 1]; }),
+    f: ['', '', '', rows.reduce((s, r) => s + tot(r), 0), '', rows.reduce((s, r) => s + lbBoxes(r), 0), '', ...cols.map((i) => rows.reduce((s, r) => s + (+r.alloc[i] || 0), 0)), ''] });
+  const winUrl = () => new URL('label.html', location.href).href.split('?')[0] + '#' + encodeURIComponent(JSON.stringify(snap()));
   const draw = () => {
-    const c = countryOf(o.rows) === '加拿大' ? 'CA' : 'US';
-    const head = slots.map((i) => { const sh = o.ships[i] || {}, no = slotNo(o, i);
-      return `<th>${o.split === '是' ? '货件' + (i + 1) : '货件'}${sh.rg ? `<small>${esc(sh.rg)}</small>` : ''}${no ? `<small>${esc(no)}</small>` : ''}</th>`; }).join('');
+    const head = cols.map((i, j) => { const sh = o.ships[i] || {}, no = slotNo(o, i);
+      return `<th>${colName(i)}${sh.rg ? `<small>${esc(sh.rg)}</small>` : ''}${no ? `<small>${esc(no)}</small>` : ''}${!shot && can && cols.length > 1 ? `<span class="lr"><button type="button" data-cm="${j}:-1" ${j ? '' : 'disabled'}>◀</button><button type="button" data-cm="${j}:1" ${j < cols.length - 1 ? '' : 'disabled'}>▶</button></span>` : ''}</th>`; }).join('');
     const body = rows.map((r, k) => { const p = P(r), bad = isBad(r), own = !byBox(r);
       const pb = own && !shot ? `<input type="number" min="1" data-pb="${k}" value="${esc(lbBox(r) || '')}" title="明细没填箱规，这里填每箱数量">` : esc(lbBox(r) || '');
       return `<tr><td class="nm">${esc(p.n)}${p.size ? ' ' + esc(p.size) : ''}</td><td class="mono">${esc(p.fn)}</td><td class="mono">${esc(r.po)}</td>
         <td class="n">${tot(r)}</td><td class="n ${own && !shot ? 'auto' : ''}">${pb}</td><td class="n ${bad ? 'bad' : ''}" ${bad ? `title="各货件合计 ${sumA(r)} 箱，和箱数对不上"` : ''}>${lbBoxes(r) || ''}</td><td>${c}</td>
-        ${slots.map((i) => `<td class="n">${shot ? esc(r.alloc[i]) : `<input type="number" min="0" data-al="${k}:${i}" value="${esc(r.alloc[i])}">`}</td>`).join('')}
+        ${cols.map((i) => `<td class="n">${shot ? esc(r.alloc[i]) : `<input type="number" min="0" data-al="${k}:${i}" value="${esc(r.alloc[i])}">`}</td>`).join('')}
         <td class="n">${k + 1}</td>${shot ? '' : `<td class="mv"><button type="button" data-mv="${k}:-1" ${k ? '' : 'disabled'}>▲</button><button type="button" data-mv="${k}:1" ${k < rows.length - 1 ? '' : 'disabled'}>▼</button></td>`}</tr>`; }).join('');
     const S = (f) => rows.reduce((s, r) => s + f(r), 0);
     const foot = `<tr class="sum"><td colspan="3"></td><td class="n">${S(tot)}</td><td></td><td class="n">${S(lbBoxes)}</td><td></td>
-      ${slots.map((i) => `<td class="n">${S((r) => +r.alloc[i] || 0)}</td>`).join('')}<td></td>${shot ? '' : '<td class="mv"></td>'}</tr>`;
+      ${cols.map((i) => `<td class="n">${S((r) => +r.alloc[i] || 0)}</td>`).join('')}<td></td>${shot ? '' : '<td class="mv"></td>'}</tr>`;
     const bad = rows.filter(isBad).length, nobox = rows.filter((r) => !lbBoxes(r)).length;
-    mb.innerHTML = `${can ? `<div class="lab-tools"><button type="button" class="btn sm ${shot ? '' : 'ghost'}" data-shot>${shot ? '✏️ 回到调整' : '📷 截图模式（隐藏输入框和箭头）'}</button>
-        <span class="hint">${shot ? '截图模式：直接截下面这张表' : '▲▼ 调贴标顺序；各货件箱数按箱数平均分，可改；明细没填箱规的行，蓝色「每箱数量」可填（默认取产品主表）'}${bad ? `；<b style="color:var(--red)">${bad} 行各货件合计和箱数对不上（标红）</b>` : ''}${nobox && !shot ? `；<b style="color:var(--red)">${nobox} 行没有每箱数量</b>` : ''}</span></div>` : ''}
+    mb.innerHTML = `<div class="lab-tools"><a class="btn sm" href="${esc(winUrl())}" target="_blank" rel="noopener" data-win>🗗 新窗口打开（截图用，铺满整个窗口）</a>
+        ${can ? `<button type="button" class="btn sm ghost" data-shot>${shot ? '✏️ 回到调整' : '📷 本窗口截图模式'}</button>` : ''}
+        <span class="hint">${shot ? '截图模式：直接截下面这张表' : (can ? '▲▼ 调行顺序，◀▶ 调货件顺序；各货件箱数按箱数平均分，可改；没箱规的行蓝色「每箱数量」可填（默认取产品主表）' : '')}${bad ? `；<b style="color:var(--red)">${bad} 行各货件合计和箱数对不上（标红）</b>` : ''}${nobox && !shot ? `；<b style="color:var(--red)">${nobox} 行没有每箱数量</b>` : ''}</span></div>
       <div class="lab-cap"><b>${esc(o.no)}</b> · ${esc(storeOf(o))} · 开船 ${md(o.shipDate)}</div>
       <table class="lab"><thead><tr><th>品名</th><th>FNSKU</th><th>采购单号</th><th>数量</th><th>每箱数量</th><th>箱数</th><th>国家</th>${head}<th>贴标顺序</th>${shot ? '' : '<th></th>'}</tr></thead>
       <tbody>${body}${foot}</tbody></table>`;
     fit();
   };
-  const p = modal(`${o.no} · 贴标单`, '', can ? '调好后点「保存」，下次打开还是这个顺序和分配；截图前点「截图模式」' : '只读；顺序和分配由审核人调整', can ? '保存' : '关闭', () => can ? rows : null, can ? '取消' : '关闭');
+  const p = modal(`${o.no} · 贴标单`, '', can ? '调好后点「保存」，下次打开还是这个顺序和分配；截图点「新窗口打开」' : '只读；顺序和分配由审核人调整。截图点「新窗口打开」', can ? '保存' : '关闭', () => can ? { rows, cols } : null, can ? '取消' : '关闭');
   box.classList.add('wide');
   draw();
   const onRs = () => fit(); window.addEventListener('resize', onRs);
   mb.onclick = (e) => {
+    const w = e.target.closest('[data-win]'); if (w) { w.href = winUrl(); return; }   // 点的那一刻按当前调整重新生成
     const t = e.target.closest('button'); if (!t) return;
     if ('shot' in t.dataset) { shot = !shot; draw(); return; }
     if (t.dataset.mv) { const [k, d] = t.dataset.mv.split(':').map(Number), j = k + d; if (j < 0 || j >= rows.length) return; [rows[k], rows[j]] = [rows[j], rows[k]]; draw(); }
+    if (t.dataset.cm) { const [k, d] = t.dataset.cm.split(':').map(Number), j = k + d; if (j < 0 || j >= cols.length) return; [cols[k], cols[j]] = [cols[j], cols[k]]; draw(); }
   };
   mb.oninput = (e) => { const t = e.target; if (!t.dataset.al) return; const [k, i] = t.dataset.al.split(':').map(Number); rows[k].alloc[i] = t.value === '' ? '' : +t.value; };
   mb.onchange = (e) => {
     const t = e.target;
-    if (t.dataset.pb) { const r = rows[+t.dataset.pb]; r.labBox = +t.value || ''; r.alloc = labelDefault(r, slots); draw(); return; }   // 改了每箱数量 → 箱数变，重新平均分
+    if (t.dataset.pb) { const r = rows[+t.dataset.pb]; r.labBox = +t.value || ''; r.alloc = labelDefault(r, cols); draw(); return; }   // 改了每箱数量 → 箱数变，重新平均分
     if (t.dataset.al) draw();
   };
   return p.then((v) => { mb.onchange = null; box.classList.remove('wide'); window.removeEventListener('resize', onRs); return v && act('保存贴标单', async () => {
     await fresh(o, ['待发货']);
-    const js = JSON.stringify(v.map(({ id, ...r }) => r));
-    await setOrder(o, { '明细JSON': js }); expect('ord', o.rid, { '明细JSON': js });
+    const js = JSON.stringify(v.rows.map(({ id, ...r }) => r));
+    const ships = clone(o.ships).map((sh, i) => { const j = v.cols.indexOf(i); const x = { ...sh }; if (j >= 0) x.lo = j; else delete x.lo; return x; });
+    await setOrder(o, { '明细JSON': js, '货件JSON': JSON.stringify(ships) }); expect('ord', o.rid, { '明细JSON': js });
     return `${o.no} 贴标单已保存`;
   }); });
 }
