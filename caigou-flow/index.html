@@ -393,7 +393,6 @@ function openAddSku() {
     const sku = v('nsSku'), name = v('nsName'), store = $('nsStore').value, qty = n0(v('nsQty'));
     const msg = (t) => { $('nsMsg').textContent = t; $('nsMsg').style.display = ''; };
     if (!sku || !name || !store) return msg('SKU、品名、店铺都要填');
-    if (/\s/.test(sku)) return msg('SKU 里不能有空格');
     const same = (DATA.apply || []).filter((r) => String(r['父ASIN/SKU'] || '').trim().toLowerCase() === sku.toLowerCase());
     const hit = same.find((r) => (r['店铺'] || '') === store) || (same.length && !same.some((r) => r['店铺']) ? same[0] : null);
     const go = (r) => { F.line = kindOf(r); lsSet('caigou_line', F.line); F.store = ''; F.q = sku; F.spu = '__all'; closeDlg(); render(); };
