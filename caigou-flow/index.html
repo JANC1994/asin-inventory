@@ -357,6 +357,61 @@ async function write(key, updates) {
   const byId = new Map(DATA[key].map((r) => [r._id, r]));
   for (const u of updates) { const r = byId.get(u.id); if (r) Object.assign(r, u.f); }
 }
+// 新建一行：fields = {字段名: 页面值}；返回新行（已放进 DATA）
+async function create(key, f) {
+  if (FROM_CACHE) throw new Error('页面还在读最新数据（现在显示的是缓存），等顶部黄条消失再操作');
+  let id = 'recNew' + Date.now();
+  if (!SNAP) {
+    if (!TBL[key]) throw new Error('表还没读完，稍等几秒再操作');
+    const fields = Object.fromEntries(Object.entries(f).filter(([, v]) => v != null && v !== '').map(([k, v]) => [META[key][k] ? META[key][k].id : (() => { throw new Error(`表里没有字段「${k}」`); })(), enc(key, k, v)]));
+    id = await TBL[key].addRecord({ fields });
+    if (id && typeof id === 'object') id = id.recordId || id.record_id;
+    if (!id) throw new Error('新建记录没有返回 ID');
+  } else for (const k of Object.keys(f)) enc(key, k, f[k]);
+  const r = { _id: id, ...f };
+  DATA[key].push(r);
+  return r;
+}
+// 领星里有、申请表还没同步的新品：手动填 SKU + 品名，在申请表新建一行，之后和普通行一样填量提交
+function openAddSku() {
+  const storeNames = ((META.apply['店铺'] || {}).options || []).map((o) => o.name);
+  const cur = { sku: '', name: '', store: F.store || '', spu: '', asin: '', qty: '' };
+  const inp = (id, ph, w) => `<input id="${id}" placeholder="${ph}" style="width:${w || '100%'};box-sizing:border-box">`;
+  dialog('手动加 SKU（领星有、表里没同步的新品）', `
+    <div class="hint" style="margin-bottom:8px">SKU 要和领星里的 <b>SKU 完全一致</b>（采购计划按它在领星建单，对不上会建单失败）。加完会在申请表新建一行，之后和其他行一样填数量、提交审批。</div>
+    <table class="tbl" style="width:100%"><tbody>
+      <tr><td style="width:90px">SKU <span style="color:var(--red)">*</span></td><td>${inp('nsSku', '领星 SKU，如 A2503401-HA')}</td></tr>
+      <tr><td>品名 <span style="color:var(--red)">*</span></td><td>${inp('nsName', '品名')}</td></tr>
+      <tr><td>店铺 <span style="color:var(--red)">*</span></td><td><select id="nsStore" style="width:100%"><option value="">选店铺</option>${storeNames.map((v) => `<option ${v === cur.store ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select></td></tr>
+      <tr><td>SPU</td><td>${inp('nsSpu', '选填；产品主表登记后以主表为准')}</td></tr>
+      <tr><td>父ASIN</td><td>${inp('nsAsin', '选填')}</td></tr>
+      <tr><td>本次采购量</td><td>${inp('nsQty', '选填，也可加完在列表里填', '160px')}</td></tr>
+    </tbody></table>
+    <div id="nsMsg" class="err" style="display:none;margin-top:8px"></div>`,
+  [['取消', 'btn', closeDlg], ['加入申请表', 'btn pri', async (btn) => {
+    const v = (id) => $(id).value.trim();
+    const sku = v('nsSku'), name = v('nsName'), store = $('nsStore').value, qty = n0(v('nsQty'));
+    const msg = (t) => { $('nsMsg').textContent = t; $('nsMsg').style.display = ''; };
+    if (!sku || !name || !store) return msg('SKU、品名、店铺都要填');
+    if (/\s/.test(sku)) return msg('SKU 里不能有空格');
+    const same = (DATA.apply || []).filter((r) => String(r['父ASIN/SKU'] || '').trim().toLowerCase() === sku.toLowerCase());
+    const hit = same.find((r) => (r['店铺'] || '') === store) || (same.length && !same.some((r) => r['店铺']) ? same[0] : null);
+    const go = (r) => { F.line = kindOf(r); lsSet('caigou_line', F.line); F.store = ''; F.q = sku; F.spu = '__all'; closeDlg(); render(); };
+    if (hit) {
+      if (qty > 0 && !locked(hit)) { (DRAFT[hit._id] || (DRAFT[hit._id] = {})).qty = qty; saveDraft(); }
+      go(hit); toast(locked(hit) ? '表里已有这个 SKU（正在审批中），已帮你定位' : '表里已有这个 SKU + 店铺，没有新建，已帮你定位', 4000); return;
+    }
+    btn.disabled = true; btn.textContent = '新建中…';
+    try {
+      const r = await create('apply', { '父ASIN/SKU': sku, '品名': name, '店铺': store, 'SPU': v('nsSpu'), '父ASIN': v('nsAsin') });
+      buildPm();
+      if (qty > 0) { (DRAFT[r._id] = {}).qty = qty; saveDraft(); }
+      go(r); toast(`已在申请表新建 ${sku}${same.length ? `（表里已有其他店铺的 ${same.length} 行）` : ''}，填好数量就能提交`, 4500);
+    } catch (e) { btn.disabled = false; btn.textContent = '加入申请表'; msg((e && e.message ? e.message : String(e)) + (/permission|权限/.test(String(e && e.message)) ? '（应用数据权限里，申请表要允许「新增记录」）' : '')); }
+  }]]);
+  setTimeout(() => $('nsSku') && $('nsSku').focus(), 50);
+}
+
 // 供应商/价格信息只给指定的人看（用户 10-28 定：只对曾舒婷开放）。读表后先从行里拿掉、单独收着，认出是她再放回；缓存里也不存
 const SUPPLIER_VIEWERS = [{ id: 'ou_4cd43bdac45b77e143d81c4ba166f08f', name: '曾舒婷' }];
 const SECRET_FIELDS = ['供应商', '价税合计', '单据备注', '批次备注'];   // 两个备注里常写供应商名和单价
@@ -551,6 +606,7 @@ function renderTop() {
       <select id="fStore"><option value="">全部店铺</option>${stores.map((s) => `<option ${F.store === s ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select>
       <input id="fQ" placeholder="搜 SKU / 品名 / 父ASIN" value="${esc(F.q)}" style="width:200px">
       <button class="btn" id="impBtn" title="本地 Excel(.xlsx) 或 CSV：有 SKU 列和数量列即可，按 SKU 把数量加到本次采购量">📥 导入表格</button><input type="file" id="impFile" accept=".xlsx,.csv,.txt" style="display:none">
+      <button class="btn" id="addSkuBtn" title="领星里有、但申请表还没同步过来的新品：手动填 SKU 和品名，在申请表新建一行再申请">＋ 手动加 SKU</button>
       <span class="hint">灰色行 = 审批中，不能重复申请；数量填了就算选中</span>`;
   } else if (VIEW === 'approve') {
     const n = (k) => bs.filter(k).length;
@@ -566,6 +622,7 @@ function renderTop() {
   $('filters').innerHTML = f;
   const lc = $('lineChips'); if (lc) lc.querySelectorAll('button').forEach((b) => { b.onclick = () => { F.line = b.dataset.k; lsSet('caigou_line', F.line); F.spu = '__all'; render(); }; });
   const ap = $('apChips'); if (ap) ap.querySelectorAll('button').forEach((b) => { b.onclick = () => { F.approve = b.dataset.k; render(); }; });
+  if ($('addSkuBtn')) $('addSkuBtn').onclick = () => openAddSku();
   if ($('impBtn')) { $('impBtn').onclick = () => $('impFile').click(); $('impFile').onchange = (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) importFile(f); }; }
   if ($('fStore')) $('fStore').onchange = (e) => { F.store = e.target.value; F.spu = '__all'; render(); };
   if ($('fPerson')) $('fPerson').onchange = (e) => { F.person = e.target.value; render(); };
@@ -823,7 +880,7 @@ async function importFile(file) {
       能加 <b>${ok.length}</b> 个${lockedRows.length ? ` · 审批中跳过 <b>${lockedRows.length}</b> 个` : ''}${miss.length ? ` · 表里找不到 <b>${miss.length}</b> 个` : ''}${bad.length ? ` · 数量为空/0 忽略 ${bad.length} 行` : ''}</div>
     ${ok.length ? `<table class="tbl"><thead><tr><th>SKU</th><th>品名</th><th>店铺</th><th class="r">已填</th><th class="r">+ 导入</th><th class="r">= 本次采购量</th></tr></thead><tbody>${ok.map((x) => `<tr><td class="mono">${esc(x.r['父ASIN/SKU'])}${x.dup ? ' <span class="badge b-yellow" title="申请表里这个 SKU 有多行，加到第一条未在审批中的">重复行</span>' : ''}</td><td class="nm">${esc(x.r['品名'])}</td><td>${esc(draftVal(x.r, '店铺'))}</td><td class="r">${x.before ? fmtN(x.before) : '—'}</td><td class="r">${fmtN(x.q)}</td><td class="r"><b>${fmtN(x.after)}</b></td></tr>`).join('')}</tbody></table>` : ''}
     ${lockedRows.length ? `<div class="warnbox" style="margin-top:10px">审批中，没加：${lockedRows.map((x) => esc(x.raw)).join('、')}</div>` : ''}
-    ${miss.length ? `<div class="warnbox" style="margin-top:10px;background:var(--red-soft);color:var(--red)">申请表里找不到这些 SKU（检查拼写，或先在申请表加行）：${miss.map((x) => `${esc(x.raw)}×${fmtN(x.q)}`).join('、')}</div>` : ''}`,
+    ${miss.length ? `<div class="warnbox" style="margin-top:10px;background:var(--red-soft);color:var(--red)">申请表里找不到这些 SKU（检查拼写；领星里有、表里没同步的新品，用「＋ 手动加 SKU」加上）：${miss.map((x) => `${esc(x.raw)}×${fmtN(x.q)}`).join('、')}</div>` : ''}`,
   [['取消', 'btn', closeDlg], [`确认导入 ${ok.length} 个`, 'btn pri', () => {
     for (const x of ok) { const d = DRAFT[x.r._id] || (DRAFT[x.r._id] = {}); d.qty = x.after; }
     saveDraft(); closeDlg(); if (ok.length) F.spu = '__picked'; render(); toast(`已加入 ${ok.length} 个 SKU，核对后点「核对并提交申请」`, 3500);
