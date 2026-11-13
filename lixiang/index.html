@@ -1,0 +1,724 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>新品立项</title>
+<!--
+  飞书应用「灯具组-全流程」插件页：新品立项（2026-11-13）
+  一个赛季（默认 2027）的立项清单 = 上一赛季复盘审批通过的老品（只读，审批在复盘页）+ 本页新建的新品（林键春审批 Go/Watch/Drop）。
+  新品 Go 且 ASIN、领星SKU 齐、产品主表有这个 ASIN×国家 → X21 当晚建 2027 目标行 + 战役行 + 复盘行（promote_lixiang.py），开启状态写回本表。
+  读：季节品立项表（首表，saveConfig 第一条给授权）/ 季节品复盘表 / 产品目标总表 / 产品主表 / 季节节奏日历（其余表靠应用「数据授权」页的组件授权）
+  写：只写季节品立项表。
+  规矩见 wiki/页面设计/概念/飞书应用自定义插件页.md；本地预览 build_preview.py → preview.html（含业务数据，不推送）。
+-->
+<style>
+  :root {
+    --bg: #f5f6f7; --card: #ffffff; --ink: #1f2329; --sub: #646a73; --line: #e5e6eb;
+    --blue: #3370ff; --blue-soft: #e1eaff; --red: #f54a45; --red-soft: #fde2e2;
+    --yellow: #ff8800; --yellow-soft: #fff1d6; --green: #2ea121; --green-soft: #d9f5d6;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; overflow: hidden; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 13px/1.5 -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; }
+  .wrap { padding: 12px 16px 0; height: 100vh; display: flex; flex-direction: column; }
+  .sticky { position: relative; flex: none; z-index: 20; background: var(--bg); margin: 0 -16px; padding: 4px 16px 8px; }
+  .sticky.stuck { box-shadow: 0 6px 12px -8px rgba(0,0,0,.25); }
+  .bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .bar h1 { margin: 0; font-size: 17px; }
+  #main { flex: 1; min-height: 0; overflow: auto; position: relative; margin: 0 -16px; padding: 0 16px 32px; }
+  .tip { flex: none; background: #fff7e8; color: #b25e00; border-radius: 8px; padding: 6px 12px; font-size: 12.5px; margin-bottom: 8px; }
+  .tabs { display: flex; gap: 4px; background: #eceef1; border-radius: 8px; padding: 3px; }
+  .tabs button { border: 0; background: none; padding: 5px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; color: var(--sub); }
+  .tabs button.on { background: #fff; color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+  .tabs .num { display: inline-block; min-width: 18px; padding: 0 5px; border-radius: 9px; background: var(--red); color: #fff; font-size: 11px; line-height: 18px; margin-left: 4px; text-align: center; }
+  .meta { color: var(--sub); font-size: 12px; }
+  .who { margin-left: auto; display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--sub); }
+  .card { background: var(--card); border-radius: 8px; padding: 14px 16px; border: 1px solid var(--line); margin-bottom: 12px; }
+  .card h3 { margin: 0 0 12px; font-size: 15px; display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .card h3 small { font-weight: normal; color: var(--sub); font-size: 12px; }
+  .err { color: var(--red); white-space: pre-wrap; }
+  .loading, .empty { padding: 40px 16px; text-align: center; color: var(--sub); }
+  input, select, textarea { font: inherit; color: var(--ink); border: 1px solid #d0d3d6; border-radius: 6px; padding: 5px 8px; background: #fff; min-width: 0; }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--blue); box-shadow: 0 0 0 2px var(--blue-soft); }
+  input.miss, select.miss, textarea.miss { border-color: var(--red); background: #fff8f8; }
+  select { height: 30px; }
+  .seg { display: inline-flex; border: 1px solid #d0d3d6; border-radius: 6px; overflow: hidden; width: max-content; background: #fff; }
+  .seg button { border: 0; background: #fff; padding: 4px 14px; cursor: pointer; font: inherit; color: var(--ink); }
+  .seg button + button { border-left: 1px solid #d0d3d6; }
+  .seg button.on { background: var(--blue); color: #fff; }
+  .btn { height: 30px; padding: 0 14px; border: 1px solid #d0d3d6; border-radius: 6px; background: #fff; cursor: pointer; font: inherit; color: var(--ink); white-space: nowrap; }
+  .btn.pri { background: var(--blue); border-color: var(--blue); color: #fff; }
+  .btn.green { background: var(--green); border-color: var(--green); color: #fff; }
+  .btn.red { color: var(--red); border-color: #f7b6b4; }
+  .btn.sm { height: 26px; padding: 0 10px; font-size: 12px; }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .link { border: 0; background: none; color: var(--blue); cursor: pointer; font: inherit; font-size: 12px; padding: 0; }
+  .badge { display: inline-block; border-radius: 4px; padding: 1px 8px; font-size: 12px; white-space: nowrap; }
+  .b-green { background: var(--green-soft); color: var(--green); }
+  .b-yellow { background: var(--yellow-soft); color: #b25e00; }
+  .b-red { background: var(--red-soft); color: var(--red); }
+  .b-blue { background: var(--blue-soft); color: var(--blue); }
+  .b-gray { background: #eff0f1; color: var(--sub); }
+  .src { font-size: 11px; border-radius: 3px; padding: 0 5px; border: 1px solid; white-space: nowrap; }
+  .src-rv { color: #7a4ad6; border-color: #d6c6f5; background: #f6f1ff; }
+  .src-new { color: #c2410c; border-color: #fbcfa8; background: #fff4ea; }
+
+  /* 概览 */
+  .kpis { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; margin-bottom: 12px; }
+  .kpi { background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; }
+  .kpi .k { color: var(--sub); font-size: 12px; }
+  .kpi .v { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .kpi .v small { font-size: 12px; color: var(--sub); font-weight: normal; margin-left: 4px; }
+  @media (max-width: 1000px) { .kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+  .filters { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 8px; }
+  .filters label { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--sub); }
+  .filters input[type=search] { width: 220px; height: 30px; }
+
+  /* 清单 */
+  .grp { margin-bottom: 14px; }
+  .grp-h { display: flex; align-items: baseline; gap: 10px; padding: 4px 2px 6px; }
+  .grp-h b { font-size: 14px; padding-left: 8px; border-left: 4px solid var(--blue); }
+  .tw { background: #fff; border: 1px solid var(--line); border-radius: 8px; overflow: auto; }
+  table.tbl { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+  .tbl th, .tbl td { padding: 7px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: middle; }
+  .tbl tr:last-child td { border-bottom: 0; }
+  .tbl th { color: var(--sub); font-weight: normal; background: #fafbfc; white-space: nowrap; font-size: 12px; position: sticky; top: 0; z-index: 2; }
+  .tbl td.n, .tbl th.n { text-align: right; }
+  .tbl tr.dim td { color: #a0a4aa; }
+  .img { width: 44px; height: 44px; border-radius: 6px; background: #eff0f1; overflow: hidden; display: flex; align-items: center; justify-content: center; color: #a0a4aa; font-size: 10px; flex: none; }
+  .img img { width: 100%; height: 100%; object-fit: cover; }
+  .pcell { display: flex; gap: 10px; align-items: center; min-width: 240px; }
+  .pname { font-weight: 600; line-height: 1.35; max-width: 320px; }
+  .asin { font-family: Consolas, monospace; font-size: 12px; color: var(--sub); }
+  .late { color: var(--red); font-weight: 600; }
+  .soon { color: #b25e00; font-weight: 600; }
+  .note { font-size: 12px; color: var(--sub); max-width: 260px; white-space: normal; }
+  .acts { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .apbox { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .apbox input { height: 26px; width: 180px; font-size: 12px; }
+
+  /* 表单 */
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 12px 16px; align-items: start; }
+  label.f { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--sub); }
+  label.f b { color: var(--red); font-weight: normal; }
+  label.f.wide { grid-column: 1 / -1; }
+  label.f input, label.f select { height: 32px; }
+  label.f textarea { min-height: 72px; resize: vertical; }
+  .hint { font-size: 12px; color: var(--sub); }
+  .calc { display: flex; gap: 18px; flex-wrap: wrap; background: #fafbfc; border: 1px dashed var(--line); border-radius: 8px; padding: 10px 14px; margin: 14px 0; }
+  .calc div { font-size: 12px; color: var(--sub); }
+  .calc b { display: block; font-size: 15px; color: var(--ink); font-variant-numeric: tabular-nums; }
+  .formbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .flow { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; font-size: 12px; color: var(--sub); }
+  .flow span.s { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 1px 10px; color: var(--ink); }
+
+  .savebar { flex: none; display: none; align-items: center; gap: 12px; background: #fff7e8; border: 1px solid #ffd591; border-radius: 8px; padding: 10px 14px; margin-bottom: 10px; }
+  .savebar.show { display: flex; }
+  .toast { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%) translateY(20px); background: rgba(31,35,41,.92); color: #fff; padding: 8px 16px; border-radius: 8px; font-size: 13px; opacity: 0; transition: .2s; pointer-events: none; z-index: 99; }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="tip" id="tallTip" style="display:none">插件框比屏幕还高，往下滑时顶部筛选栏会被滚走。请在应用编辑模式里把这个插件组件的高度拖到一屏以内，页面会改成内部滚动、顶栏固定。</div>
+  <div class="savebar" id="savebar"><span>这是插件的配置预览。确认没问题后点右边按钮，插件才会保存到应用页面上。</span><button class="btn pri" id="saveBtn">保存到页面</button><span class="meta" id="saveMsg"></span></div>
+  <div class="sticky" id="sticky">
+    <div class="bar">
+      <h1>新品立项</h1>
+      <select id="season"></select>
+      <div class="tabs" id="tabs"></div>
+      <div class="who" id="who"></div>
+    </div>
+    <div class="filters" id="filters"></div>
+  </div>
+  <div id="main"><div class="loading">正在读取多维表数据…</div></div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script type="module">
+// ===== ① 页面配置 =====
+const SDK_URLS = [new URL('./sdk/index.mjs', location.href).href,
+  'https://cdn.jsdelivr.net/npm/@lark-base-open/js-sdk@1.0.2/dist/index.mjs',
+  'https://unpkg.com/@lark-base-open/js-sdk@1.0.2/dist/index.mjs'];
+const BASE_TOKEN = 'JGvebyaAYapWtOslxc9cuKYXnwd';   // 灯具组-全流程
+const APPROVER_ID = 'ou_24e3d484ccc9e17e463774309651251a';   // 林键春（立项审批人，用户 11-13 定）
+const STAGES = ['起量期', '爆发期', '高峰期', '消退期', '清仓期'];
+const SEASONS = ['季节品-春季', '季节品-夏季', '季节品-秋季', '季节品-冬季', '节日品-情人节', '节日品-复活节', '节日品-独立日', '节日品-万圣节', '节日品-亡灵节',
+  '节日品-感恩节', '节日品-降临节', '节日品-圣诞节', '节日品-圣诞礼物', '节日品-圣帕特里克节', '节日品-新年', '节日品-母亲节', '节日品-父亲节', '季节品-毕业季', '季节品-返校季'];
+const COUNTRIES = ['美国', '加拿大'];
+// 第一张表 = 本页唯一要写的表，saveConfig 第一条只给它授权；其余表已被别的页面/数据授权页引用
+const TABLES = {
+  lx: { id: 'tblKQoZ70hqzIhC1', name: '季节品立项表', fields: ['立项键', '赛季', '来源', '产品名称', 'SPU', 'ASIN', '领星SKU', '国家文本', '销售季分类', '负责人', '参考竞品ASIN',
+    '首批备货量', '起售日期', '生产时间(天)', '首批海运时间(天)', '立项理由', '立项状态', '审批意见', '审批时间', '开启状态', '创建时间'] },
+  review: { id: 'tblItjbd7BUZgoCH', name: '季节品复盘表', fields: ['行类型', 'ASIN', '国家文本', 'SPU', '品名', '负责人', '销售季分类', '销售年份', '阶段', '上级记录',
+    '明年备货量', '明年起售日期', '生产时间(天)', '首批海运时间(天)', '明年策略', '复盘状态', '审批备货量', '审批意见'] },
+  tgt: { id: 'tblE3XbKD8PUEX7Y', name: '产品目标总表', fields: ['目标键', '计划备货量', '起量期开始'] },
+  pm: { id: 'tblqksywqgYvywOT', name: '产品主表-灯类+精铺', fields: ['ASIN', '国家文本', '品名', 'SPU', '领星SKU', '销售季分类', '图片'] },
+  cal: { id: 'tblxuyiS9rZYiZPW', name: '季节节奏日历', fields: ['对应销售季分类', '销售年份', '国家', '起量期开始', '清仓期结束'], optional: true },
+};
+const NUMS = new Set(['首批备货量', '生产时间(天)', '首批海运时间(天)', '明年备货量', '审批备货量', '计划备货量']);
+const DATES = new Set(['起售日期', '审批时间', '创建时间', '明年起售日期', '起量期开始', '清仓期结束']);
+
+// ===== ② 通用工具 =====
+const $ = (id) => document.getElementById(id);
+const DAY = 86400000, BJ = 8 * 3600000;
+const dn = (ms) => Math.floor((Number(ms) + BJ) / DAY);   // 毫秒 → 北京日期天序号
+const today0 = dn(Date.now());
+const ymd = (n) => new Date(n * DAY).toISOString().slice(0, 10);
+const nToMs = (n) => n * DAY - BJ;                         // 天序号 → 北京 0 点毫秒
+const ymdToN = (s) => { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s || ''); return m ? Math.floor(Date.UTC(+m[1], +m[2] - 1, +m[3]) / DAY) : null; };
+const num = (v) => (v == null || v === '' || isNaN(v)) ? null : Number(v);
+const fmtN = (v) => num(v) == null ? '—' : Number(v).toLocaleString('zh-CN', { maximumFractionDigits: 0 });
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const txt = (v) => String(v ?? '').trim();
+const store = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
+const toast = (m) => { const t = $('toast'); t.textContent = m; t.classList.add('show'); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('show'), 2600); };
+
+function cell(v) {
+  if (v == null) return null;
+  if (typeof v === 'number' || typeof v === 'string' || typeof v === 'boolean') return v;
+  if (Array.isArray(v)) {
+    if (!v.length) return null;
+    if (v.every((x) => x && typeof x === 'object' && 'text' in x && !('id' in x && 'name' in x && !('type' in x)))) return v.map((x) => x.text ?? '').join('');
+    if (v.length === 1) return cell(v[0]);
+    return v.map(cell).join('、');
+  }
+  if (typeof v === 'object') {
+    if ('text' in v) return v.text;
+    if ('name' in v) return v.name;
+    if ('value' in v) return cell(v.value);
+  }
+  return String(v);
+}
+function linkIds(v) {
+  if (!v) return [];
+  if (typeof v === 'string') return v.startsWith('rec') ? [v] : [];
+  if (Array.isArray(v)) return v.flatMap(linkIds);
+  if (typeof v === 'object') {
+    for (const k of ['recordIds', 'record_ids', 'linkRecordIds', 'link_record_ids']) if (Array.isArray(v[k])) return v[k].flatMap(linkIds);
+    for (const k of ['recordId', 'record_id', 'id']) if (typeof v[k] === 'string' && v[k].startsWith('rec')) return [v[k]];
+  }
+  return [];
+}
+function norm(name, v) {
+  if (name === '上级记录') return linkIds(v);
+  if (name === '图片') return Array.isArray(v) ? v.filter((x) => x && typeof x === 'object' && x.token) : [];
+  if (DATES.has(name)) return typeof v === 'number' ? v : (v ? Date.parse(v) : null);
+  const c = cell(v);
+  return NUMS.has(name) ? num(c) : c;
+}
+
+let SDK = null, SNAP = null;
+const TBLS = {}, FMETA = {};
+async function readTable(key) {
+  const cfg = TABLES[key];
+  const table = await SDK.bitable.base.getTableById(cfg.id);
+  const fields = await table.getFieldMetaList();
+  const byName = Object.fromEntries(fields.map((f) => [f.name, f]));
+  const missing = cfg.fields.filter((w) => !byName[w]);
+  if (missing.length) console.warn(`表 ${cfg.name} 缺字段：`, missing);
+  TBLS[key] = table; FMETA[key] = byName;
+  const rows = [];
+  let pageToken;
+  for (let guard = 0; guard < 500; guard++) {
+    const res = await table.getRecordsByPage({ pageSize: 200, pageToken });
+    for (const r of res.records) {
+      const o = { _id: r.recordId };
+      for (const w of cfg.fields) if (byName[w]) o[w] = norm(w, r.fields[byName[w].id]);
+      rows.push(o);
+    }
+    $('who').textContent = `正在读取 ${cfg.name}… ${rows.length} 行`;
+    if (!res.hasMore) break;
+    pageToken = res.pageToken;
+  }
+  return rows;
+}
+
+// 写立项表：按字段名给值，select 换成 {id,text}，文本换成段落
+function encode(obj) {
+  const out = {};
+  for (const [name, v] of Object.entries(obj)) {
+    const m = FMETA.lx[name];
+    if (!m) throw new Error(`立项表没有字段「${name}」（被改名或删了？）`);
+    if (v == null || v === '') { out[m.id] = null; continue; }
+    if (m.type === 3 || m.type === 'SingleSelect') {
+      const op = (m.property?.options || []).find((o) => o.name === v);
+      if (!op) throw new Error(`字段「${name}」没有选项「${v}」`);
+      out[m.id] = { id: op.id, text: op.name };
+    } else if (m.type === 1 || m.type === 'Text') out[m.id] = [{ type: 'text', text: String(v) }];
+    else out[m.id] = v;
+  }
+  return out;
+}
+const withTimeout = (p, ms, what) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error(`${what}超时`)), ms))]);
+async function writeLx(id, obj) {
+  if (!SNAP) await withTimeout(TBLS.lx.setRecord(id, { fields: encode(obj) }), 15000, '写表');
+  Object.assign(DATA.lx.find((r) => r._id === id), obj);
+}
+async function addLx(obj) {
+  let id = 'local' + Math.random().toString(36).slice(2, 8);
+  if (!SNAP) id = await withTimeout(TBLS.lx.addRecord({ fields: encode(obj) }), 15000, '写表');
+  DATA.lx.push({ _id: id, ...obj, 创建时间: Date.now() });
+  return id;
+}
+async function delLx(id) {
+  if (!SNAP) await withTimeout(TBLS.lx.deleteRecord(id), 15000, '删除');
+  DATA.lx = DATA.lx.filter((r) => r._id !== id);
+}
+
+// ===== ③ 数据整理 =====
+let DATA = {};
+const ME = { ids: [] };
+const state = { season: store.get('lx.season') || '', tab: 'list', cls: 'all', stf: 'all', owner: store.get('lx.owner') || 'all', src: 'all', q: '', showDrop: false,
+                role: new URLSearchParams(location.search).get('as') === 'member' ? 'member' : 'approver', edit: null };
+const isApprover = () => SNAP ? state.role === 'approver' : ME.ids.includes(APPROVER_ID);
+async function whoAmI() {
+  for (const f of ['getUserId', 'getBaseUserId']) {
+    try { const id = await withTimeout(SDK.bitable.bridge[f](), 5000, f); if (id && !ME.ids.includes(id)) ME.ids.push(id); }
+    catch (e) { console.warn(f, e); }
+  }
+}
+
+let ITEMS = [];
+const pmKey = (a, c) => `${a}|${c}`;
+let PM = {}, CAL = {}, TGT = new Set(), OWNERS = [];
+function build() {
+  PM = {};
+  for (const p of DATA.pm || []) if (p['ASIN']) for (const c of String(p['国家文本'] || '').split(/[、,]/)) PM[pmKey(p['ASIN'], c.trim())] ||= p;
+  CAL = {};
+  for (const c of DATA.cal || []) CAL[`${c['对应销售季分类']}|${c['销售年份']}|${c['国家']}`] = c;
+  TGT = new Set((DATA.tgt || []).map((t) => t['目标键']));
+  const rv = DATA.review || [];
+  const kids = {};
+  for (const r of rv) if (r['行类型'] === '阶段') for (const p of r['上级记录'] || []) (kids[p] ||= []).push(r);
+  ITEMS = [];
+  for (const p of rv.filter((r) => r['行类型'] === 'ASIN')) {
+    const yr = Number(p['销售年份']);
+    if (!yr) continue;
+    let stk = null;
+    for (const k of kids[p._id] || []) { const v = num(k['明年备货量']); if (v != null) stk = (stk || 0) + v; }
+    const qty = num(p['审批备货量']) ?? stk;
+    const st = p['复盘状态'] || '未提交';
+    const season = String(yr + 1);
+    ITEMS.push({ src: 'rv', id: p._id, season, name: p['品名'] || p['SPU'] || p['ASIN'], spu: p['SPU'], asin: p['ASIN'], country: p['国家文本'],
+      cls: p['销售季分类'] || '（无分类）', owner: p['负责人'] || '（未填）', qty, sale: p['明年起售日期'] != null ? dn(p['明年起售日期']) : null,
+      prod: num(p['生产时间(天)']), ship: num(p['首批海运时间(天)']), reason: p['明年策略'], st, comment: p['审批意见'],
+      opened: TGT.has(`${p['ASIN']}|${p['国家文本']}|${season}`), pm: PM[pmKey(p['ASIN'], p['国家文本'])] });
+  }
+  for (const r of DATA.lx || []) {
+    ITEMS.push({ src: 'new', id: r._id, rec: r, season: txt(r['赛季']), name: r['产品名称'], spu: r['SPU'], asin: r['ASIN'], sku: r['领星SKU'], country: r['国家文本'],
+      cls: r['销售季分类'] || '（无分类）', owner: r['负责人'] || '（未填）', qty: num(r['首批备货量']), sale: r['起售日期'] != null ? dn(r['起售日期']) : null,
+      prod: num(r['生产时间(天)']), ship: num(r['首批海运时间(天)']), reason: r['立项理由'], st: r['立项状态'] || '草稿', comment: r['审批意见'],
+      openNote: r['开启状态'], opened: !!(r['ASIN'] && TGT.has(`${r['ASIN']}|${r['国家文本']}|${txt(r['赛季'])}`)), pm: r['ASIN'] ? PM[pmKey(r['ASIN'], r['国家文本'])] : null });
+  }
+  OWNERS = [...new Set([...ITEMS.map((x) => x.owner).filter((o) => o && o !== '（未填）')])].sort();
+  const seasons = [...new Set(ITEMS.map((x) => x.season).filter(Boolean).concat(['2027', String(new Date().getFullYear() + 1)]))].sort();
+  if (!seasons.includes(state.season)) state.season = seasons.includes('2027') ? '2027' : seasons[seasons.length - 1];
+  $('season').innerHTML = seasons.map((y) => `<option value="${esc(y)}"${y === state.season ? ' selected' : ''}>${esc(y)} 赛季</option>`).join('');
+}
+
+// 下单日 = 起售日 − 首批海运 − 生产；剩余天数 = 下单日 − 今天
+const orderDay = (x) => (x.sale != null && x.ship != null && x.prod != null) ? x.sale - x.ship - x.prod : null;
+
+// 状态：老品看复盘审批，新品看立项审批；dropped = 不进赛季（不再做/Drop），默认隐藏
+function status(x) {
+  if (x.src === 'rv') {
+    if (x.st === '已通过') return x.opened ? ['已开启', 'b-green'] : ['复盘已通过 · 今晚开启', 'b-green'];
+    if (x.st === '待审批') return ['复盘待审批', 'b-yellow'];
+    if (x.st === '不再做') return ['不再做', 'b-red'];
+    if (x.st === '已驳回') return ['复盘被驳回', 'b-gray'];
+    return ['复盘未提交', 'b-gray'];
+  }
+  if (x.st === 'Go') return x.opened ? ['已开启', 'b-green'] : ['Go · 待开启', 'b-green'];
+  return { '草稿': ['草稿', 'b-gray'], '待审批': ['立项待审批', 'b-yellow'], '已驳回': ['已驳回', 'b-red'], 'Watch': ['Watch 观察', 'b-blue'], 'Drop': ['Drop', 'b-red'] }[x.st] || [x.st, 'b-gray'];
+}
+const dropped = (x) => (x.src === 'rv' && x.st === '不再做') || (x.src === 'new' && x.st === 'Drop');
+const inSeason = (x) => (x.src === 'rv' && x.st === '已通过') || (x.src === 'new' && x.st === 'Go');
+const pending = (x) => x.st === '待审批';
+
+function scope() { return ITEMS.filter((x) => x.season === state.season); }
+function pass(x) {
+  if (state.cls !== 'all' && x.cls !== state.cls) return false;
+  if (state.owner !== 'all' && x.owner !== state.owner) return false;
+  if (state.src !== 'all' && x.src !== state.src) return false;
+  const stf = state.tab === 'pend' ? 'all' : state.stf;   // 待审批页签本身就是筛选
+  if (stf === 'in' && !inSeason(x)) return false;
+  if (stf === 'pend' && !pending(x)) return false;
+  if (stf === 'todo' && (inSeason(x) || pending(x) || dropped(x))) return false;
+  if (!state.showDrop && dropped(x)) return false;
+  if (state.q) { const q = state.q.toLowerCase(); if (![x.name, x.spu, x.asin, x.sku].some((v) => String(v || '').toLowerCase().includes(q))) return false; }
+  return true;
+}
+
+// ===== ④ 渲染 =====
+function renderTop() {
+  const S = scope(), app = isApprover();
+  const nPend = S.filter((x) => x.src === 'new' && pending(x)).length;
+  $('tabs').innerHTML = [['list', '赛季清单'], ['pend', `待审批${nPend ? `<span class="num">${nPend}</span>` : ''}`], ['new', state.edit ? '编辑新品' : '+ 新建新品']]
+    .map(([k, l]) => `<button data-tab="${k}" class="${state.tab === k ? 'on' : ''}">${l}</button>`).join('');
+  $('who').innerHTML = SNAP ? `本地预览 · 身份 <span class="seg"><button data-role="approver" class="${state.role === 'approver' ? 'on' : ''}">林键春</button><button data-role="member" class="${state.role === 'member' ? 'on' : ''}">组员</button></span>`
+    : (app ? '你是审批人（林键春）' : (ME.ids.length ? '组员视角：可新建、提交；审批由林键春' : '没认出身份：只能新建和提交'));
+  if (state.tab === 'new') { $('filters').innerHTML = ''; return; }
+  const clsList = [...new Set(S.map((x) => x.cls))].sort((a, b) => SEASONS.indexOf(a) - SEASONS.indexOf(b));
+  $('filters').innerHTML = `
+    <label>季节<select id="fCls"><option value="all">全部</option>${clsList.map((c) => `<option${c === state.cls ? ' selected' : ''}>${esc(c)}</option>`).join('')}</select></label>
+    <label>负责人<select id="fOwner"><option value="all">全部</option>${[...new Set(S.map((x) => x.owner))].sort().map((c) => `<option${c === state.owner ? ' selected' : ''}>${esc(c)}</option>`).join('')}</select></label>
+    <label${state.tab === 'pend' ? ' style="display:none"' : ''}>进度<select id="fSt">${[['all', '全部'], ['in', '已进赛季'], ['pend', '审批中'], ['todo', '未完成（复盘未交 / 草稿 / 驳回 / Watch）']].map(([k, l]) => `<option value="${k}"${state.stf === k ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
+    <span class="seg" id="fSrc">${[['all', '全部来源'], ['rv', '复盘老品'], ['new', '新品']].map(([k, l]) => `<button data-src="${k}" class="${state.src === k ? 'on' : ''}">${l}</button>`).join('')}</span>
+    <input type="search" id="fQ" placeholder="搜 品名 / SPU / ASIN / SKU" value="${esc(state.q)}">
+    <label><input type="checkbox" id="fDrop"${state.showDrop ? ' checked' : ''}>显示不再做 / Drop</label>`;
+}
+
+function kpis(S) {
+  const rvPass = S.filter((x) => x.src === 'rv' && x.st === '已通过'), newGo = S.filter((x) => x.src === 'new' && x.st === 'Go');
+  const rvPend = S.filter((x) => x.src === 'rv' && x.st === '待审批').length, rvTodo = S.filter((x) => x.src === 'rv' && ['未提交', '已驳回'].includes(x.st)).length;
+  const newPend = S.filter((x) => x.src === 'new' && ['草稿', '待审批', '已驳回', 'Watch'].includes(x.st)).length;
+  const go = [...rvPass, ...newGo], qty = go.reduce((t, x) => t + (x.qty || 0), 0), opened = go.filter((x) => x.opened).length;
+  return `<div class="kpis">
+    <div class="kpi"><div class="k">进入 ${esc(state.season)} 赛季</div><div class="v">${go.length}<small>行（ASIN×国家）</small></div></div>
+    <div class="kpi"><div class="k">其中已开启（目标行已建）</div><div class="v">${opened}<small>/ ${go.length}</small></div></div>
+    <div class="kpi"><div class="k">首批备货合计</div><div class="v">${fmtN(qty)}<small>件</small></div></div>
+    <div class="kpi"><div class="k">复盘老品：已通过 / 待审批 / 未完成</div><div class="v">${rvPass.length}<small>/ ${rvPend} / ${rvTodo}</small></div></div>
+    <div class="kpi"><div class="k">新品：Go / 进行中</div><div class="v">${newGo.length}<small>/ ${newPend}</small></div></div>
+    <div class="kpi"><div class="k">最晚下单日已过（未开启）</div><div class="v" style="color:var(--red)">${S.filter((x) => !dropped(x) && !x.opened && orderDay(x) != null && orderDay(x) < today0).length}</div></div>
+  </div>`;
+}
+
+function rowHtml(x, mode) {
+  const [stT, stC] = status(x), od = orderDay(x), left = od != null ? od - today0 : null;
+  const odH = od == null ? '<span class="meta">—</span>' : `${ymd(od)}<div class="${left < 0 ? 'late' : left <= 14 ? 'soon' : 'meta'}" style="font-size:11.5px">${left < 0 ? `已过 ${-left} 天` : `还剩 ${left} 天`}</div>`;
+  const img = `<div class="img" data-img="${esc(x.id)}">${x.pm && x.pm['图片'] && x.pm['图片'].length ? '…' : (x.src === 'new' ? '新品' : '无图')}</div>`;
+  const ids = [x.asin ? `<span class="asin">${esc(x.asin)}</span>` : '<span class="meta">ASIN 待补</span>', esc(x.country || '—'), x.spu ? esc(x.spu) : ''].filter(Boolean).join(' · ');
+  let note = '';
+  if (x.src === 'new' && x.openNote) note = x.openNote;
+  else if (x.src === 'new' && x.st === 'Go' && !x.opened) note = !x.asin || !x.sku ? '补齐 ASIN 和领星SKU 后，当晚开启' : (x.pm ? '今晚 X21 开启' : '产品主表还没有这个 ASIN×国家，先去产品主表建');
+  if (x.comment) note = (note ? note + '；' : '') + '审批：' + x.comment;
+  return `<tr class="${dropped(x) ? 'dim' : ''}">
+    <td><div class="pcell">${img}<div><div class="pname">${esc(x.name || '（未命名）')} <span class="src ${x.src === 'rv' ? 'src-rv' : 'src-new'}">${x.src === 'rv' ? '复盘老品' : '新品'}</span></div><div class="meta">${ids}</div></div></div></td>
+    <td>${esc(x.owner)}</td>
+    <td class="n">${fmtN(x.qty)}</td>
+    <td>${x.sale != null ? ymd(x.sale) : '<span class="meta">—</span>'}</td>
+    <td class="n">${x.prod != null ? x.prod : '—'} / ${x.ship != null ? x.ship : '—'}</td>
+    <td>${odH}</td>
+    <td><span class="badge ${stC}">${esc(stT)}</span></td>
+    <td><div class="note" title="${esc(x.reason || '')}">${x.reason ? esc(String(x.reason).slice(0, 60)) + (String(x.reason).length > 60 ? '…' : '') : ''}${note ? `<div style="color:#b25e00">${esc(note)}</div>` : ''}</div></td>
+    <td>${actions(x, mode)}</td>
+  </tr>`;
+}
+
+function missing(r) {
+  const m = [];
+  for (const f of ['产品名称', '国家文本', '销售季分类', '负责人', '立项理由']) if (!txt(r[f])) m.push(f);
+  for (const f of ['首批备货量', '生产时间(天)', '首批海运时间(天)']) if (num(r[f]) == null) m.push(f);
+  if (r['起售日期'] == null) m.push('起售日期');
+  return m;
+}
+
+function actions(x, mode) {
+  if (x.src === 'rv') return x.st === '待审批' ? '<span class="meta">在「季节品复盘」页的明年行动清单审批</span>' : '';
+  const app = isApprover(), id = esc(x.id), b = [];
+  if (['草稿', '已驳回', 'Watch'].includes(x.st)) {
+    b.push(`<button class="btn sm" data-act="edit" data-id="${id}">编辑</button>`);
+    b.push(`<button class="btn sm pri" data-act="submit" data-id="${id}">提交审批</button>`);
+    if (x.st === '草稿') b.push(`<button class="btn sm red" data-act="del" data-id="${id}">删除</button>`);
+  }
+  if (x.st === '待审批' && !app) b.push(`<button class="btn sm" data-act="withdraw" data-id="${id}">撤回</button>`);
+  if (x.st === 'Go' && (!x.asin || !x.sku)) b.push(`<button class="btn sm pri" data-act="edit" data-id="${id}">补 ASIN / SKU</button>`);
+  if (app && x.st === '待审批') {
+    return `<div class="apbox"><input id="ac-${id}" placeholder="审批意见（驳回 / Drop 必填）">
+      <button class="btn sm green" data-act="go" data-id="${id}">Go</button><button class="btn sm" data-act="watch" data-id="${id}">Watch</button>
+      <button class="btn sm red" data-act="drop" data-id="${id}">Drop</button><button class="btn sm" data-act="reject" data-id="${id}">驳回</button></div>`;
+  }
+  if (app && ['Go', 'Drop'].includes(x.st)) b.push(`<button class="btn sm" data-act="back" data-id="${id}">退回修改</button>`);
+  return `<div class="acts">${b.join('')}</div>`;
+}
+
+function listView(items, mode) {
+  if (!items.length) return `<div class="card empty">${mode === 'pend' ? '没有待审批的新品' : '这个赛季还没有产品。复盘页审批通过的老品会自动出现在这里；新品点上面「+ 新建新品」。'}</div>`;
+  const groups = {};
+  for (const x of items) (groups[x.cls] ||= []).push(x);
+  const order = Object.keys(groups).sort((a, b) => (SEASONS.indexOf(a) + 1 || 99) - (SEASONS.indexOf(b) + 1 || 99));
+  const rank = (x) => dropped(x) ? 9 : inSeason(x) ? 0 : pending(x) ? 1 : 2;
+  return order.map((c) => {
+    const l = groups[c].sort((a, b) => rank(a) - rank(b) || (a.sale ?? 1e9) - (b.sale ?? 1e9) || String(a.name).localeCompare(String(b.name)));
+    const go = l.filter(inSeason), qty = go.reduce((t, x) => t + (x.qty || 0), 0);
+    return `<div class="grp"><div class="grp-h"><b>${esc(c)}</b><span class="meta">${l.length} 行 · 进赛季 ${go.length} · 首批备货 ${fmtN(qty)} 件</span></div>
+      <div class="tw"><table class="tbl"><thead><tr><th>产品</th><th>负责人</th><th class="n">首批备货</th><th>起售日</th><th class="n">生产/海运(天)</th><th>最晚下单日</th><th>状态</th><th>立项理由 / 备注</th><th>操作</th></tr></thead>
+      <tbody>${l.map((x) => rowHtml(x, mode)).join('')}</tbody></table></div></div>`;
+  }).join('');
+}
+
+function render() {
+  renderTop();
+  if (state.tab === 'new') { renderForm(); return; }
+  const S = scope();
+  if (state.tab === 'pend') {
+    const l = S.filter((x) => pending(x)).filter(pass);
+    $('main').innerHTML = `<div class="card"><div class="flow">流程：<span class="s">新建（草稿）</span>→<span class="s">提交审批</span>→<span class="s">林键春 Go / Watch / Drop / 驳回</span>→<span class="s">Go 且 ASIN、SKU 齐 → 当晚建 ${esc(state.season)} 目标行、战役行</span></div>
+      <div class="hint" style="margin-top:6px">复盘老品的审批在「季节品复盘」页的明年行动清单里做；这里只列出来提醒。</div></div>` + listView(l, 'pend');
+  } else {
+    $('main').innerHTML = kpis(S) + listView(S.filter(pass), 'list');
+  }
+  loadImgs();
+}
+
+// ===== ⑤ 新建 / 编辑新品 =====
+let FORM = null;
+function blankForm() {
+  return { 赛季: state.season, 来源: '新品', 产品名称: '', SPU: '', ASIN: '', 领星SKU: '', 国家: ['美国'], 销售季分类: '', 负责人: state.owner !== 'all' ? state.owner : '',
+           参考竞品ASIN: '', 首批备货量: null, 起售日期: null, '生产时间(天)': null, '首批海运时间(天)': null, 立项理由: '' };
+}
+function openForm(id) {
+  if (id) {
+    const r = DATA.lx.find((x) => x._id === id);
+    FORM = { ...r, 国家: [r['国家文本'] || '美国'] };
+    state.edit = id;
+  } else { FORM = blankForm(); state.edit = null; }
+  state.tab = 'new';
+  render();
+}
+function calRow(f, c) { return CAL[`${f['销售季分类']}|${f['赛季']}|${c || (f['国家'] || [])[0] || '美国'}`]; }
+function renderForm() {
+  if (!FORM) FORM = blankForm();
+  const f = FORM, locked = state.edit && DATA.lx.find((x) => x._id === state.edit)?.['立项状态'] === 'Go';
+  const ro = locked ? 'disabled' : '';
+  const cal = calRow(f), calStart = cal && cal['起量期开始'] != null ? dn(cal['起量期开始']) : null;
+  const sale = f['起售日期'] != null ? dn(f['起售日期']) : null;
+  const od = sale != null && num(f['首批海运时间(天)']) != null && num(f['生产时间(天)']) != null ? sale - num(f['首批海运时间(天)']) - num(f['生产时间(天)']) : null;
+  const pmHit = f.ASIN ? (f['国家'] || []).map((c) => PM[pmKey(f.ASIN.trim(), c)]).filter(Boolean)[0] : null;
+  const opt = (list, v) => list.map((x) => `<option${x === v ? ' selected' : ''}>${esc(x)}</option>`).join('');
+  $('main').innerHTML = `<div class="card">
+    <h3>${state.edit ? (locked ? '补 ASIN / 领星SKU' : '编辑新品') : '新建新品'} <small>${esc(f['赛季'])} 赛季 · 新品不在复盘表里，只能在这里建；提交后由林键春审批</small></h3>
+    ${locked ? '<div class="tip">已 Go：只能补 ASIN、领星SKU、SPU。要改别的内容请林键春「退回修改」。</div>' : ''}
+    <div class="grid">
+      <label class="f">产品名称 <b>*</b><input data-f="产品名称" value="${esc(f['产品名称'])}" ${ro} placeholder="如 南瓜灯串 暖光 10 灯"></label>
+      <label class="f">销售季分类 <b>*</b><select data-f="销售季分类" ${ro}><option value="">请选择</option>${opt(SEASONS, f['销售季分类'])}</select></label>
+      <label class="f">国家 <b>*</b><span class="seg" id="ctySeg">${COUNTRIES.map((c) => `<button type="button" data-cty="${c}" class="${(f['国家'] || []).includes(c) ? 'on' : ''}" ${ro || (state.edit ? 'disabled' : '')}>${c}</button>`).join('')}</span>
+        <span class="hint">${state.edit ? '国家建好后不能改' : '两国都选会建两行，各自审批'}</span></label>
+      <label class="f">负责人 <b>*</b><input data-f="负责人" list="ownerList" value="${esc(f['负责人'])}" ${ro}><datalist id="ownerList">${OWNERS.map((o) => `<option value="${esc(o)}">`).join('')}</datalist></label>
+      <label class="f">首批备货量（件） <b>*</b><input data-f="首批备货量" inputmode="numeric" value="${f['首批备货量'] ?? ''}" ${ro}></label>
+      <label class="f">起售日期 <b>*</b><input type="date" data-f="起售日期" value="${sale != null ? ymd(sale) : ''}" ${ro}>
+        <span class="hint">${calStart != null ? `节奏日历起量期开始：${ymd(calStart)} <button type="button" class="link" id="useCal" ${ro}>用这个</button>` : (f['销售季分类'] ? '节奏日历没有这个季节/赛季' : '选了季节后显示日历起量日')}</span></label>
+      <label class="f">生产时间（天） <b>*</b><input data-f="生产时间(天)" inputmode="numeric" value="${f['生产时间(天)'] ?? ''}" ${ro}></label>
+      <label class="f">首批海运时间（天） <b>*</b><input data-f="首批海运时间(天)" inputmode="numeric" value="${f['首批海运时间(天)'] ?? ''}" ${ro}></label>
+      <label class="f">ASIN <span class="hint">（可后补；开启赛季前必须有）</span><input data-f="ASIN" value="${esc(f['ASIN'])}" placeholder="B0…">
+        <span class="hint">${f.ASIN ? (pmHit ? `产品主表有：${esc(pmHit['品名'] || '')} ${pmHit['销售季分类'] ? '· ' + esc(pmHit['销售季分类']) : ''} <button type="button" class="link" id="usePm">带入 SPU/SKU</button>` : '<span style="color:#b25e00">产品主表还没有这个 ASIN×国家，开启前要先在产品主表建</span>') : ''}</span></label>
+      <label class="f">领星SKU <span class="hint">（可后补）</span><input data-f="领星SKU" value="${esc(f['领星SKU'])}"></label>
+      <label class="f">SPU<input data-f="SPU" value="${esc(f['SPU'])}"></label>
+      <label class="f">参考竞品 ASIN<input data-f="参考竞品ASIN" value="${esc(f['参考竞品ASIN'])}" ${ro} placeholder="多个用空格隔开"></label>
+      <label class="f wide">立项理由 <b>*</b><textarea data-f="立项理由" ${ro} placeholder="为什么做：需求 / 差异化 / 利润 / 风险 / 卖不完怎么处理">${esc(f['立项理由'])}</textarea></label>
+    </div>
+    <div class="calc">
+      <div>最晚下单日<b class="${od != null && od < today0 ? 'late' : ''}">${od != null ? ymd(od) : '—'}</b></div>
+      <div>距今<b class="${od != null && od < today0 ? 'late' : ''}">${od != null ? (od < today0 ? `已过 ${today0 - od} 天` : `${od - today0} 天`) : '—'}</b></div>
+      <div>算法<b style="font-size:12.5px;font-weight:normal">起售日 − 首批海运 − 生产</b></div>
+    </div>
+    <div class="formbar">
+      ${locked ? '<button class="btn pri" id="fSave">保存</button>' : `<button class="btn" id="fSave">存草稿</button><button class="btn pri" id="fSubmit">保存并提交审批</button>`}
+      <button class="btn" id="fCancel">取消</button><span class="meta" id="fMsg"></span>
+    </div></div>`;
+}
+function readForm() {
+  for (const el of $('main').querySelectorAll('[data-f]')) {
+    const k = el.dataset.f;
+    if (el.disabled) continue;
+    if (k === '起售日期') { const n = ymdToN(el.value); FORM[k] = n == null ? null : nToMs(n); }
+    else if (NUMS.has(k)) { const v = el.value.trim().replace(/[,，]/g, ''); FORM[k] = v === '' ? null : Number(v); }
+    else FORM[k] = el.value.trim();
+  }
+}
+async function saveForm(submit) {
+  readForm();
+  const f = FORM, msg = (m) => { $('fMsg').textContent = m; };
+  for (const k of ['首批备货量', '生产时间(天)', '首批海运时间(天)']) if (f[k] != null && !(f[k] >= 0)) { msg(`${k}要填数字`); return; }
+  if (!txt(f['产品名称'])) { msg('产品名称必填'); return; }
+  const ctys = f['国家'] || [];
+  if (!ctys.length) { msg('选一个国家'); return; }
+  const rows = ctys.map((c) => {
+    const r = { 赛季: f['赛季'], 来源: '新品', 产品名称: txt(f['产品名称']), SPU: txt(f.SPU), ASIN: txt(f.ASIN).toUpperCase(), 领星SKU: txt(f['领星SKU']), 国家文本: c,
+      销售季分类: f['销售季分类'] || null, 负责人: txt(f['负责人']), 参考竞品ASIN: txt(f['参考竞品ASIN']), 首批备货量: f['首批备货量'], 起售日期: f['起售日期'],
+      '生产时间(天)': f['生产时间(天)'], '首批海运时间(天)': f['首批海运时间(天)'], 立项理由: txt(f['立项理由']) };
+    r['立项键'] = `新品|${r['产品名称']}|${c}|${r['赛季']}`;
+    return r;
+  });
+  if (submit) { const m = missing(rows[0]); if (m.length) { msg('提交前要填：' + m.join('、')); return; } }
+  const dup = rows.find((r) => DATA.lx.some((x) => x['立项键'] === r['立项键'] && x._id !== state.edit));
+  if (dup) { msg(`已经有「${dup['产品名称']} · ${dup['国家文本']}」这一行了，换个名字或去清单里编辑`); return; }
+  $('main').querySelectorAll('.formbar button').forEach((b) => { b.disabled = true; });
+  msg('保存中…');
+  try {
+    if (state.edit) {
+      const cur = DATA.lx.find((x) => x._id === state.edit);
+      const locked = cur['立项状态'] === 'Go';
+      const patch = locked ? { ASIN: rows[0].ASIN, 领星SKU: rows[0]['领星SKU'], SPU: rows[0].SPU, 开启状态: null } : { ...rows[0], 国家文本: cur['国家文本'], 立项键: `新品|${rows[0]['产品名称']}|${cur['国家文本']}|${rows[0]['赛季']}` };
+      if (submit) patch['立项状态'] = '待审批';
+      await writeLx(state.edit, patch);
+    } else {
+      for (const r of rows) await addLx({ ...r, 立项状态: submit ? '待审批' : '草稿' });
+    }
+    toast(SNAP ? '本地预览：已保存（未写回）' : (submit ? '已提交，等林键春审批' : '已保存'));
+    FORM = null; state.edit = null; state.tab = submit ? 'pend' : 'list';
+    build(); render();
+  } catch (e) {
+    msg('保存失败：' + (e && e.message ? e.message : e));
+    $('main').querySelectorAll('.formbar button').forEach((b) => { b.disabled = false; });
+  }
+}
+
+// ===== ⑥ 审批 / 状态 =====
+async function act(kind, id) {
+  const r = DATA.lx.find((x) => x._id === id);
+  if (!r) return;
+  if (kind === 'edit') { openForm(id); return; }
+  const c = $('ac-' + id), comment = c ? c.value.trim() : '', now = Date.now();
+  if (kind === 'submit') { const m = missing(r); if (m.length) { toast('提交前要填：' + m.join('、')); return; } }
+  if (['reject', 'drop'].includes(kind) && !comment) { toast('驳回 / Drop 要写审批意见'); c && c.focus(); return; }
+  if (kind === 'del' && !confirm(`删除草稿「${r['产品名称']} · ${r['国家文本']}」？删除后不能恢复。`)) return;
+  if (kind === 'back' && !confirm('退回修改：状态改成「已驳回」让运营改。已建好的目标行、战役行不会自动删，要改到目标填写页。继续？')) return;
+  const P = {
+    submit: { 立项状态: '待审批' }, withdraw: { 立项状态: '草稿' },
+    go: { 立项状态: 'Go', 审批意见: comment || null, 审批时间: now, 开启状态: null },
+    watch: { 立项状态: 'Watch', 审批意见: comment || null, 审批时间: now },
+    drop: { 立项状态: 'Drop', 审批意见: comment, 审批时间: now },
+    reject: { 立项状态: '已驳回', 审批意见: comment, 审批时间: now },
+    back: { 立项状态: '已驳回', 审批意见: '退回修改' },
+  }[kind];
+  try {
+    if (kind === 'del') await delLx(id); else await writeLx(id, P);
+    toast(SNAP ? '本地预览：已改（未写回）' : '已保存');
+    build(); render();
+  } catch (e) { toast('保存失败：' + (e && e.message ? e.message : e)); }
+}
+
+// ===== ⑦ 事件 =====
+document.addEventListener('click', (e) => {
+  const t = e.target.closest('button, input[type=checkbox]');
+  if (!t) return;
+  if (t.dataset.tab) { if (t.dataset.tab === 'new' && state.tab !== 'new') { FORM = null; state.edit = null; } state.tab = t.dataset.tab; render(); return; }
+  if (t.dataset.role) { state.role = t.dataset.role; render(); return; }
+  if (t.dataset.src) { state.src = t.dataset.src; render(); return; }
+  if (t.id === 'fDrop') { state.showDrop = t.checked; render(); return; }
+  if (t.dataset.act) { act(t.dataset.act, t.dataset.id); return; }
+  if (t.dataset.cty) { readForm(); const l = FORM['国家'] || []; FORM['国家'] = l.includes(t.dataset.cty) ? l.filter((x) => x !== t.dataset.cty) : [...l, t.dataset.cty]; renderForm(); return; }
+  if (t.id === 'useCal') { readForm(); const c = calRow(FORM); if (c) FORM['起售日期'] = nToMs(dn(c['起量期开始'])); renderForm(); return; }
+  if (t.id === 'usePm') { readForm(); const p = (FORM['国家'] || []).map((c) => PM[pmKey(FORM.ASIN.trim(), c)]).filter(Boolean)[0];
+    if (p) { FORM.SPU = FORM.SPU || p['SPU'] || ''; FORM['领星SKU'] = FORM['领星SKU'] || p['领星SKU'] || ''; if (!FORM['产品名称']) FORM['产品名称'] = p['品名'] || ''; if (!FORM['销售季分类'] && SEASONS.includes(p['销售季分类'])) FORM['销售季分类'] = p['销售季分类']; }
+    renderForm(); return; }
+  if (t.id === 'fSave') { saveForm(false); return; }
+  if (t.id === 'fSubmit') { saveForm(true); return; }
+  if (t.id === 'fCancel') { FORM = null; state.edit = null; state.tab = 'list'; render(); return; }
+});
+document.addEventListener('change', (e) => {
+  const t = e.target;
+  if (t.id === 'season') { state.season = t.value; store.set('lx.season', t.value); state.cls = 'all'; FORM = null; render(); return; }
+  if (t.id === 'fCls') { state.cls = t.value; render(); return; }
+  if (t.id === 'fSt') { state.stf = t.value; render(); return; }
+  if (t.id === 'fOwner') { state.owner = t.value; store.set('lx.owner', t.value); render(); return; }
+  if (t.dataset && t.dataset.f && ['销售季分类', '起售日期', '生产时间(天)', '首批海运时间(天)', 'ASIN'].includes(t.dataset.f)) { readForm(); renderForm(); }
+});
+document.addEventListener('input', (e) => {
+  if (e.target.id === 'fQ') { state.q = e.target.value.trim(); clearTimeout(window._qh); window._qh = setTimeout(() => { const pos = e.target.selectionStart; render(); const q = $('fQ'); if (q) { q.focus(); q.setSelectionRange(pos, pos); } }, 250); }
+});
+
+// ===== ⑧ 图片（产品主表附件，按需取临时链接）=====
+async function loadImgs() {
+  for (const box of $('main').querySelectorAll('[data-img]')) {
+    const x = ITEMS.find((i) => i.id === box.dataset.img);
+    const att = x && x.pm && x.pm['图片'];
+    if (!att || !att.length) continue;
+    if (x.pm._imgData) { box.innerHTML = `<img src="${esc(x.pm._imgData)}" alt="">`; continue; }
+    if (SNAP) continue;
+    try {
+      if (!x.pm._url) { const u = await TBLS.pm.getCellAttachmentUrls([att[0].token], FMETA.pm['图片'].id, x.pm._id); x.pm._url = u && u[0]; }
+      if (x.pm._url) box.innerHTML = `<img src="${esc(x.pm._url)}" alt="">`;
+    } catch (e) { box.textContent = '图未取到'; }
+  }
+}
+
+// ===== ⑨ 保存插件配置（硬规矩①②）=====
+function setupSave() {
+  const dash = SDK && SDK.dashboard;
+  let st = '';
+  try { st = dash && dash.state; } catch (e) { st = '读取失败'; }
+  $('saveMsg').textContent = `（插件状态：${st || '未知'}）`;
+  if (dash && typeof dash.saveConfig === 'function' && st !== 'View' && st !== 'FullScreen') {
+    $('savebar').classList.add('show');
+    $('saveBtn').onclick = async () => {
+      $('saveBtn').disabled = true; $('saveMsg').textContent = '保存中…';
+      try {
+        // 应用只认第一条 dataCondition 给授权 → 立项表放第一；其余表靠「数据授权」页的原生组件
+        const ok = await dash.saveConfig({
+          dataConditions: Object.values(TABLES).map((t) => ({ tableId: t.id, baseToken: BASE_TOKEN, dataRange: { type: 'ALL' }, series: 'COUNTA' })),
+          customConfig: { page: document.title, version: 1 },
+        });
+        $('saveMsg').textContent = ok === false ? '保存失败，请重试' : '已保存 ✔';
+      } catch (e) { $('saveMsg').textContent = '保存失败：' + (e && e.message ? e.message : e); }
+      finally { $('saveBtn').disabled = false; }
+    };
+  } else if (dash && dash.setRendered) {
+    dash.setRendered().catch(() => {});
+  }
+}
+
+// ===== ⑩ 诊断 =====
+async function diagnose() {
+  const res = [];
+  const t = async (name, fn) => {
+    try {
+      const v = await Promise.race([fn(), new Promise((_, rej) => setTimeout(() => rej(new Error('超时 8s')), 8000))]);
+      let shown; try { shown = typeof v === 'string' ? v : JSON.stringify(v); } catch (x) { shown = String(v); }
+      res.push(['✔', name, String(shown).slice(0, 200)]); return v;
+    } catch (e) { res.push(['✘', name, e && e.message ? e.message : String(e)]); return undefined; }
+  };
+  await t('dashboard.state', async () => SDK.dashboard.state);
+  await t('dashboard.getConfig', () => SDK.dashboard.getConfig());
+  for (const [k, cfg] of Object.entries(TABLES)) {
+    const tb = await t(`打开表 ${cfg.name}`, () => SDK.bitable.base.getTableById(cfg.id));
+    if (tb) await t(`读 ${cfg.name} 2 行`, () => tb.getRecordsByPage({ pageSize: 2 }).then((r) => `${r.records.length} 行`));
+  }
+  return `<div class="card"><h3>接口诊断 <small>请把这块整体截图发回</small></h3><table class="tbl"><tbody>${res.map((r) =>
+    `<tr><td style="width:24px">${r[0]}</td><td>${esc(r[1])}</td><td style="white-space:normal;color:var(--sub)">${esc(r[2])}</td></tr>`).join('')}</tbody></table></div>`;
+}
+
+// ===== ⑪ 布局检查（硬规矩 5）=====
+function layoutCheck() { $('tallTip').style.display = innerHeight > (screen.availHeight || screen.height || 1080) + 40 ? '' : 'none'; }
+window.addEventListener('resize', layoutCheck);
+layoutCheck();
+$('main').addEventListener('scroll', () => $('sticky').classList.toggle('stuck', $('main').scrollTop > 0), { passive: true });
+
+async function loadSdk() {
+  const errs = [];
+  for (const u of SDK_URLS) {
+    try { return await Promise.race([import(u), new Promise((_, rej) => setTimeout(() => rej(new Error('超时 12s')), 12000))]); }
+    catch (e) { errs.push(`${u} → ${e && e.message ? e.message : e}`); }
+  }
+  throw new Error('飞书 SDK 三个来源都没加载上（也就没有「保存到页面」按钮），请截图：' + errs.join(' ｜ '));
+}
+
+// ===== 启动 =====
+try {
+  if (window.__SNAP__) {   // 本地预览：数据来自 build_preview.py 灌进来的快照，写操作只改内存
+    SNAP = window.__SNAP__;
+    DATA = SNAP.data;
+    for (const [k, l] of Object.entries(SNAP.fmeta || {})) FMETA[k] = l;
+  } else {
+    SDK = await loadSdk();
+    setupSave();
+    await whoAmI();
+    const keys = Object.keys(TABLES);
+    const res = await Promise.all(keys.map((k) => readTable(k).catch((e) => { if (TABLES[k].optional) { console.warn(k, e); return []; } throw e; })));
+    keys.forEach((k, i) => { DATA[k] = res[i]; });
+  }
+  build();
+  render();
+} catch (e) {
+  const msg = esc(e && e.message ? e.message : e);
+  $('who').textContent = '';
+  $('main').innerHTML = `<div class="card err">加载失败：${msg}</div>`;
+  if (SDK) { try { $('main').innerHTML = `<div class="card err">加载失败：${msg}</div>` + await diagnose(); } catch (e2) { /* 保留报错 */ } }
+}
+</script>
+</body>
+</html>
