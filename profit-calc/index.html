@@ -442,6 +442,7 @@ function applyAuto() {
 const S = {
   rows: [], pl: {}, mode: 'blank',          // mode: preview | plugin | blank
   sku: null, ctry: 'US', season: autoSeason(), cat: 'na', metric: 'margin', manual: {}, auditF: 'diff', auditC: '', sel: new Set(),
+  hist: null, touched: new Set(),            // 当前 SKU 的已存历史输入 / 本次在这个 SKU 上动过的格子
   val: {}, orig: {}, rec: null,              // 当前输入值 / 带入时的原值 / 当前主表行
 };
 function autoSeason() {        // 旺季 10-15 ~ 次年 01-14（含首尾），按北京时间的日期（插件硬规矩④）
@@ -635,6 +636,7 @@ function buildInputs() {
     const k = e.target.dataset?.k; if (!k) return;
     S.val[k] = e.target.value;
     if (AUTO[k]) S.manual[k] = e.target.value !== '';
+    S.touched.add(k);
     markChanged(k); recalc();
   });
 }
@@ -653,6 +655,12 @@ function markChanged(k) {
     o.textContent = S.manual[k] ? `手填（清空恢复：${note}）` : note;
     return;
   }
+  if (!S.rec && BLANK_DEF[k] != null) {   // 自定义输入：显示默认值说明
+    const def = num(S.val[k]) === num(BLANK_DEF[k]);
+    inp.classList.toggle('chg', !def); o.classList.toggle('src', def);
+    o.textContent = def ? `默认 ${BLANK_DEF[k]}${FIELDS[k][1].startsWith('%') ? '%' : ''}` : `手填（默认 ${BLANK_DEF[k]}）`;
+    return;
+  }
   const has = S.rec && Object.prototype.hasOwnProperty.call(S.orig, k);
   const ch = has && num(S.val[k]) !== num(S.orig[k]);
   inp.classList.toggle('chg', !!ch);
@@ -663,6 +671,7 @@ function markChanged(k) {
 function recalc() {
   const isCA = S.ctry === 'CA', $s = sym();
   applyAuto();
+  if (S.rec) { saveHist(); renderHistInfo(); }
   // ---------- ① 配送费 ----------
   const cm = [V('L'), V('W'), V('H')], kg = V('kg');
   const p0 = profit({ ...curInputs(S.season) });
@@ -1004,13 +1013,47 @@ function pick(sku) {
   if (!rowFor(sku, S.ctry)) S.ctry = rowFor(sku, 'US') ? 'US' : 'CA';
   loadRow(rowFor(sku, S.ctry));
 }
+// 自定义输入（没选 SKU）时的默认值（用户 11-16 定）
+const BLANK_DEF = { comm: '15', rate: '6.7', ret: '3', disc: '0' };
+// 选了已有产品：手填过的值自动存本浏览器（按主表记录 ID），下次选同一 SKU×国家自动还原
+const HIST_KEY = (r) => 'pc-hist-' + r._id;
+function readHist(r) { try { const h = JSON.parse(localStorage.getItem(HIST_KEY(r)) || 'null'); return h && h.v ? h : null; } catch (_) { return null; } }
+function saveHist() {
+  const r = S.rec; if (!r) return;
+  const v = {}, m = {};
+  for (const k of Object.keys(FIELDS)) {
+    const cur = S.val[k] ?? '';
+    // 推演/反推参数（有默认值的）换 SKU 时会沿用，只记在这个 SKU 上真改过的，免得串到别的 SKU
+    if (AUTO[k]) { if (S.manual[k] && (S.touched.has(k) || (S.hist && S.hist.m && S.hist.m[k]))) { v[k] = cur; m[k] = 1; } continue; }
+    if (num(cur) !== num(S.orig[k] ?? '')) v[k] = cur;
+  }
+  try {
+    if (!Object.keys(v).length) { localStorage.removeItem(HIST_KEY(r)); S.hist = null; return; }
+    const old = readHist(r), same = old && JSON.stringify(old.v) === JSON.stringify(v);
+    const h = { v, m, t: same ? old.t : Date.now() };
+    if (!same) localStorage.setItem(HIST_KEY(r), JSON.stringify(h));
+    S.hist = h;
+  } catch (_) {}
+}
 function loadRow(r) {
   S.rec = r;
   const keep = {};   // 广告推演 / 定价反推 / 外箱 以外的字段跟着行换；推演参数保留
   for (const k of ['budget', 'cpc', 'cvrAd', 'nat', 'cvrNat', 'tgtPrice', 'tgtDisc', 'tgtM']) keep[k] = S.val[k];
-  if (r) { S.orig = valsFromRow(r); S.val = { ...S.orig, ...keep }; $('#optBat').checked = (r['带电情况'] || []).includes('带电'); }
-  else { S.orig = {}; S.val = { ...keep }; }
+  S.hist = null; S.touched = new Set();
+  if (r) {
+    S.orig = valsFromRow(r); S.val = { ...S.orig, ...keep }; $('#optBat').checked = (r['带电情况'] || []).includes('带电');
+    const h = readHist(r);
+    if (h) { Object.assign(S.val, h.v); for (const k of Object.keys(h.m || {})) S.manual[k] = true; S.hist = h; }
+  } else {
+    S.orig = {}; S.val = { ...keep };
+    for (const [k, v] of Object.entries(BLANK_DEF)) if (S.val[k] == null || S.val[k] === '') S.val[k] = v;
+  }
   renderTop(); fillInputs(); recalc();
+}
+function resetHist() {
+  const r = S.rec; if (!r) return;
+  try { localStorage.removeItem(HIST_KEY(r)); } catch (_) {}
+  S.val = {}; S.manual = {}; loadRow(r); toast('已清掉这个 SKU 的历史输入，恢复成表里的值');
 }
 function renderTop() {
   for (const b of $$('#segCtry button')) {
@@ -1027,12 +1070,20 @@ function renderTop() {
   const tu = $('[data-u="tgtM"]'), tl = $('.f[data-k="tgtM"] label span');
   if (tu) { tu.textContent = '%'; tl.textContent = S.metric === 'roi' ? '目标投产比' : '目标毛利率'; }
   const r = S.rec;
-  $('#curInfo').innerHTML = r ? `当前：<b class="mono">${esc(r._sku)}</b>（产品信息见下方大卡）`   // 详细信息在 #prod 大卡里，这里只留一行
-    : `<span>${S.rows.length ? '未选 SKU：所有格子空白，可以随便填来算' : ''}</span>`;
+  renderHistInfo();
   $('#pickIn').disabled = !S.rows.length;
   $('#pickIn').placeholder = S.rows.length ? `选 SKU（${new Set(S.rows.map((x) => x._sku)).size} 个）：搜 领星SKU / ASIN / 品名 / SPU` : '离线版：没有连飞书，直接在下面手填';
   const auto = autoSeason();
   $('#heroMeta').textContent = `北京时间 ${new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10)} · 自动判断为${auto === 'pk' ? '旺季' : '淡季'}${S.season !== auto ? '（已手动切换）' : ''}${S.loadInfo ? ` · 主表 ${S.loadInfo.pm} 行 / 利润表 ${S.loadInfo.pl} 行` : ''}`;
+}
+
+function renderHistInfo() {
+  const r = S.rec, h = S.hist;
+  const when = h ? new Date(h.t + 8 * 3600e3).toISOString().slice(5, 16).replace('T', ' ') : '';
+  $('#curInfo').innerHTML = r ? `当前：<b class="mono">${esc(r._sku)}</b>（产品信息见下方大卡）`   // 详细信息在 #prod 大卡里，这里只留一行
+      + (h ? ` · <span class="tag or">已自动保存手填 ${Object.keys(h.v).length} 项（${when}）</span> <button class="btn" id="bHistReset" style="padding:2px 8px">恢复表里的值</button>`
+           : ' · <span class="meta">手填的值会自动保存，下次选它自动带出</span>')
+    : `<span>${S.rows.length ? '自定义输入：佣金 15%、汇率 6.7、退货率 3%、折扣 0 已预填，其余随便填来算' : ''}</span>`;
 }
 
 function toast(t) { const el = $('#toast'); el.textContent = t; el.classList.add('open'); clearTimeout(toast.h); toast.h = setTimeout(() => el.classList.remove('open'), 3200); }
@@ -1060,6 +1111,7 @@ function bind() {
     });
   }
   $('#btnClear').onclick = () => { S.sku = null; S.val = {}; S.manual = {}; loadRow(null); };
+  $('#curInfo').onclick = (e) => { if (e.target.id === 'bHistReset') resetHist(); };
   const pin = $('#pickIn');
   pin.onfocus = openDD; pin.oninput = openDD;
   pin.onkeydown = (e) => {
