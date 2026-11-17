@@ -442,7 +442,7 @@ function applyAuto() {
 const S = {
   rows: [], pl: {}, mode: 'blank',          // mode: preview | plugin | blank
   sku: null, ctry: 'US', season: autoSeason(), cat: 'na', metric: 'margin', manual: {}, auditF: 'diff', auditC: '', sel: new Set(),
-  hist: null, touched: new Set(),            // 当前 SKU 的已存历史输入 / 本次在这个 SKU 上动过的格子
+  hist: null, touched: new Set(), arch: {},            // 当前 SKU 的已存历史输入 / 本次在这个 SKU 上动过的格子
   val: {}, orig: {}, rec: null,              // 当前输入值 / 带入时的原值 / 当前主表行
 };
 function autoSeason() {        // 旺季 10-15 ~ 次年 01-14（含首尾），按北京时间的日期（插件硬规矩④）
@@ -981,7 +981,7 @@ function backfill(kind, fee) {
     catch (e) { toast('写入失败：' + (e.message || e)); }
   };
 }
-const API = { write: async () => { throw new Error('插件 SDK 未接入'); }, img: null };   // 插件模式启动时替换
+const API = { write: async () => { throw new Error('插件 SDK 未接入'); }, img: null, saveHist: null };   // 插件模式启动时替换
 
 // ====================================================================
 // SKU 选择器
@@ -1015,9 +1015,26 @@ function pick(sku) {
 }
 // 自定义输入（没选 SKU）时的默认值（用户 11-16 定）
 const BLANK_DEF = { comm: '15', rate: '6.7', ret: '3', disc: '0' };
-// 选了已有产品：手填过的值自动存本浏览器（按主表记录 ID），下次选同一 SKU×国家自动还原
+// 选了已有产品：手填过的值自动存进「利润测算-输入存档」表（SKU|国家 一行，全组共用），下次谁选同一 SKU×国家都自动还原
+// 表读不到时（预览版/离线/没授权）退回只存本浏览器
+const ARCH_KEY = (r) => r._sku + '|' + r._c;
 const HIST_KEY = (r) => 'pc-hist-' + r._id;
-function readHist(r) { try { const h = JSON.parse(localStorage.getItem(HIST_KEY(r)) || 'null'); return h && h.v ? h : null; } catch (_) { return null; } }
+const parseH = (s) => { try { const h = typeof s === 'string' ? JSON.parse(s || 'null') : s; return h && h.v && Object.keys(h.v).length ? h : null; } catch (_) { return null; } };
+function readHist(r) {
+  const a = S.arch[ARCH_KEY(r)];
+  if (a) return a.h;                                   // 表里有这一行就以表为准（别人清空过也算）
+  try { return parseH(localStorage.getItem(HIST_KEY(r))); } catch (_) { return null; }
+}
+const HIST_T = {}, HIST_Q = {};   // 防抖计时 / 同一行的写入排队（新增还没返回 ID 时不重复建行）
+function storeHist(r, h) {
+  try { h ? localStorage.setItem(HIST_KEY(r), JSON.stringify(h)) : localStorage.removeItem(HIST_KEY(r)); } catch (_) {}
+  const key = ARCH_KEY(r), a = S.arch[key];
+  if (!API.saveHist) return;
+  if (!h && !a) return;                                // 表里本来没有，也不用写空行
+  if (a) a.h = h; else S.arch[key] = { _id: null, h };
+  clearTimeout(HIST_T[key]);
+  HIST_T[key] = setTimeout(() => (HIST_Q[key] = (HIST_Q[key] || Promise.resolve()).catch(() => {}).then(() => API.saveHist(r, h))).catch((e) => toast('输入存档写入失败（只存在本机）：' + (e.message || e))), 800);
+}
 function saveHist() {
   const r = S.rec; if (!r) return;
   const v = {}, m = {};
@@ -1027,13 +1044,12 @@ function saveHist() {
     if (AUTO[k]) { if (S.manual[k] && (S.touched.has(k) || (S.hist && S.hist.m && S.hist.m[k]))) { v[k] = cur; m[k] = 1; } continue; }
     if (num(cur) !== num(S.orig[k] ?? '')) v[k] = cur;
   }
-  try {
-    if (!Object.keys(v).length) { localStorage.removeItem(HIST_KEY(r)); S.hist = null; return; }
-    const old = readHist(r), same = old && JSON.stringify(old.v) === JSON.stringify(v);
-    const h = { v, m, t: same ? old.t : Date.now() };
-    if (!same) localStorage.setItem(HIST_KEY(r), JSON.stringify(h));
-    S.hist = h;
-  } catch (_) {}
+  const old = readHist(r);
+  if (!Object.keys(v).length) { if (old) storeHist(r, null); S.hist = null; return; }
+  const same = old && JSON.stringify(old.v) === JSON.stringify(v) && JSON.stringify(old.m || {}) === JSON.stringify(m);
+  const h = same ? old : { v, m, t: Date.now() };
+  if (!same) storeHist(r, h);
+  S.hist = h;
 }
 function loadRow(r) {
   S.rec = r;
@@ -1052,8 +1068,8 @@ function loadRow(r) {
 }
 function resetHist() {
   const r = S.rec; if (!r) return;
-  try { localStorage.removeItem(HIST_KEY(r)); } catch (_) {}
-  S.val = {}; S.manual = {}; loadRow(r); toast('已清掉这个 SKU 的历史输入，恢复成表里的值');
+  storeHist(r, null);
+  S.val = {}; S.manual = {}; loadRow(r); toast('已清掉这个 SKU 的历史输入（全组），恢复成表里的值');
 }
 function renderTop() {
   for (const b of $$('#segCtry button')) {
@@ -1081,8 +1097,8 @@ function renderHistInfo() {
   const r = S.rec, h = S.hist;
   const when = h ? new Date(h.t + 8 * 3600e3).toISOString().slice(5, 16).replace('T', ' ') : '';
   $('#curInfo').innerHTML = r ? `当前：<b class="mono">${esc(r._sku)}</b>（产品信息见下方大卡）`   // 详细信息在 #prod 大卡里，这里只留一行
-      + (h ? ` · <span class="tag or">已自动保存手填 ${Object.keys(h.v).length} 项（${when}）</span> <button class="btn" id="bHistReset" style="padding:2px 8px">恢复表里的值</button>`
-           : ' · <span class="meta">手填的值会自动保存，下次选它自动带出</span>')
+      + (h ? ` · <span class="tag or">已自动保存手填 ${Object.keys(h.v).length} 项（${when}，${API.saveHist ? '全组共享' : '仅本机'}）</span> <button class="btn" id="bHistReset" style="padding:2px 8px">恢复表里的值</button>`
+           : ` · <span class="meta">手填的值会自动保存${API.saveHist ? '（全组共享）' : '（仅本机）'}，下次选它自动带出</span>`)
     : `<span>${S.rows.length ? '自定义输入：佣金 15%、汇率 6.7、退货率 3%、折扣 0 已预填，其余随便填来算' : ''}</span>`;
 }
 
@@ -1147,7 +1163,9 @@ const BASE_TOKEN = 'JGvebyaAYapWtOslxc9cuKYXnwd';   // 灯具组-全流程
 const TABLES = {
   pl: { id: 'tblliOUMJk5nnJXv', name: '产品定价利润表' },
   pm: { id: 'tblqksywqgYvywOT', name: '产品主表-灯类+精铺' },
+  arch: { id: 'tblnDvf5McRzL4jk', name: '利润测算-输入存档' },   // 11-16 加：全组共享手填输入；授权组件在「数据授权5（勿删）」pgekRpui8h5ZPvxD
 };
+const ARCH_FIELDS = ['存档键', '方案JSON'];
 const PM_FIELDS = ['领星SKU', 'ASIN', 'MSKU', '品名', 'SPU', '店铺', '国家', '国家文本', '带电情况', '图片',
   '长CM', '宽CM', '高CM', '重量kg', '外箱长CM', '外箱宽CM', '外箱高CM', '单箱毛重kg', '单箱数量',
   '采购成本不含税', '头程费用', 'FBA配送费', 'FBA配送费（旺季）', '佣金比例', '汇率'];
@@ -1228,6 +1246,19 @@ async function writePm(rid, fields) {
   for (const [f, v] of Object.entries(fields)) out[m[f].id] = v == null ? null : Number(v);
   await t.setRecord(rid, { fields: out });
 }
+// 存档表一行 = SKU|国家；h 为空 = 清空（行留着，别人再选也不会从本机缓存复活）
+async function writeArch(r, h) {
+  const t = TB.arch, m = META.arch, seg = (x) => [{ type: 'text', text: x }], key = ARCH_KEY(r), a = S.arch[key];
+  const now = new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 16).replace('T', ' ');
+  const f = { [m['方案JSON'].id]: h ? seg(JSON.stringify(h)) : null };
+  if (m['最后修改']) f[m['最后修改'].id] = seg(now);
+  if (a && a._id) { await t.setRecord(a._id, { fields: f }); return; }
+  f[m['存档键'].id] = seg(key);
+  if (m['领星SKU']) f[m['领星SKU'].id] = seg(r._sku);
+  if (m['国家']) f[m['国家'].id] = seg(r._c === 'CA' ? '加拿大' : '美国');
+  const id = await t.addRecord({ fields: f });
+  if (S.arch[key]) S.arch[key]._id = id;
+}
 async function fetchImg(r) {
   const att = r['图片'] || [];
   if (!att.length || !TB.pm || !META.pm['图片']) return null;
@@ -1244,7 +1275,7 @@ function setupSave() {
       $('#saveBtn').disabled = true; $('#saveMsg').textContent = '保存中…';
       try {
         const ok = await dash.saveConfig({
-          dataConditions: Object.values(TABLES).map((t) => ({ tableId: t.id, baseToken: BASE_TOKEN, dataRange: { type: 'ALL' }, series: 'COUNTA' })),
+          dataConditions: [TABLES.pl, TABLES.pm].map((t) => ({ tableId: t.id, baseToken: BASE_TOKEN, dataRange: { type: 'ALL' }, series: 'COUNTA' })),
           customConfig: { page: 'profit-calc', version: 1 },
         });
         $('#saveMsg').textContent = ok === false ? '保存失败，请重试' : '已保存 ✔';
@@ -1292,12 +1323,18 @@ async function boot() {
       try { pl = await readTable('pl', PL_FIELDS); }
       catch (e) { pl.err = e && e.message ? e.message : String(e); }   // 利润表读不到不影响主表功能，降级提示
       ingest(pm.rows, pl.rows);
+      try {
+        const ar = await readTable('arch', ARCH_FIELDS);
+        for (const a of ar.rows) if (a['存档键']) S.arch[a['存档键']] = { _id: a._id, h: parseH(a['方案JSON']) };
+        if (!ar.missing.length) API.saveHist = writeArch;
+      } catch (e) { pl.archErr = e && e.message ? e.message : String(e); }
       S.mode = 'plugin';
       API.write = writePm;
       API.img = fetchImg;
       const warn = [];
       if (pm.missing.length) warn.push(`产品主表缺字段：${pm.missing.join('、')}`);
       if (pl.missing.length) warn.push(`产品定价利润表缺字段：${pl.missing.join('、')}`);
+      if (pl.archErr || !API.saveHist) warn.push(`利润测算-输入存档读不到，手填输入只存本浏览器${pl.archErr ? '：' + pl.archErr : ''}`);
       if (pl.err) warn.push(`产品定价利润表读取失败（原价/折扣/广告占比需手填）：${pl.err}`);
       S.loadInfo = { pm: pm.rows.length, pl: pl.rows.length, warn };
     }
